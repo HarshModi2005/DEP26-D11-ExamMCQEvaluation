@@ -16,3 +16,4 @@ openpyxl
 pandas
 PyPDF2
 python-docx
+passlib[bcrypt]

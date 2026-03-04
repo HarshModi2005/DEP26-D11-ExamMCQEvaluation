@@ -1,13 +1,32 @@
 "use client"
 import { useState } from 'react';
 import api from '@/lib/api';
-import { Search, CheckCircle, XCircle } from 'lucide-react';
+import { Search, CheckCircle, XCircle, LogOut } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+
 
 export default function StudentDashboard() {
     const [rollNumber, setRollNumber] = useState('');
     const [results, setResults] = useState<any[]>([]);
     const [searched, setSearched] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+    const router = useRouter();
+
+
+    const handleLogout = async () => {
+        try {
+            await api.post('/auth/logout');
+        } catch (error) {
+            console.error("Logout failed:", error);
+        } finally {
+            // Always clear localStorage and redirect
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            router.push('/login');
+        }
+    };
+
 
     const handleSearch = async () => {
         if (!rollNumber) return;
@@ -30,10 +49,51 @@ export default function StudentDashboard() {
     return (
         <div className="min-h-screen bg-gray-50 p-8 text-gray-800">
             <div className="max-w-3xl mx-auto">
-                <header className="mb-10 text-center">
-                    <h1 className="text-3xl font-bold text-gray-900">Student Portal</h1>
-                    <p className="text-gray-500">View your assessment results</p>
+                <header className="mb-10 flex justify-between items-start">
+                    <div className="flex-1 text-center">
+                        <h1 className="text-3xl font-bold text-gray-900">Student Portal</h1>
+                        <p className="text-gray-500">View your assessment results</p>
+                    </div>
+                    <button
+                        onClick={() => setIsLogoutModalOpen(true)}
+                        className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-xl hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all shadow-sm font-medium text-sm group"
+                    >
+                        <LogOut className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        Logout
+                    </button>
                 </header>
+
+                {/* Logout Confirmation Modal */}
+                {isLogoutModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-300">
+                            <div className="p-8 text-center">
+                                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                                    <LogOut className="w-8 h-8 text-red-500" />
+                                </div>
+                                <h3 className="text-2xl font-bold text-gray-900 mb-2">Confirm Logout</h3>
+                                <p className="text-gray-500 mb-8">
+                                    Are you sure you want to log out of your student account?
+                                </p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button
+                                        onClick={() => setIsLogoutModalOpen(false)}
+                                        className="py-3 px-6 rounded-xl border border-gray-200 text-gray-600 font-bold hover:bg-gray-50 transition-all active:scale-95"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="py-3 px-6 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition-all active:scale-95"
+                                    >
+                                        Logout
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
 
                 <div className="bg-white p-8 rounded-2xl shadow-sm mb-8">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Student Roll Number</label>

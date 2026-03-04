@@ -9,6 +9,7 @@ from models import (
     Student, Submission, EvaluationResult,
     AnswerKey, StudentResult, PipelineSummary, SheetUpdateSummary,
     ProcessFolderRequest, ExportToSheetsRequest, FullPipelineRequest,
+    User, UserRole, LoginRequest, RegisterRequest,
 )
 from services.drive_service import DriveService
 from services.ocr_service import OCRService
@@ -21,7 +22,10 @@ import os
 import json
 import tempfile
 import shutil
-from typing import Optional, List, Dict
+from typing import Optional
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 router = APIRouter()
 db = Database()
@@ -38,43 +42,9 @@ sheets_service = SheetsService()
 # The currently loaded answer key (set via drive extraction or manual upload)
 _current_answer_key: Optional[AnswerKey] = None
 # Scored results from the latest pipeline run
-_current_results: List[Dict] = []
-RESULTS_FILE = "current_results.json"
-
-def save_results_to_disk():
-    """Save current results to disk for persistence."""
-    try:
-        # Convert StudentResult objects to dictionaries for JSON serialization
-        serializable_results = [r.model_dump() if isinstance(r, StudentResult) else r for r in _current_results]
-        with open(RESULTS_FILE, 'w') as f:
-            json.dump(serializable_results, f)
-        print(f"💾 Saved {len(_current_results)} results to {RESULTS_FILE}")
-    except Exception as e:
-        print(f"⚠️ Failed to save results: {e}")
-
-def load_results_from_disk():
-    """Load results from disk if they exist."""
-    global _current_results
-    if os.path.exists(RESULTS_FILE):
-        try:
-            with open(RESULTS_FILE, 'r') as f:
-                loaded_data = json.load(f)
-                # Convert dictionaries back to StudentResult objects if necessary
-                _current_results = [StudentResult(**item) if isinstance(item, dict) else item for item in loaded_data]
-            print(f"✅ Loaded {len(_current_results)} results from {RESULTS_FILE}")
-        except Exception as e:
-            print(f"⚠️ Failed to load results: {e}")
-
-
-# Try to load answer key from disk on startup
-if _current_answer_key is None:
-    _current_answer_key = answer_key_service.load_from_disk()
-    if _current_answer_key:
-        print(f"✅ Loaded persisted answer key with {_current_answer_key.total_questions} questions.")
-
-# Try to load results from disk on startup
-if not _current_results:
-    load_results_from_disk()
+_current_results: list[StudentResult] = []
+# Simple in-memory session for mock auth
+_current_user: Optional[User] = None
 
 
 # ═══════════════════════════════════════
@@ -83,21 +53,97 @@ if not _current_results:
 
 @router.get("/status")
 def get_status():
-    global _current_answer_key, _current_results
-    # Try reloading if missing (e.g. if server restarted)
-    if _current_answer_key is None:
-        _current_answer_key = answer_key_service.load_from_disk()
-    
-    # Reload results if empty
-    if not _current_results:
-        load_results_from_disk()
-
     return {
         "status": "Service operational",
         "answer_key_loaded": _current_answer_key is not None,
         "answer_key_questions": _current_answer_key.total_questions if _current_answer_key else 0,
         "results_count": len(_current_results),
+        "user_logged_in": _current_user is not None,
     }
+
+
+# ═══════════════════════════════════════
+#  AUTHENTICATION
+# ═══════════════════════════════════════
+
+@router.post("/auth/register")
+def register(request: RegisterRequest):
+    """Register a new user."""
+    print(f"DEBUG: Registering user: {request.email} with role: {request.role}")
+    try:
+        if request.role == UserRole.STUDENT and not request.roll_number:
+            print(f"DEBUG: Roll number required for student: {request.email}")
+            raise HTTPException(status_code=400, detail="Roll number is required for students")
+
+        existing = db.get_user_by_email(request.email)
+        if existing:
+            print(f"DEBUG: User already exists: {request.email}")
+            raise HTTPException(status_code=400, detail="User already exists")
+        
+        user = User(
+            id=str(uuid.uuid4()),
+            email=request.email,
+            password=pwd_context.hash(request.password),
+            role=request.role,
+            roll_number=request.roll_number
+        )
+        db.create_user(user)
+        print(f"DEBUG: User created successfully: {request.email}")
+        return {"message": "User registered successfully"}
+    except Exception as e:
+        print(f"DEBUG: Error during registration: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+@router.post("/auth/login")
+def login(request: LoginRequest):
+    """Login a user and set the session."""
+    global _current_user
+    print(f"DEBUG: Login attempt for email: {request.email}")
+    user_data = db.get_user_by_email(request.email)
+    
+    if not user_data:
+        print(f"DEBUG: User not found: {request.email}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Debug print for password comparison (Safe version)
+    print(f"DEBUG: verifying password for {request.email}")
+    
+    if not pwd_context.verify(request.password, user_data["password"]):
+        print(f"DEBUG: Password mismatch for user: {request.email}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    _current_user = User(**user_data)
+    print(f"DEBUG: Login successful for {request.email}")
+
+    return {
+        "message": "Login successful",
+        "user": {
+            "email": _current_user.email,
+            "role": _current_user.role
+        }
+    }
+
+
+@router.get("/auth/me")
+def get_me():
+    """Verify session and return current user."""
+    if not _current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {
+        "email": _current_user.email,
+        "role": _current_user.role
+    }
+
+
+@router.post("/auth/logout")
+def logout():
+    """Clear the session."""
+    global _current_user
+    _current_user = None
+    return {"message": "Logged out successfully"}
 
 
 # ═══════════════════════════════════════
@@ -109,27 +155,9 @@ def sync_drive(folder_id: str):
     """
     Lists all files in a Google Drive folder (legacy endpoint — images only).
     """
-    args = {"folder_id": folder_id} # generic kwargs not supported by extract_folder_id directly if detected differently
     folder_id = DriveService.extract_folder_id(folder_id)
-    files = drive_service.list_all_files_in_folder(folder_id)
-    
-    # Auto-detect and load answer key
-    global _current_answer_key
-    answer_key_files, student_sheets = drive_service.separate_files(files)
-    
-    if answer_key_files:
-        print(f"🔄 Auto-loading answer key from: {answer_key_files[0]['name']}")
-        try:
-            temp_dir = tempfile.mkdtemp(prefix="ak_sync_")
-            local_path = drive_service.download_answer_key(answer_key_files[0], temp_dir)
-            mime_type = answer_key_files[0].get("mimeType", "")
-            _current_answer_key = answer_key_service.extract_answer_key(local_path, mime_type)
-            print(f"✅ Answer Key Loaded! Support for {_current_answer_key.total_questions} questions.")
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        except Exception as e:
-            print(f"⚠️ Failed to auto-load answer key: {e}")
-
-    return {"files_found": len(student_sheets), "files": student_sheets}
+    files = drive_service.list_files_in_folder(folder_id)
+    return {"files_found": len(files), "files": files}
 
 
 @router.post("/scan-drive-folder")
@@ -162,10 +190,6 @@ def scan_drive_folder(request: ProcessFolderRequest):
 @router.get("/answer-key")
 def get_current_answer_key():
     """Returns the currently loaded answer key."""
-    global _current_answer_key
-    if _current_answer_key is None:
-        _current_answer_key = answer_key_service.load_from_disk()
-        
     if _current_answer_key is None:
         raise HTTPException(status_code=404, detail="No answer key is currently loaded.")
     return _current_answer_key.model_dump()
@@ -283,9 +307,6 @@ def set_answer_key_manual(answers: dict):
         negative_marking=negative,
         metadata={"source": "manual_input"}
     )
-    
-    # Save manually set key too
-    answer_key_service.save_to_disk(_current_answer_key)
 
     return {
         "message": "Answer key set manually",
@@ -319,10 +340,7 @@ def process_drive_folder(request: ProcessFolderRequest):
 
     answer_key_files, student_sheets = drive_service.separate_files(all_files)
 
-    # Step 1: Extract answer key if not already loaded - Try loading from disk first
-    if _current_answer_key is None:
-        _current_answer_key = answer_key_service.load_from_disk()
-    
+    # Step 1: Extract answer key if not already loaded
     if _current_answer_key is None:
         if not answer_key_files:
             raise HTTPException(
@@ -351,7 +369,7 @@ def process_drive_folder(request: ProcessFolderRequest):
         )
 
     # Step 2: Process each student sheet
-    results = [] # Use a local list to accumulate results
+    _current_results = []
     errors = []
     temp_dir = tempfile.mkdtemp(prefix="sheets_")
 
@@ -380,49 +398,17 @@ def process_drive_folder(request: ProcessFolderRequest):
                 student_result = EvaluationService.match_and_score(
                     _current_answer_key, extracted
                 )
-                results.append(student_result) # Add to local list
+                _current_results.append(student_result)
 
-                print(f"  ✅ Evaluated {student_result.entry_number} — Score: {student_result.total_score}/{student_result.max_score}")
-                
-                # SAVE DEBUG JSON per student
-                debug_dir = "debug_evals"
-                os.makedirs(debug_dir, exist_ok=True)
-                debug_file = os.path.join(debug_dir, f"{student_result.entry_number}.json")
-                with open(debug_file, "w") as f:
-                    json.dump(student_result.model_dump(), f, indent=2)
-                print(f"     saved debug JSON to {debug_file}")
+                print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
+                      f"{student_result.total_score}/{student_result.max_score}")
 
                 # Also save to DB
-                # 1. Student
                 db.add_student(Student(
                     id=student_result.entry_number,
                     name=student_result.name,
                     roll_number=student_result.entry_number
                 ))
-                
-                # 2. Submission
-                submission_id = file_id  # simple mapping
-                db.add_submission(
-                    Submission(
-                        id=submission_id,
-                        student_id=student_result.entry_number,
-                        exam_id="default_exam",
-                        file_id=file_id,
-                        status="processed"
-                    ),
-                    extracted_data=extracted
-                )
-                
-                # 3. Result (Score + Details + Comments)
-                details_list = [d.model_dump() for d in student_result.details]
-                db.add_result(
-                    EvaluationResult(
-                        submission_id=submission_id,
-                        score=student_result.total_score,
-                        feedback=student_result.comments
-                    ),
-                    details=details_list
-                )
 
             except Exception as e:
                 errors.append({"file": file_name, "error": str(e)})
@@ -430,10 +416,6 @@ def process_drive_folder(request: ProcessFolderRequest):
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    # Update global state and persist
-    _current_results = results
-    save_results_to_disk()
 
     return PipelineSummary(
         total_students_processed=len(_current_results),
@@ -459,48 +441,43 @@ def export_to_sheets(request: ExportToSheetsRequest):
     Names are cross-verified — mismatches are flagged but marks are still written.
     """
     # Try in-memory results first, fall back to database
-    global _current_results
     results_dicts = []
     
     if _current_results:
-        # Robustly handle both StudentResult objects and dictionaries
-        results_dicts = []
-        for r in _current_results:
-            if hasattr(r, "model_dump"):
-                results_dicts.append(r.model_dump())
-            elif isinstance(r, dict):
-                results_dicts.append(r)
-            else:
-                # Fallback for unexpected types?
-                continue
+        results_dicts = [
+            {
+                "entry_number": r.entry_number,
+                "name": r.name,
+                "total_score": r.total_score,
+                "comments": r.comments,  # Pass comments to sheet
+            }
+            for r in _current_results
+        ]
     else:
         # Pull from database
-        try:
-            db_results = db.get_all_results()
-            if db_results:
-                for row in db_results:
-                    entry = row.get("student_id", "")
-                    score = row.get("score", 0)
-                    
-                    # Parse details
-                    details_raw = row.get("details")
-                    details = []
-                    if details_raw:
-                        try:
-                            details = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
-                        except (json.JSONDecodeError, AttributeError):
-                            details = []
-                    
-                    if entry and entry != "temp_unknown":
-                        results_dicts.append({
-                            "entry_number": entry,
-                            "name": "", # Name usually not in results table join, simplifying
-                            "total_score": score,
-                            "comments": row.get("feedback", ""),
-                            "details": details,
-                        })
-        except Exception as e:
-            print(f"⚠️ DB Fallback failed: {e}")
+        db_results = db.get_all_results()
+        if db_results:
+            for row in db_results:
+                # DB results have student_id (which is roll_no) and score
+                entry = row.get("student_id", "")
+                score = row.get("score", 0)
+                # Try to get name from students table
+                details_raw = row.get("details")
+                name = ""
+                if details_raw:
+                    try:
+                        details = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                        name = details.get("name", "") or ""
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+                
+                if entry and entry != "temp_unknown":
+                    results_dicts.append({
+                        "entry_number": entry,
+                        "name": name,
+                        "total_score": score,
+                        "comments": row.get("feedback", ""), 
+                    })
 
     if not results_dicts:
         raise HTTPException(
@@ -510,12 +487,6 @@ def export_to_sheets(request: ExportToSheetsRequest):
 
     try:
         summary = sheets_service.update_marks(request.sheet_url, results_dicts)
-        
-        # Clear detailed results from memory as requested
-        if _current_results:
-            print("🗑️  Cleared in-memory results after successful export.")
-            _current_results = []
-            
         return summary
 
     except RuntimeError as e:
@@ -599,13 +570,6 @@ def clear_results():
     global _current_answer_key, _current_results
     _current_answer_key = None
     _current_results = []
-    
-    # Also remove persisted files
-    if os.path.exists("current_answer_key.json"):
-        os.remove("current_answer_key.json")
-    if os.path.exists(RESULTS_FILE):
-        os.remove(RESULTS_FILE)
-        
     return {"message": "Session cleared"}
 
 
@@ -641,8 +605,7 @@ def _legacy_process_task(submission_id: str, file_id: str, file_name: str):
             print(f"Failed to download {file_id}")
             return
 
-        # Use specialized objective sheet extraction (robust prompt)
-        extracted_data = ocr_service.extract_objective_sheet(temp_path)
+        extracted_data = ocr_service.extract_data(temp_path)
         if "error" in extracted_data:
             print(f"OCR Error: {extracted_data['error']}")
             return
@@ -662,18 +625,10 @@ def _legacy_process_task(submission_id: str, file_id: str, file_name: str):
 
         # If we have an answer key, use the new scoring
         if _current_answer_key:
-            # Note: extract_objective_sheet already returns normalized structure (answers dict)
-            # Use it directly. ocr_service._normalize_objective_output handles dict input too.
             normalized = ocr_service._normalize_objective_output(extracted_data)
-            
             student_result = EvaluationService.match_and_score(
                 _current_answer_key, normalized
             )
-            
-            # CRITICAL: Append to current session results for Export feature!
-            _current_results.append(student_result.model_dump())
-            save_results_to_disk()
-
             result_record = EvaluationResult(
                 submission_id=submission_id,
                 score=student_result.total_score,
@@ -683,14 +638,19 @@ def _legacy_process_task(submission_id: str, file_id: str, file_name: str):
             )
             db.add_result(result_record, student_result.model_dump())
         else:
-            print(f"⚠️  No answer key loaded for file {file_name}. Skipping scoring.")
+            # Fallback to old hardcoded evaluation
+            ANSWER_KEY_OBJECTIVE = [
+                {"question_number": i, "correct_option": opt, "marks": 1}
+                for i, opt in enumerate(["A", "B", "C", "D", "A"], start=1)
+            ]
+            obj_answers = extracted_data.get("objective_answers") or extracted_data.get("answers", [])
+            obj_result = eval_service.evaluate_objective(obj_answers, ANSWER_KEY_OBJECTIVE)
             result_record = EvaluationResult(
                 submission_id=submission_id,
-                score=0,
-                feedback="No answer key loaded. Score: 0/0",
-                details=json.dumps({"error": "No answer key loaded"})
+                score=obj_result['total_score'],
+                feedback=f"Objective: {obj_result['correct_count']} correct"
             )
-            db.add_result(result_record, {"error": "No answer key loaded"})
+            db.add_result(result_record, obj_result)
 
         if os.path.exists(temp_path):
             os.remove(temp_path)

@@ -3,65 +3,21 @@ import requests
 import base64
 import json
 import re
-from google.oauth2 import service_account
-import google.auth.transport.requests
-import google.auth
 
 class OCRService:
     def __init__(self, api_key: str = None, provider: str = None):
         """
-        Initialize OCR service using Service Account or API Key.
+        Initialize OCR service with Vertex AI Gemini 2.5 Flash Lite.
         """
-        self.project_id = "project-75abf07c-e594-4660-ab7" # Fallback/Default
-        self.location = "us-central1"
-        self.model_id = "gemini-2.5-flash-lite"
-        self.creds = None
-        
-        # Try finding Service Account credentials
-        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if creds_path and os.path.exists(creds_path):
-            try:
-                self.creds = service_account.Credentials.from_service_account_file(
-                    creds_path,
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                )
-                # Try to extract project ID from creds
-                if hasattr(self.creds, "project_id") and self.creds.project_id:
-                     self.project_id = self.creds.project_id
-                print(f"✅ OCR Service initialized with Service Account ({self.project_id})")
-            except Exception as e:
-                print(f"⚠️ Failed to load Service Account: {e}")
-
-        # Fallback to API Key (Legacy)
         self.vertex_api_key = api_key or os.getenv("VERTEX_AI_API_KEY")
         
-        # Construct URL based on auth method
-        if self.creds:
-             self.vertex_url = (
-                f"https://{self.location}-aiplatform.googleapis.com/v1/"
-                f"projects/{self.project_id}/locations/{self.location}/"
-                f"publishers/google/models/{self.model_id}:streamGenerateContent"
-             )
-        elif self.vertex_api_key:
-             self.vertex_url = (
-                f"https://aiplatform.googleapis.com/v1/publishers/google/models/"
-                f"{self.model_id}:streamGenerateContent?key={self.vertex_api_key}"
-             )
-        else:
-            print("⚠️ OCR Service Warning: No valid credentials (API Key or Service Account) found.")
-            # Don't raise error immediately, allow 'extract' to fail or use fallback if implemented
+        if not self.vertex_api_key:
+            print("⚠️ WARNING: VERTEX_AI_API_KEY not found. OCR features will be disabled.")
 
-    def _get_auth_header(self):
-        """Get Authorization header with Bearer token if using Service Account."""
-        if self.creds:
-            try:
-                auth_req = google.auth.transport.requests.Request()
-                self.creds.refresh(auth_req)
-                return {"Authorization": f"Bearer {self.creds.token}", "Content-Type": "application/json"}
-            except Exception as e:
-                print(f"❌ Failed to refresh token: {e}")
-                return {"Content-Type": "application/json"} 
-        return {"Content-Type": "application/json"}
+        
+        self.vertex_url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:streamGenerateContent?key={self.vertex_api_key}"
+        
+        print(f"✅ OCR Service initialized with Vertex AI (Gemini 2.5 Flash Lite)")
 
     def _encode_image(self, image_path: str) -> str:
         """Encode image to base64"""
@@ -69,8 +25,6 @@ class OCRService:
             return base64.b64encode(image_file.read()).decode('utf-8')
 
     def extract_data(self, image_path: str):
-        # ... (rest is same, but updated below calls) ...
-
         """
         Extracts student info using Vertex AI Gemini 2.5 Flash Lite.
         """
@@ -108,7 +62,9 @@ class OCRService:
                 ]
             }
             
-            headers = self._get_auth_header()
+            headers = {
+                "Content-Type": "application/json"
+            }
             
             # Make request
             response = requests.post(self.vertex_url, headers=headers, json=payload, timeout=30)
@@ -238,10 +194,9 @@ class OCRService:
                 ]
             }
 
-            headers = self._get_auth_header()
             response = requests.post(
                 self.vertex_url,
-                headers=headers,
+                headers={"Content-Type": "application/json"},
                 json=payload,
                 timeout=30
             )
@@ -249,9 +204,7 @@ class OCRService:
 
             result = response.json()
             extracted_text = self._parse_streaming_response(result)
-            print(f"DEBUG RAW OCR: {extracted_text}")
             parsed = self._parse_json(extracted_text)
-            print(f"DEBUG PARSED: {parsed}")
 
             if "error" in parsed:
                 return parsed
@@ -265,34 +218,33 @@ class OCRService:
 
     def _get_objective_prompt(self):
         return """
-You are an expert OCR for handwritten answer sheets. Your goal is to extract the student's ID, Name, and their Answers.
+You are analyzing an OBJECTIVE answer sheet (MCQ/OMR style).
 
-IMAGE CONTEXT:
-- The image contains handwritten answers like "1(a)", "2-C", "3. b", or just "1. A".
-- The Entry Number/Roll Number is a code like `2023CSB1122`.
+Extract ONLY the following fields and return as valid JSON (no markdown):
 
-TASK:
-1. **Entry Number**: Find the alphanumeric ID (e.g., 2023CSB1122). Normalize it: uppercase, no spaces.
-2. **Name**: Find the student name.
-3. **Answers**: Look for numbered lists (1, 2, 3...) and the option written next to them. 
-   - The option might be in brackets `(a)`, circled, or just written.
-   - Convert ALL options to single uppercase letters: A, B, C, D.
-   - If you see "1 (a)", extract `{"1": "A"}`.
-   - If you see "2. c", extract `{"2": "C"}`.
-
-OUTPUT FORMAT (JSON ONLY):
 {
-    "entry_number": "2023CSB1122",
-    "name": "Student Name",
+    "entry_number": "the student's entry/roll number",
+    "name": "the student's name",
     "answers": {
         "1": "A",
         "2": "C",
-        "3": "B"
+        "3": "B",
+        ...
     },
-    "comments": "Any issues (e.g. unclear text)"
+    "comments": "Any observations about the sheet: e.g. 'Damage on corner', 'Q5 ambiguous', 'Name unclear', 'Erasures detected'. If clean, return null."
 }
 
-If no answers are found, return "answers": {}.
+Rules:
+- "entry_number": Look for roll number, entry number, enrollment number, registration number, student ID, etc.
+- "name": The student's name as written on the sheet.
+- "answers": A dictionary mapping question number (as string) to the marked option (single uppercase letter A/B/C/D).
+- If a question appears unanswered or blank, DO NOT include it in answers.
+- If multiple options are marked for a question, set the value to "MULTIPLE".
+- Options must be single uppercase letters: A, B, C, or D.
+- Question numbers must be integers represented as strings.
+- If entry_number or name is not found, set to null.
+
+Return ONLY valid JSON, no explanation, no markdown.
 """
 
     def _normalize_objective_output(self, parsed: dict) -> dict:
