@@ -1,94 +1,235 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Sidebar from '../../components/ui/Sidebar';
 import PageHeader from '../../components/ui/PageHeader';
-import CourseCard from './components/CourseCard';
 import Icon from '../../components/AppIcon';
+import { useAuth } from '../../context/AuthContext';
+import { courseService } from '../../services/courseService';
+
+const GRADIENT_COLORS = [
+    'from-blue-500 to-blue-600',
+    'from-emerald-500 to-emerald-600',
+    'from-purple-500 to-purple-600',
+    'from-orange-500 to-orange-600',
+    'from-pink-500 to-pink-600',
+    'from-teal-500 to-teal-600',
+];
+
+const CreateCourseModal = ({ onClose, onCreated, userId }) => {
+    const [form, setForm] = useState({ code: '', title: '', description: '', department: '', semester: '', masterSheetUrl: '' });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleChange = e => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
+
+    const handleSubmit = async e => {
+        e.preventDefault();
+        if (!form.code || !form.title) { setError('Code and title are required.'); return; }
+        setLoading(true);
+        try {
+            const course = await courseService.createCourse({ ...form, instructorId: userId, masterSheetUrl: form.masterSheetUrl || null });
+            onCreated(course);
+            onClose();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-200 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-lg border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <h2 className="text-xl font-semibold text-text-primary">Create New Course</h2>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    {error && (
+                        <div className="p-3 bg-error-50 border border-error-100 rounded-lg text-sm text-error">{error}</div>
+                    )}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-text-primary mb-1">Course Code *</label>
+                            <input type="text" name="code" value={form.code} onChange={handleChange}
+                                className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
+                                placeholder="e.g. CS306" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-text-primary mb-1">Semester</label>
+                            <input type="text" name="semester" value={form.semester} onChange={handleChange}
+                                className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
+                                placeholder="e.g. Spring 2026" />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-text-primary mb-1">Course Title *</label>
+                        <input type="text" name="title" value={form.title} onChange={handleChange}
+                            className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
+                            placeholder="e.g. Data Structures and Algorithms" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-text-primary mb-1">Department</label>
+                        <input type="text" name="department" value={form.department} onChange={handleChange}
+                            className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
+                            placeholder="e.g. Computer Science" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-text-primary mb-1">Description</label>
+                        <textarea name="description" value={form.description} onChange={handleChange} rows={2}
+                            className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors resize-none"
+                            placeholder="Short description of the course" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-text-primary mb-1">
+                            Master Google Sheet URL <span className="text-text-secondary font-normal">(optional, can be set later)</span>
+                        </label>
+                        <input type="url" name="masterSheetUrl" value={form.masterSheetUrl} onChange={handleChange}
+                            className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
+                            placeholder="https://docs.google.com/spreadsheets/d/..." />
+                    </div>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button type="button" onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button type="submit" disabled={loading}
+                            className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2">
+                            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Plus" size={16} />}
+                            {loading ? 'Creating...' : 'Create Course'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 
 const FacultyDashboard = () => {
     const navigate = useNavigate();
+    const { user, profile } = useAuth();
+    const [courses, setCourses] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [search, setSearch] = useState('');
+    const [showCreateModal, setShowCreateModal] = useState(false);
 
-    // Mock Faculty Data
-    const mockCourses = [
-        {
-            id: 'CS101',
-            title: 'Introduction to Computer Science',
-            code: 'CS 101',
-            description: 'Fundamentals of programming and computer systems.',
-            studentCount: 124,
-            pendingTasks: 3,
-            color: 'from-blue-500 to-blue-600 bg-gradient-to-r'
-        },
-        {
-            id: 'CS202',
-            title: 'Data Structures & Algorithms',
-            code: 'CS 202',
-            description: 'Advanced algorithms and data structures.',
-            studentCount: 89,
-            pendingTasks: 1,
-            color: 'from-emerald-500 to-emerald-600 bg-gradient-to-r'
-        },
-        {
-            id: 'CS305',
-            title: 'Software Engineering Principles',
-            code: 'CS 305',
-            description: 'Methodologies for building large-scale software systems.',
-            studentCount: 56,
-            pendingTasks: 5,
-            color: 'from-purple-500 to-purple-600 bg-gradient-to-r'
-        },
-        {
-            id: 'CS450',
-            title: 'Artificial Intelligence',
-            code: 'CS 450',
-            description: 'Introduction to AI and machine learning concepts.',
-            studentCount: 42,
-            pendingTasks: 0,
-            color: 'from-orange-500 to-orange-600 bg-gradient-to-r'
-        },
-    ];
+    useEffect(() => {
+        if (!user || !profile) return;
+        const fetchCourses = async () => {
+            setLoading(true);
+            try {
+                let data;
+                if (profile.role === 'professor') {
+                    data = await courseService.getCoursesByProfessor(user.id);
+                } else {
+                    data = await courseService.getCoursesByTA(user.id);
+                }
+                setCourses(data || []);
+            } catch (err) {
+                setError('Failed to load courses: ' + err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchCourses();
+    }, [user, profile]);
+
+    const filtered = courses.filter(c =>
+        c.title?.toLowerCase().includes(search.toLowerCase()) ||
+        c.code?.toLowerCase().includes(search.toLowerCase())
+    );
 
     return (
         <div className="min-h-screen bg-background">
             <Header />
             <Sidebar />
 
+            {showCreateModal && (
+                <CreateCourseModal
+                    onClose={() => setShowCreateModal(false)}
+                    onCreated={c => setCourses(prev => [c, ...prev])}
+                    userId={user.id}
+                />
+            )}
+
             <main className="lg:ml-64 pt-16 transition-all duration-300">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
                     <PageHeader
                         title="My Courses"
-                        description="Manage your active courses and assessments."
+                        description={`Welcome back, ${profile?.name || ''}. Manage your active courses.`}
                         actions={
-                            <button className="flex items-center px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm">
-                                <Icon name="Plus" size={16} className="mr-2" />
-                                <span>Create New Course</span>
-                            </button>
+                            profile?.role === 'professor' && (
+                                <button
+                                    onClick={() => setShowCreateModal(true)}
+                                    className="flex items-center px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
+                                >
+                                    <Icon name="Plus" size={16} className="mr-2" />
+                                    <span>Create New Course</span>
+                                </button>
+                            )
                         }
                     />
 
-                    {/* Course Filter / Search Bar (Optional) */}
-                    <div className="flex items-center space-x-4 mb-6">
+                    {/* Search */}
+                    <div className="flex items-center space-x-4">
                         <div className="relative flex-1 max-w-md">
                             <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400" size={18} />
                             <input
                                 type="text"
                                 placeholder="Search by course name or code..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
                             />
                         </div>
-                        <select className="px-4 py-2 border border-border rounded-lg bg-surface text-text-secondary focus:ring-2 focus:ring-primary-500 outline-none">
-                            <option>All Semesters</option>
-                            <option>Fall 2023</option>
-                            <option>Spring 2024</option>
-                        </select>
                     </div>
 
-                    {/* Course Grid */}
-                    {mockCourses.length > 0 ? (
+                    {/* States */}
+                    {error && (
+                        <div className="p-4 bg-error-50 border border-error-100 rounded-lg text-error text-sm">{error}</div>
+                    )}
+
+                    {loading ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {mockCourses.map(course => (
-                                <CourseCard key={course.id} course={course} />
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} className="bg-surface border border-border rounded-xl p-6 animate-pulse">
+                                    <div className="h-24 bg-secondary-100 rounded-lg mb-4" />
+                                    <div className="h-4 bg-secondary-100 rounded w-3/4 mb-2" />
+                                    <div className="h-3 bg-secondary-100 rounded w-1/2" />
+                                </div>
+                            ))}
+                        </div>
+                    ) : filtered.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {filtered.map((course, idx) => (
+                                <div
+                                    key={course.id}
+                                    onClick={() => navigate(`/course/${course.id}`)}
+                                    className="bg-surface border border-border rounded-xl overflow-hidden cursor-pointer hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 group"
+                                >
+                                    <div className={`h-24 bg-gradient-to-r ${GRADIENT_COLORS[idx % GRADIENT_COLORS.length]} flex items-center justify-center`}>
+                                        <Icon name="BookOpen" size={36} className="text-white opacity-80" />
+                                    </div>
+                                    <div className="p-5">
+                                        <div className="flex items-start justify-between mb-2">
+                                            <span className="px-2 py-0.5 bg-primary-50 text-primary-700 text-xs font-semibold rounded">{course.code}</span>
+                                            {course.semester && <span className="text-xs text-text-secondary">{course.semester}</span>}
+                                        </div>
+                                        <h3 className="font-semibold text-text-primary text-sm leading-tight mb-1 group-hover:text-primary transition-colors">
+                                            {course.title}
+                                        </h3>
+                                        {course.description && (
+                                            <p className="text-xs text-text-secondary line-clamp-2 mb-3">{course.description}</p>
+                                        )}
+                                        <div className="flex items-center text-xs text-primary font-medium">
+                                            View Course <Icon name="ArrowRight" size={12} className="ml-1" />
+                                        </div>
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     ) : (
@@ -97,7 +238,15 @@ const FacultyDashboard = () => {
                                 <Icon name="BookOpen" size={32} className="text-secondary-400" />
                             </div>
                             <h3 className="text-lg font-medium text-text-primary">No courses found</h3>
-                            <p className="text-secondary-500 mt-1">Get started by creating your first course.</p>
+                            <p className="text-secondary-500 mt-1">
+                                {profile?.role === 'professor' ? 'Get started by creating your first course.' : 'You have not been assigned to any courses yet.'}
+                            </p>
+                            {profile?.role === 'professor' && (
+                                <button onClick={() => setShowCreateModal(true)}
+                                    className="mt-4 px-5 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors">
+                                    + Create Course
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>

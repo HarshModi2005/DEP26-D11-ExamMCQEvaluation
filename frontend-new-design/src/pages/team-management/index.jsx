@@ -20,7 +20,7 @@ const TeamManagement = () => {
     const [selectedRole, setSelectedRole] = useState('All');
 
     // Role filter options
-    const roleOptions = ['All', 'Admin', 'Member', 'Viewer'];
+    const roleOptions = ['All', 'Faculty', 'TA', 'Student'];
 
     return (
         <div className="min-h-screen bg-background">

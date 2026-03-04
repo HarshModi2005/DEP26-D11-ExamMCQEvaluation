@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
+import { useAuth } from '../../context/AuthContext';
 
 const Sidebar = () => {
     const [collapsed, setCollapsed] = useState(false);
+    const { logout, profile } = useAuth();
+    const navigate = useNavigate();
 
     const navItems = [
-        { path: '/dashboard-overview', label: 'Dashboard', icon: 'LayoutDashboard' },
-        { path: '/faculty-dashboard', label: 'My Courses', icon: 'BookOpen' }, // New link for Faculty
-        { path: '/kanban-board', label: 'Kanban Board', icon: 'Kanban' },
-        { path: '/sprint-planning', label: 'Sprint Planning', icon: 'Calendar' },
-        { path: '/team-management', label: 'Team', icon: 'Users' },
+        { path: '/faculty-dashboard', label: 'My Courses', icon: 'BookOpen' },
+        { path: '/kanban-board', label: 'Grading Queue', icon: 'Kanban' },
         { path: '/analytics-dashboard', label: 'Analytics', icon: 'BarChart3' },
     ];
+
+    const handleLogout = async () => {
+        await logout();
+        navigate('/login-register');
+    };
 
     return (
         <aside className={`fixed top-16 left-0 h-[calc(100vh-4rem)] bg-surface border-r border-border transition-all duration-300 z-50 ${collapsed ? 'w-20' : 'w-64'}`}>
@@ -27,6 +32,14 @@ const Sidebar = () => {
                     </button>
                 </div>
 
+                {/* Profile pill */}
+                {!collapsed && profile && (
+                    <div className="mx-3 mb-4 p-3 bg-primary-50 rounded-lg border border-primary-100">
+                        <p className="text-sm font-semibold text-primary truncate">{profile.name}</p>
+                        <p className="text-xs text-primary-400 capitalize">{profile.role}</p>
+                    </div>
+                )}
+
                 {/* Nav Items */}
                 <nav className="flex-1 px-3 space-y-1">
                     {navItems.map((item) => (
@@ -34,7 +47,7 @@ const Sidebar = () => {
                             key={item.path}
                             to={item.path}
                             className={({ isActive }) => `
-                                flex items-center px-3 py-2.5 rounded-lg transition-colors group
+                                flex items-center px-3 py-2.5 rounded-lg transition-colors group relative
                                 ${isActive
                                     ? 'bg-primary-50 text-primary'
                                     : 'text-secondary-600 hover:bg-secondary-50 hover:text-text-primary'
@@ -45,12 +58,8 @@ const Sidebar = () => {
                                 <Icon name={item.icon} size={20} />
                             </span>
                             {!collapsed && (
-                                <span className="text-sm font-medium truncate">
-                                    {item.label}
-                                </span>
+                                <span className="text-sm font-medium truncate">{item.label}</span>
                             )}
-
-                            {/* Tooltip for collapsed state */}
                             {collapsed && (
                                 <div className="absolute left-16 px-2 py-1 bg-secondary-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 ml-2">
                                     {item.label}
@@ -60,19 +69,17 @@ const Sidebar = () => {
                     ))}
                 </nav>
 
-                {/* Bottom Section */}
+                {/* Bottom: Logout */}
                 <div className="mt-auto px-3 pt-4 border-t border-border">
-                    <NavLink
-                        to="/settings"
-                        className="flex items-center px-3 py-2.5 rounded-lg text-secondary-600 hover:bg-secondary-50 hover:text-text-primary transition-colors"
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center px-3 py-2.5 rounded-lg text-error hover:bg-error-50 transition-colors"
                     >
                         <span className={`${collapsed ? 'mx-auto' : 'mr-3'}`}>
-                            <Icon name="Settings" size={20} />
+                            <Icon name="LogOut" size={20} />
                         </span>
-                        {!collapsed && (
-                            <span className="text-sm font-medium">Settings</span>
-                        )}
-                    </NavLink>
+                        {!collapsed && <span className="text-sm font-medium">Sign Out</span>}
+                    </button>
                 </div>
             </div>
         </aside>

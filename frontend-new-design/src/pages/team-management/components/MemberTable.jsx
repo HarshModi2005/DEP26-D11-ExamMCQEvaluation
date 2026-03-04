@@ -13,79 +13,57 @@ const MemberTable = ({ searchQuery, roleFilter }) => {
         {
             id: 1,
             name: "Sarah Johnson",
-            email: "sarah.johnson@taskflow.com",
-            role: "Admin",
+            email: "sarah.johnson@university.edu",
+            role: "Faculty",
             avatar: "https://randomuser.me/api/portraits/women/44.jpg",
             lastActive: "Just now",
             status: "Online",
-            department: "Product",
+            department: "Computer Science",
             joinedDate: "Jan 15, 2023"
         },
         {
             id: 2,
             name: "Michael Rodriguez",
-            email: "michael.r@taskflow.com",
-            role: "Member",
+            email: "michael.r@university.edu",
+            role: "TA",
             avatar: "https://randomuser.me/api/portraits/men/32.jpg",
             lastActive: "5 minutes ago",
             status: "Online",
-            department: "Engineering",
+            department: "Computer Science",
             joinedDate: "Mar 3, 2023"
         },
         {
             id: 3,
             name: "Emily Chen",
-            email: "emily.chen@taskflow.com",
-            role: "Admin",
+            email: "emily.chen@university.edu",
+            role: "Faculty",
             avatar: "https://randomuser.me/api/portraits/women/63.jpg",
             lastActive: "2 hours ago",
             status: "Away",
-            department: "Design",
+            department: "Data Science",
             joinedDate: "Feb 12, 2023"
         },
         {
             id: 4,
             name: "David Kim",
-            email: "david.kim@taskflow.com",
-            role: "Member",
+            email: "david.kim@university.edu",
+            role: "TA",
             avatar: "https://randomuser.me/api/portraits/men/11.jpg",
             lastActive: "1 day ago",
             status: "Offline",
-            department: "Engineering",
+            department: "Computer Science",
             joinedDate: "Apr 22, 2023"
         },
         {
             id: 5,
             name: "Jessica Taylor",
-            email: "jessica.t@taskflow.com",
-            role: "Viewer",
+            email: "jessica.t@student.university.edu",
+            role: "Student",
             avatar: "https://randomuser.me/api/portraits/women/85.jpg",
             lastActive: "3 days ago",
             status: "Offline",
-            department: "Marketing",
+            department: "Computer Science",
             joinedDate: "Jun 8, 2023"
-        },
-        {
-            id: 6,
-            name: "Robert Wilson",
-            email: "robert.w@taskflow.com",
-            role: "Member",
-            avatar: "https://randomuser.me/api/portraits/men/83.jpg",
-            lastActive: "Just now",
-            status: "Online",
-            department: "Engineering",
-            joinedDate: "May 17, 2023"
-        },
-        {
-            id: 7,
-            name: "Lisa Martinez",
-            email: "lisa.m@taskflow.com",
-            role: "Viewer",
-            avatar: "https://randomuser.me/api/portraits/women/32.jpg",
-            lastActive: "1 week ago",
-            status: "Offline",
-            department: "Sales",
-            joinedDate: "Jul 30, 2023"
         }
     ];
 
@@ -140,9 +118,9 @@ const MemberTable = ({ searchQuery, roleFilter }) => {
 
     const getRoleBadgeColor = (role) => {
         switch (role) {
-            case 'Admin': return 'bg-primary-100 text-primary-700';
-            case 'Member': return 'bg-secondary-100 text-secondary-700';
-            case 'Viewer': return 'bg-accent-100 text-accent-700';
+            case 'Faculty': return 'bg-primary-100 text-primary-700';
+            case 'TA': return 'bg-warning-100 text-warning-700'; // Make TA orange/warning to stand out
+            case 'Student': return 'bg-secondary-100 text-secondary-700'; // Student standard
             default: return 'bg-secondary-100 text-secondary-700';
         }
     };

@@ -1,183 +1,264 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Sidebar from '../../components/ui/Sidebar';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
-import MetricsCard from '../dashboard-overview/components/MetricsCard';
-
-// Mock specific exam analytics data
-const examAnalytics = {
-    'CS306 Quiz 1': {
-        averageScore: '78%',
-        medianScore: '82%',
-        highestScore: '98%',
-        lowestScore: '45%',
-        totalStudents: 120,
-        gradedCount: 115,
-        difficulty: 'Medium',
-        distribution: [
-            { range: '0-40', count: 5 },
-            { range: '41-60', count: 12 },
-            { range: '61-80', count: 45 },
-            { range: '81-100', count: 53 },
-        ],
-        hardestQuestion: { id: 'Q4', topic: 'Dynamic Programming', correctRate: '35%' },
-        easiestQuestion: { id: 'Q1', topic: 'Basic Arrays', correctRate: '92%' }
-    },
-    'CS306 Midsem': {
-        averageScore: '65%',
-        medianScore: '68%',
-        highestScore: '95%',
-        lowestScore: '30%',
-        totalStudents: 118,
-        gradedCount: 45,
-        difficulty: 'Hard',
-        distribution: [
-            { range: '0-40', count: 15 },
-            { range: '41-60', count: 35 },
-            { range: '61-80', count: 40 },
-            { range: '81-100', count: 28 },
-        ],
-        hardestQuestion: { id: 'Q3', topic: 'Graph Theory', correctRate: '25%' },
-        easiestQuestion: { id: 'Q8', topic: 'Sorting', correctRate: '88%' }
-    }
-};
+import { useAuth } from '../../context/AuthContext';
+import { courseService } from '../../services/courseService';
+import { evaluationService } from '../../services/evaluationService';
+import { resultsService } from '../../services/resultsService';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const AnalyticsDashboard = () => {
-    const [selectedExam, setSelectedExam] = useState(null);
+    const navigate = useNavigate();
+    const { user, profile } = useAuth();
 
-    const exams = [
-        { id: 'CS306 Quiz 1', name: 'CS306 Quiz 1', date: 'Feb 10, 2024', status: 'Graded' },
-        { id: 'CS306 Midsem', name: 'CS306 Midsem', date: 'Mar 15, 2024', status: 'In Progress' },
-    ];
+    const [courses, setCourses] = useState([]);
+    const [selectedCourse, setSelectedCourse] = useState(null);
+    const [evaluations, setEvaluations] = useState([]);
+    const [selectedEval, setSelectedEval] = useState(null);
+    const [analytics, setAnalytics] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [evalLoading, setEvalLoading] = useState(false);
+    const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-    const handleExamClick = (examId) => {
-        setSelectedExam(examId);
-    };
+    // Step 1: Load courses
+    useEffect(() => {
+        if (!user || !profile) return;
+        const load = async () => {
+            setLoading(true);
+            try {
+                let data;
+                if (profile.role === 'professor') {
+                    data = await courseService.getCoursesByProfessor(user.id);
+                } else {
+                    data = await courseService.getCoursesByTA(user.id);
+                }
+                setCourses(data || []);
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        load();
+    }, [user, profile]);
 
-    const handleBack = () => {
-        setSelectedExam(null);
-    };
+    // Step 2: When course selected, load evaluations
+    useEffect(() => {
+        if (!selectedCourse) return;
+        const loadEvals = async () => {
+            setEvalLoading(true);
+            setEvaluations([]);
+            setSelectedEval(null);
+            setAnalytics(null);
+            try {
+                const data = await evaluationService.getEvaluationsByCourse(selectedCourse.id);
+                setEvaluations(data || []);
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setEvalLoading(false);
+            }
+        };
+        loadEvals();
+    }, [selectedCourse]);
 
-    const currentAnalytics = selectedExam ? examAnalytics[selectedExam] : null;
+    // Step 3: When eval selected, load analytics
+    useEffect(() => {
+        if (!selectedEval) return;
+        const loadAnalytics = async () => {
+            setAnalyticsLoading(true);
+            setAnalytics(null);
+            try {
+                const data = await resultsService.getAnalytics(selectedEval.id);
+                setAnalytics(data);
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setAnalyticsLoading(false);
+            }
+        };
+        loadAnalytics();
+    }, [selectedEval]);
 
     return (
         <div className="min-h-screen bg-background">
             <Header />
             <Sidebar />
-
-            <main className="lg:ml-60 pt-16">
+            <main className="lg:ml-64 pt-16 transition-all duration-300">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
-                    {/* Index View: List of Exams */}
-                    {!selectedExam && (
-                        <>
-                            <PageHeader
-                                title="Exam Analytics"
-                                description="Select an exam to view detailed performance metrics."
-                            />
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {exams.map((exam) => (
-                                    <div
-                                        key={exam.id}
-                                        onClick={() => handleExamClick(exam.id)}
-                                        className="bg-surface border border-border rounded-xl p-6 hover:shadow-md transition-shadow cursor-pointer group"
-                                    >
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center text-primary-700 group-hover:bg-primary group-hover:text-white transition-colors">
-                                                <Icon name="FileText" size={20} />
-                                            </div>
-                                            <span className={`px-2 py-1 rounded text-xs font-medium ${exam.status === 'Graded' ? 'bg-success-100 text-success-700' : 'bg-warning-100 text-warning-700'}`}>
-                                                {exam.status}
-                                            </span>
-                                        </div>
-                                        <h3 className="text-lg font-semibold text-text-primary mb-1">{exam.name}</h3>
-                                        <p className="text-sm text-text-secondary mb-4">Conducted on {exam.date}</p>
-                                        <div className="flex items-center text-sm text-primary group-hover:underline">
-                                            View Analytics <Icon name="ArrowRight" size={14} className="ml-1" />
-                                        </div>
+                    <PageHeader
+                        title="Analytics"
+                        description="View evaluation-wise performance analytics for your courses"
+                    />
+
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                        {/* Left column - Course & Eval selectors */}
+                        <div className="space-y-4">
+                            {/* Courses */}
+                            <div className="bg-surface border border-border rounded-xl overflow-hidden">
+                                <div className="p-3 border-b border-border bg-secondary-50">
+                                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Courses</p>
+                                </div>
+                                {loading ? (
+                                    <div className="p-4 space-y-2">
+                                        {[1, 2, 3].map(i => <div key={i} className="h-10 bg-secondary-100 rounded animate-pulse" />)}
                                     </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
-
-                    {/* Detail View: Exam Specific Analytics */}
-                    {selectedExam && currentAnalytics && (
-                        <div className="space-y-6">
-                            <div className="flex items-center text-sm text-text-secondary mb-4">
-                                <button onClick={handleBack} className="hover:text-primary transition-colors flex items-center">
-                                    <Icon name="ArrowLeft" size={14} className="mr-1" />
-                                    Back to Exams
-                                </button>
-                                <span className="mx-2">/</span>
-                                <span className="font-medium text-text-primary">{selectedExam}</span>
-                            </div>
-
-                            <PageHeader
-                                title={`${selectedExam} Analytics`}
-                                description={`Performance overview and statistics.`}
-                                actions={
-                                    <button className="px-4 py-2 border border-border bg-surface text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors flex items-center">
-                                        <Icon name="Download" size={16} className="mr-2" />
-                                        Export Report
-                                    </button>
-                                }
-                            />
-
-                            {/* Key Metrics Row */}
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                <MetricsCard title="Average Score" value={currentAnalytics.averageScore} icon="BarChart2" color="primary" />
-                                <MetricsCard title="Median Score" value={currentAnalytics.medianScore} icon="Activity" color="secondary" />
-                                <MetricsCard title="Highest Score" value={currentAnalytics.highestScore} icon="TrendingUp" color="success" />
-                                <MetricsCard title="Graded Papers" value={`${currentAnalytics.gradedCount}/${currentAnalytics.totalStudents}`} icon="CheckCircle" color="warning" />
-                            </div>
-
-                            {/* Detailed Analysis Section */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                {/* Score Distribution (Mock Histogram) */}
-                                <div className="bg-surface border border-border rounded-xl p-6">
-                                    <h3 className="text-lg font-medium text-text-primary mb-4">Score Distribution</h3>
-                                    <div className="space-y-4">
-                                        {currentAnalytics.distribution.map((item, index) => (
-                                            <div key={index} className="flex items-center">
-                                                <span className="w-16 text-sm text-text-secondary">{item.range}</span>
-                                                <div className="flex-1 h-4 bg-secondary-100 rounded-full mx-3 overflow-hidden">
-                                                    <div
-                                                        className="h-full bg-primary rounded-full"
-                                                        style={{ width: `${(item.count / currentAnalytics.totalStudents) * 100}%` }}
-                                                    ></div>
-                                                </div>
-                                                <span className="w-8 text-sm text-text-primary text-right">{item.count}</span>
-                                            </div>
+                                ) : courses.length === 0 ? (
+                                    <div className="p-4 text-center text-sm text-text-secondary">No courses found.</div>
+                                ) : (
+                                    <div className="divide-y divide-border">
+                                        {courses.map(c => (
+                                            <button key={c.id} onClick={() => setSelectedCourse(c)}
+                                                className={`w-full text-left px-4 py-3 transition-colors ${selectedCourse?.id === c.id ? 'bg-primary-50 text-primary' : 'hover:bg-secondary-50 text-text-primary'}`}>
+                                                <p className="text-sm font-medium">{c.code}</p>
+                                                <p className={`text-xs truncate ${selectedCourse?.id === c.id ? 'text-primary-400' : 'text-text-secondary'}`}>{c.title}</p>
+                                            </button>
                                         ))}
                                     </div>
-                                </div>
+                                )}
+                            </div>
 
-                                {/* Question Analysis */}
-                                <div className="bg-surface border border-border rounded-xl p-6">
-                                    <h3 className="text-lg font-medium text-text-primary mb-4">Question Analysis</h3>
-                                    <div className="space-y-4">
-                                        <div className="p-4 bg-error-50 border border-error-100 rounded-lg">
-                                            <div className="flex items-center text-error-700 mb-2">
-                                                <Icon name="AlertTriangle" size={18} className="mr-2" />
-                                                <span className="font-semibold">Hardest Question</span>
-                                            </div>
-                                            <p className="text-text-primary font-medium">{currentAnalytics.hardestQuestion.id}: {currentAnalytics.hardestQuestion.topic}</p>
-                                            <p className="text-sm text-text-secondary">Only {currentAnalytics.hardestQuestion.correctRate} correct answers</p>
+                            {/* Evaluations */}
+                            {selectedCourse && (
+                                <div className="bg-surface border border-border rounded-xl overflow-hidden">
+                                    <div className="p-3 border-b border-border bg-secondary-50">
+                                        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Evaluations</p>
+                                    </div>
+                                    {evalLoading ? (
+                                        <div className="p-4 space-y-2">
+                                            {[1, 2].map(i => <div key={i} className="h-10 bg-secondary-100 rounded animate-pulse" />)}
                                         </div>
-                                        <div className="p-4 bg-success-50 border border-success-100 rounded-lg">
-                                            <div className="flex items-center text-success-700 mb-2">
-                                                <Icon name="Check" size={18} className="mr-2" />
-                                                <span className="font-semibold">Easiest Question</span>
+                                    ) : evaluations.length === 0 ? (
+                                        <div className="p-4 text-center text-sm text-text-secondary">No evaluations yet.</div>
+                                    ) : (
+                                        <div className="divide-y divide-border">
+                                            {evaluations.map(ev => (
+                                                <button key={ev.id} onClick={() => setSelectedEval(ev)}
+                                                    className={`w-full text-left px-4 py-3 transition-colors ${selectedEval?.id === ev.id ? 'bg-primary-50 text-primary' : 'hover:bg-secondary-50 text-text-primary'}`}>
+                                                    <p className="text-sm font-medium">{ev.name}</p>
+                                                    <p className={`text-xs capitalize ${selectedEval?.id === ev.id ? 'text-primary-400' : 'text-text-secondary'}`}>{ev.status}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Right column - Analytics view */}
+                        <div className="lg:col-span-3">
+                            {!selectedCourse && (
+                                <div className="flex flex-col items-center justify-center h-80 bg-surface border border-dashed border-border rounded-xl text-text-secondary">
+                                    <Icon name="BarChart3" size={40} className="mb-3 text-secondary-300" />
+                                    <p className="font-medium">Select a course to view analytics</p>
+                                    <p className="text-sm mt-1">Then select an evaluation to see detailed data</p>
+                                </div>
+                            )}
+
+                            {selectedCourse && !selectedEval && (
+                                <div className="flex flex-col items-center justify-center h-80 bg-surface border border-dashed border-border rounded-xl text-text-secondary">
+                                    <Icon name="FileText" size={40} className="mb-3 text-secondary-300" />
+                                    <p className="font-medium">{selectedCourse.title}</p>
+                                    <p className="text-sm mt-1">Select an evaluation from the left panel</p>
+                                </div>
+                            )}
+
+                            {selectedEval && analyticsLoading && (
+                                <div className="flex items-center justify-center h-80 bg-surface border border-border rounded-xl">
+                                    <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                                </div>
+                            )}
+
+                            {selectedEval && !analyticsLoading && !analytics && (
+                                <div className="flex flex-col items-center justify-center h-80 bg-surface border border-dashed border-border rounded-xl text-text-secondary">
+                                    <Icon name="BarChart3" size={40} className="mb-3 text-secondary-300" />
+                                    <p className="font-medium">No results yet for "{selectedEval.name}"</p>
+                                    <p className="text-sm mt-1">Run the OCR pipeline to grade answer sheets first.</p>
+                                    <button onClick={() => navigate(`/evaluate/${selectedEval.id}`)}
+                                        className="mt-4 px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700 transition-colors flex items-center gap-2">
+                                        <Icon name="Play" size={14} />Go to Evaluate Page
+                                    </button>
+                                </div>
+                            )}
+
+                            {selectedEval && !analyticsLoading && analytics && (
+                                <div className="space-y-5">
+                                    {/* Header */}
+                                    <div className="bg-surface border border-border rounded-xl p-5">
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div>
+                                                <h2 className="text-xl font-bold text-text-primary">{selectedEval.name}</h2>
+                                                <p className="text-text-secondary text-sm mt-0.5">
+                                                    {selectedCourse.code} — {selectedCourse.title}
+                                                </p>
                                             </div>
-                                            <p className="text-text-primary font-medium">{currentAnalytics.easiestQuestion.id}: {currentAnalytics.easiestQuestion.topic}</p>
-                                            <p className="text-sm text-text-secondary">{currentAnalytics.easiestQuestion.correctRate} correct answers</p>
+                                            <button onClick={() => navigate(`/evaluate/${selectedEval.id}`)}
+                                                className="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-secondary-50 transition-colors flex items-center gap-1.5 text-text-secondary">
+                                                <Icon name="ExternalLink" size={14} />Open Evaluation
+                                            </button>
+                                        </div>
+
+                                        {/* Key metrics */}
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                            {[
+                                                { label: 'Average', value: `${analytics.averageScore}/${analytics.maxScore}`, color: 'bg-blue-50 text-blue-700' },
+                                                { label: 'Median', value: analytics.medianScore, color: 'bg-purple-50 text-purple-700' },
+                                                { label: 'Highest', value: analytics.highestScore, color: 'bg-success-50 text-success-700' },
+                                                { label: 'Graded', value: `${analytics.gradedCount}/${analytics.totalStudents}`, color: 'bg-warning-50 text-warning-700' },
+                                            ].map(m => (
+                                                <div key={m.label} className={`rounded-lg p-3 ${m.color}`}>
+                                                    <p className="text-2xl font-bold">{m.value}</p>
+                                                    <p className="text-xs font-medium">{m.label}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Charts row */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        {/* Score distribution */}
+                                        <div className="bg-surface border border-border rounded-xl p-5">
+                                            <h3 className="font-semibold text-text-primary mb-4">Score Distribution</h3>
+                                            <ResponsiveContainer width="100%" height={200}>
+                                                <BarChart data={analytics.distribution}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                                                    <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+                                                    <YAxis tick={{ fontSize: 11 }} />
+                                                    <Tooltip />
+                                                    <Bar dataKey="count" fill="var(--color-primary)" radius={[4, 4, 0, 0]} name="Students" />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        {/* Question analysis */}
+                                        <div className="bg-surface border border-border rounded-xl p-5 space-y-4">
+                                            <h3 className="font-semibold text-text-primary">Question Analysis</h3>
+                                            {analytics.hardestQuestion && (
+                                                <div className="p-4 bg-error-50 border border-error-100 rounded-lg">
+                                                    <p className="text-xs font-semibold text-error-600 uppercase tracking-wider mb-1">Most Difficult</p>
+                                                    <p className="font-semibold text-text-primary">{analytics.hardestQuestion.question}</p>
+                                                    <p className="text-sm text-text-secondary">{analytics.hardestQuestion.correctRate}% students got it right</p>
+                                                </div>
+                                            )}
+                                            {analytics.easiestQuestion && (
+                                                <div className="p-4 bg-success-50 border border-success-100 rounded-lg">
+                                                    <p className="text-xs font-semibold text-success-600 uppercase tracking-wider mb-1">Easiest</p>
+                                                    <p className="font-semibold text-text-primary">{analytics.easiestQuestion.question}</p>
+                                                    <p className="text-sm text-text-secondary">{analytics.easiestQuestion.correctRate}% students got it right</p>
+                                                </div>
+                                            )}
+                                            {!analytics.hardestQuestion && !analytics.easiestQuestion && (
+                                                <p className="text-sm text-text-secondary">Question-level data not available. Ensure OCR results include answer details.</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
-                    )}
+                    </div>
                 </div>
             </main>
         </div>

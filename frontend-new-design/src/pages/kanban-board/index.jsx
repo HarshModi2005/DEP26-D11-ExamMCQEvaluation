@@ -27,122 +27,86 @@ const KanbanBoard = () => {
     const [selectedTasks, setSelectedTasks] = useState(new Set());
     const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
 
-    // Mock data for Kanban board
+    // Mock data for Grading Kanban board
     const mockTasks = {
         'task-1': {
             id: 'task-1',
-            title: 'Implement user authentication system',
-            description: 'Create secure login/logout functionality with JWT tokens and session management.',
+            title: 'Grade Q1: Arrays & Lists',
+            description: 'Evaluate student submissions for question 1 based on the provided answer key.',
             status: 'In Progress',
             priority: 'High',
             assignee: {
-                name: 'John Doe',
+                name: 'Michael Rodriguez',
                 avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-                initials: 'JD'
+                initials: 'MR'
             },
-            storyPoints: 8,
-            dueDate: '2024-02-15',
-            labels: ['Backend', 'Security'],
-            attachments: 2,
-            comments: 3,
-            createdAt: '2024-01-28'
+            storyPoints: 50, // representing number of papers
+            dueDate: '2024-03-10',
+            labels: ['Quiz 1', 'Sorting'],
+            attachments: 1,
+            comments: 0,
+            createdAt: '2024-03-01'
         },
         'task-2': {
             id: 'task-2',
-            title: 'Design user dashboard mockups',
-            description: 'Create wireframes and high-fidelity designs for the main dashboard interface.',
-            status: 'Review',
+            title: 'Grade Q2: Tree Traversal',
+            description: 'Evaluate student submissions for question 2.',
+            status: 'Discrepancy / Review',
             priority: 'Medium',
             assignee: {
-                name: 'Sarah Wilson',
-                avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-                initials: 'SW'
+                name: 'Michael Rodriguez',
+                avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
+                initials: 'MR'
             },
-            storyPoints: 5,
-            dueDate: '2024-02-12',
-            labels: ['Design', 'UI/UX'],
+            storyPoints: 50,
+            dueDate: '2024-03-12',
+            labels: ['Quiz 1', 'Trees'],
             attachments: 1,
-            comments: 7,
-            createdAt: '2024-01-25'
+            comments: 2,
+            createdAt: '2024-03-01'
         },
         'task-3': {
             id: 'task-3',
-            title: 'Setup CI/CD pipeline',
-            description: 'Configure automated testing and deployment pipeline using GitHub Actions.',
-            status: 'Backlog',
+            title: 'Grade Q3: Graph Algorithms',
+            description: 'Check for correctness in Dijkstra and BFS implementations.',
+            status: 'To Grade',
             priority: 'Low',
             assignee: {
-                name: 'Mike Chen',
-                avatar: 'https://randomuser.me/api/portraits/men/67.jpg',
-                initials: 'MC'
+                name: 'Lisa Martinez',
+                avatar: 'https://randomuser.me/api/portraits/women/67.jpg',
+                initials: 'LM'
             },
-            storyPoints: 13,
-            dueDate: '2024-02-20',
-            labels: ['DevOps', 'Infrastructure'],
-            attachments: 0,
-            comments: 1,
-            createdAt: '2024-01-30'
+            storyPoints: 50,
+            dueDate: '2024-03-15',
+            labels: ['Quiz 1', 'Graphs'],
+            attachments: 1,
+            comments: 0,
+            createdAt: '2024-03-01'
         },
         'task-4': {
             id: 'task-4',
-            title: 'API endpoint documentation',
-            description: 'Document all REST API endpoints with examples and response schemas.',
-            status: 'Done',
+            title: 'Grade Section A: Multiple Choice',
+            description: 'Auto-graded via OCR, but requires manual verification for low-confidence scans.',
+            status: 'Graded',
             priority: 'Medium',
             assignee: {
-                name: 'Emily Rodriguez',
-                avatar: 'https://randomuser.me/api/portraits/women/23.jpg',
-                initials: 'ER'
+                name: 'Michael Rodriguez',
+                avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
+                initials: 'MR'
             },
-            storyPoints: 3,
+            storyPoints: 120,
             dueDate: '2024-02-08',
-            labels: ['Documentation', 'API'],
-            attachments: 1,
-            comments: 2,
+            labels: ['Midsem', 'MCQ'],
+            attachments: 2,
+            comments: 1,
             createdAt: '2024-01-22'
-        },
-        'task-5': {
-            id: 'task-5',
-            title: 'Mobile responsive layout',
-            description: 'Ensure all components work properly on mobile devices and tablets.',
-            status: 'In Progress',
-            priority: 'High',
-            assignee: {
-                name: 'Alex Thompson',
-                avatar: 'https://randomuser.me/api/portraits/men/89.jpg',
-                initials: 'AT'
-            },
-            storyPoints: 8,
-            dueDate: '2024-02-14',
-            labels: ['Frontend', 'Mobile'],
-            attachments: 3,
-            comments: 5,
-            createdAt: '2024-01-26'
-        },
-        'task-6': {
-            id: 'task-6',
-            title: 'Database optimization',
-            description: 'Optimize database queries and add proper indexing for better performance.',
-            status: 'Review',
-            priority: 'Critical',
-            assignee: {
-                name: 'David Kim',
-                avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-                initials: 'DK'
-            },
-            storyPoints: 5,
-            dueDate: '2024-02-11',
-            labels: ['Backend', 'Performance'],
-            attachments: 0,
-            comments: 4,
-            createdAt: '2024-01-29'
         }
     };
 
     const mockColumns = {
         'column-1': {
             id: 'column-1',
-            title: 'Backlog',
+            title: 'To Grade',
             taskIds: ['task-3'],
             wipLimit: null,
             color: '#64748B'
@@ -150,20 +114,20 @@ const KanbanBoard = () => {
         'column-2': {
             id: 'column-2',
             title: 'In Progress',
-            taskIds: ['task-1', 'task-5'],
+            taskIds: ['task-1'],
             wipLimit: 3,
             color: '#2563EB'
         },
         'column-3': {
             id: 'column-3',
-            title: 'Review',
-            taskIds: ['task-2', 'task-6'],
+            title: 'Discrepancy / Review',
+            taskIds: ['task-2'],
             wipLimit: 2,
             color: '#F59E0B'
         },
         'column-4': {
             id: 'column-4',
-            title: 'Done',
+            title: 'Graded',
             taskIds: ['task-4'],
             wipLimit: null,
             color: '#059669'
@@ -366,10 +330,10 @@ const KanbanBoard = () => {
                                         defaultValue=""
                                     >
                                         <option value="" disabled>Move to...</option>
-                                        <option value="Backlog">Backlog</option>
+                                        <option value="To Grade">To Grade</option>
                                         <option value="In Progress">In Progress</option>
-                                        <option value="Review">Review</option>
-                                        <option value="Done">Done</option>
+                                        <option value="Discrepancy / Review">Discrepancy / Review</option>
+                                        <option value="Graded">Graded</option>
                                     </select>
                                     <button
                                         onClick={() => {
@@ -408,7 +372,7 @@ const KanbanBoard = () => {
                                                     ref={provided.innerRef}
                                                     {...provided.droppableProps}
                                                     className={`flex-grow min-h-[200px] p-3 rounded-lg transition-colors duration-200 overflow-y-auto ${snapshot.isDraggingOver
-                                                            ? 'bg-primary-50 border-2 border-primary-300' : 'bg-secondary-50 border-2 border-transparent'
+                                                        ? 'bg-primary-50 border-2 border-primary-300' : 'bg-secondary-50 border-2 border-transparent'
                                                         }`}
                                                 >
                                                     <div className="space-y-3">
