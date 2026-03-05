@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../context/AuthContext';
 import { evaluationService } from '../../services/evaluationService';
@@ -367,8 +366,8 @@ const EvaluatePage = () => {
     if (pageLoading) {
         return (
             <div className="min-h-screen bg-background">
-                <Header /><Sidebar />
-                <main className="lg:ml-64 pt-16 flex items-center justify-center min-h-[80vh]">
+                <Header />
+                <main className="pt-16 flex items-center justify-center min-h-[80vh]">
                     <div className="flex flex-col items-center gap-4">
                         <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                         <p className="text-text-secondary">Loading evaluation...</p>
@@ -383,9 +382,8 @@ const EvaluatePage = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
 
-            <main className="lg:ml-64 pt-16 transition-all duration-300">
+            <main className="pt-16 transition-all duration-300">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
 
                     {/* Breadcrumb */}

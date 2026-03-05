@@ -9,15 +9,57 @@ class OCRService:
         """
         Initialize OCR service with Vertex AI Gemini 2.5 Flash Lite.
         """
-        self.vertex_api_key = api_key or os.getenv("VERTEX_AI_API_KEY")
+        from google.oauth2 import service_account
+        import google.auth.transport.requests
+        import google.auth
         
-        if not self.vertex_api_key:
-            print("⚠️ WARNING: VERTEX_AI_API_KEY not found. OCR features will be disabled.")
+        self.project_id = "project-75abf07c-e594-4660-ab7"
+        self.location = "us-central1"
+        self.model_id = "gemini-2.5-flash-lite"
+        self.creds = None
+        
+        # Try finding Service Account credentials
+        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if creds_path and os.path.exists(creds_path):
+            try:
+                self.creds = service_account.Credentials.from_service_account_file(
+                    creds_path,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                if hasattr(self.creds, "project_id") and self.creds.project_id:
+                     self.project_id = self.creds.project_id
+            except Exception as e:
+                print(f"⚠️ Failed to load Service Account in OCRService: {e}")
 
+        self.vertex_api_key = api_key or os.getenv("VERTEX_AI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         
-        self.vertex_url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:streamGenerateContent?key={self.vertex_api_key}"
-        
-        print(f"✅ OCR Service initialized with Vertex AI (Gemini 2.5 Flash Lite)")
+        if self.creds:
+             self.vertex_url = (
+                f"https://{self.location}-aiplatform.googleapis.com/v1/"
+                f"projects/{self.project_id}/locations/{self.location}/"
+                f"publishers/google/models/{self.model_id}:streamGenerateContent"
+             )
+        elif self.vertex_api_key:
+            # Use generativelanguage endpoint if using AI Studio API Key (Vertex AI doesn't support ?key=)
+             self.vertex_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_id}:streamGenerateContent?key={self.vertex_api_key}"
+        else:
+            self.vertex_url = None
+            print("⚠️ WARNING: Neither Service Account nor API_KEY found. OCR features will be disabled.")
+            
+        print(f"✅ OCR Service initialized (has_creds={bool(self.creds)})")
+
+    def _get_auth_header(self):
+        """Get Authorization header with Bearer token if using Service Account."""
+        import google.auth.transport.requests
+        if self.creds:
+            try:
+                auth_req = google.auth.transport.requests.Request()
+                self.creds.refresh(auth_req)
+                return {"Authorization": f"Bearer {self.creds.token}", "Content-Type": "application/json"}
+            except Exception as e:
+                print(f"❌ Failed to refresh token: {e}")
+                return {"Content-Type": "application/json"} 
+        return {"Content-Type": "application/json"}
 
     def _encode_image(self, image_path: str) -> str:
         """Encode image to base64"""
@@ -62,9 +104,7 @@ class OCRService:
                 ]
             }
             
-            headers = {
-                "Content-Type": "application/json"
-            }
+            headers = self._get_auth_header()
             
             # Make request
             response = requests.post(self.vertex_url, headers=headers, json=payload, timeout=30)
@@ -194,9 +234,10 @@ class OCRService:
                 ]
             }
 
+            headers = self._get_auth_header()
             response = requests.post(
                 self.vertex_url,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 json=payload,
                 timeout=30
             )

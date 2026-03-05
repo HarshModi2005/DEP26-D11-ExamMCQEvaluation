@@ -5,12 +5,19 @@ export const courseService = {
      * Fetch all courses for a professor (by instructor_id)
      */
     async getCoursesByProfessor(professorId) {
+        console.log('[CourseService] getCoursesByProfessor called, professorId:', professorId);
+        const startTime = Date.now();
         const { data, error } = await supabase
             .from('courses')
             .select('*, profiles!courses_instructor_id_fkey(name)')
             .eq('instructor_id', professorId)
             .order('created_at', { ascending: false });
-        if (error) throw error;
+        const elapsed = Date.now() - startTime;
+        if (error) {
+            console.error('[CourseService] getCoursesByProfessor error after', elapsed, 'ms:', error.message, 'code:', error.code, 'details:', error.details);
+            throw error;
+        }
+        console.log('[CourseService] getCoursesByProfessor success after', elapsed, 'ms, count:', data?.length);
         return data;
     },
 
@@ -18,11 +25,18 @@ export const courseService = {
      * Fetch all courses a TA is assigned to
      */
     async getCoursesByTA(taId) {
+        console.log('[CourseService] getCoursesByTA called, taId:', taId);
+        const startTime = Date.now();
         const { data, error } = await supabase
             .from('course_tas')
             .select('course_id, courses(*, profiles!courses_instructor_id_fkey(name))')
             .eq('ta_id', taId);
-        if (error) throw error;
+        const elapsed = Date.now() - startTime;
+        if (error) {
+            console.error('[CourseService] getCoursesByTA error after', elapsed, 'ms:', error.message);
+            throw error;
+        }
+        console.log('[CourseService] getCoursesByTA success after', elapsed, 'ms, count:', data?.length);
         return data.map(row => row.courses);
     },
 
@@ -30,12 +44,19 @@ export const courseService = {
      * Get a single course by ID with instructor details
      */
     async getCourseById(courseId) {
+        console.log('[CourseService] getCourseById called, courseId:', courseId);
+        const startTime = Date.now();
         const { data, error } = await supabase
             .from('courses')
             .select('*, profiles!courses_instructor_id_fkey(id, name, department)')
             .eq('id', courseId)
             .single();
-        if (error) throw error;
+        const elapsed = Date.now() - startTime;
+        if (error) {
+            console.error('[CourseService] getCourseById error after', elapsed, 'ms:', error.message);
+            throw error;
+        }
+        console.log('[CourseService] getCourseById success after', elapsed, 'ms:', data?.code, data?.title);
         return data;
     },
 
@@ -43,6 +64,7 @@ export const courseService = {
      * Create a new course
      */
     async createCourse({ code, title, description, department, semester, instructorId, masterSheetUrl }) {
+        console.log('[CourseService] createCourse called, code:', code, 'title:', title);
         const { data, error } = await supabase
             .from('courses')
             .insert({
@@ -56,7 +78,11 @@ export const courseService = {
             })
             .select()
             .single();
-        if (error) throw error;
+        if (error) {
+            console.error('[CourseService] createCourse error:', error.message);
+            throw error;
+        }
+        console.log('[CourseService] createCourse success, id:', data?.id);
         return data;
     },
 
@@ -64,13 +90,18 @@ export const courseService = {
      * Update course details (e.g. master_sheet_url)
      */
     async updateCourse(courseId, updates) {
+        console.log('[CourseService] updateCourse called, courseId:', courseId);
         const { data, error } = await supabase
             .from('courses')
             .update(updates)
             .eq('id', courseId)
             .select()
             .single();
-        if (error) throw error;
+        if (error) {
+            console.error('[CourseService] updateCourse error:', error.message);
+            throw error;
+        }
+        console.log('[CourseService] updateCourse success');
         return data;
     },
 
@@ -78,7 +109,12 @@ export const courseService = {
      * Delete a course
      */
     async deleteCourse(courseId) {
+        console.log('[CourseService] deleteCourse called, courseId:', courseId);
         const { error } = await supabase.from('courses').delete().eq('id', courseId);
-        if (error) throw error;
+        if (error) {
+            console.error('[CourseService] deleteCourse error:', error.message);
+            throw error;
+        }
+        console.log('[CourseService] deleteCourse success');
     },
 };

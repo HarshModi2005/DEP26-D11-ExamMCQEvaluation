@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
 import MetricsCard from '../dashboard-overview/components/MetricsCard';
@@ -203,16 +202,17 @@ const CourseDetail = () => {
     const [inviteSuccess, setInviteSuccess] = useState('');
 
     // Fetch all data
-    const fetchAll = useCallback(async () => {
+    const fetchAll = useCallback(async (retries = 3) => {
         setLoading(true);
         try {
-            const [courseData, evalsData, studentsData, tasData, invitesData] = await Promise.all([
-                courseService.getCourseById(courseId),
-                evaluationService.getEvaluationsByCourse(courseId),
-                studentService.getStudentsByCourse(courseId),
-                teamService.getTAsByCourse(courseId),
-                invitationService.getInvitationsByCourse(courseId).catch(() => []),
-            ]);
+            // Running these sequentially instead of Promise.all prevents Supabase
+            // concurrent session lock "AbortError: Lock broken ... steal option" errors.
+            const courseData = await courseService.getCourseById(courseId);
+            const evalsData = await evaluationService.getEvaluationsByCourse(courseId);
+            const studentsData = await studentService.getStudentsByCourse(courseId);
+            const tasData = await teamService.getTAsByCourse(courseId);
+            let invitesData = [];
+            try { invitesData = await invitationService.getInvitationsByCourse(courseId); } catch (e) { }
             setCourse(courseData);
             setEvaluations(evalsData || []);
             setStudents(studentsData || []);
@@ -330,8 +330,8 @@ const CourseDetail = () => {
     if (loading) {
         return (
             <div className="min-h-screen bg-background">
-                <Header /><Sidebar />
-                <main className="lg:ml-64 pt-16 flex items-center justify-center min-h-[80vh]">
+                <Header />
+                <main className="pt-16 flex items-center justify-center min-h-[80vh]">
                     <div className="flex flex-col items-center gap-4">
                         <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                         <p className="text-text-secondary">Loading course...</p>
@@ -344,8 +344,8 @@ const CourseDetail = () => {
     if (!course) {
         return (
             <div className="min-h-screen bg-background">
-                <Header /><Sidebar />
-                <main className="lg:ml-64 pt-16 flex items-center justify-center">
+                <Header />
+                <main className="pt-16 flex items-center justify-center">
                     <div className="text-center">
                         <p className="text-text-primary font-medium">Course not found.</p>
                         <button onClick={() => navigate('/faculty-dashboard')} className="mt-4 text-primary hover:underline">Back to My Courses</button>
@@ -358,7 +358,6 @@ const CourseDetail = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
 
             {showCreateEval && (
                 <CreateEvalModal
@@ -371,7 +370,7 @@ const CourseDetail = () => {
                 />
             )}
 
-            <main className="lg:ml-64 pt-16 transition-all duration-300">
+            <main className="pt-16 transition-all duration-300">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
                     {/* Breadcrumb */}
                     <div className="flex items-center text-sm text-text-secondary">

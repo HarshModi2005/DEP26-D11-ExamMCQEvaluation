@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../context/AuthContext';
@@ -120,19 +119,46 @@ const FacultyDashboard = () => {
     const [pendingInvites, setPendingInvites] = useState([]);
     const [acceptingId, setAcceptingId] = useState(null);
 
+    // Mock pending tasks for the Kanban board view
+    const mockTasks = [
+        { id: 1, title: 'Grade Midsem Exam', course: 'CS306', status: 'To Do', priority: 'High', dueDate: 'Mar 10' },
+        { id: 2, title: 'Review A1 Submissions', course: 'CS306', status: 'In Progress', priority: 'Medium', dueDate: 'Mar 12' },
+        { id: 3, title: 'Prepare Quiz 2', course: 'CS101', status: 'To Do', priority: 'Low', dueDate: 'Mar 15' },
+        { id: 4, title: 'Finalize Grades', course: 'CS306', status: 'Review', priority: 'High', dueDate: 'Mar 08' },
+        { id: 5, title: 'Update Syllabus', course: 'CS101', status: 'In Progress', priority: 'Medium', dueDate: 'Mar 20' },
+    ];
+
     useEffect(() => {
-        if (!user || !profile) return;
-        const fetchCourses = async () => {
+        console.log('[FacultyDashboard] useEffect triggered — user:', user?.email, 'profile:', profile?.name, profile?.role);
+        if (!user || !profile) {
+            console.log('[FacultyDashboard] useEffect — user or profile missing, skipping fetch');
+            return;
+        }
+        const fetchCourses = async (retries = 3) => {
+            console.log(`[FacultyDashboard] fetchCourses called, retries remaining: ${retries}, role: ${profile.role}`);
             setLoading(true);
             try {
                 let data;
                 if (profile.role === 'professor') {
+                    console.log('[FacultyDashboard] Calling getCoursesByProfessor...');
                     data = await courseService.getCoursesByProfessor(user.id);
                 } else {
+                    console.log('[FacultyDashboard] Calling getCoursesByTA...');
                     data = await courseService.getCoursesByTA(user.id);
                 }
+                console.log('[FacultyDashboard] fetchCourses SUCCESS, courses loaded:', data?.length);
                 setCourses(data || []);
+                setError('');
             } catch (err) {
+                console.error('[FacultyDashboard] fetchCourses ERROR:', err.name, err.message, err);
+                if (err.name === 'AbortError' || err.message?.includes('Lock broken') || err.message?.includes('steal')) {
+                    if (retries > 0) {
+                        console.warn(`[FacultyDashboard] Lock collision! Retrying in 500ms... (${retries} retries left)`);
+                        setTimeout(() => fetchCourses(retries - 1), 500);
+                        return;
+                    }
+                    console.error('[FacultyDashboard] Lock collision — all retries exhausted!');
+                }
                 setError('Failed to load courses: ' + err.message);
             } finally {
                 setLoading(false);
@@ -142,9 +168,15 @@ const FacultyDashboard = () => {
 
         // Fetch pending invitations for TAs
         if (profile.role === 'ta' && user.email) {
+            console.log('[FacultyDashboard] Fetching pending invitations for TA...');
             invitationService.getMyPendingInvitations(user.email)
-                .then(data => setPendingInvites(data || []))
-                .catch(() => { });
+                .then(data => {
+                    console.log('[FacultyDashboard] Pending invitations loaded:', data?.length);
+                    setPendingInvites(data || []);
+                })
+                .catch((err) => {
+                    console.warn('[FacultyDashboard] Failed to load invitations:', err.message);
+                });
         }
     }, [user, profile]);
 
@@ -176,7 +208,6 @@ const FacultyDashboard = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
 
             {showCreateModal && (
                 <CreateCourseModal
@@ -186,7 +217,7 @@ const FacultyDashboard = () => {
                 />
             )}
 
-            <main className="lg:ml-64 pt-16 transition-all duration-300">
+            <main className="pt-16 transition-all duration-300">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
                     <PageHeader
                         title="My Courses"
@@ -323,6 +354,82 @@ const FacultyDashboard = () => {
                             )}
                         </div>
                     )}
+
+                    {/* Pending Tasks Section - Kanban Style */}
+                    <div className="pt-8 border-t border-border mt-8 space-y-6">
+                        <PageHeader
+                            title="My Pending Tasks"
+                            description="Tasks assigned to you across all your courses."
+                            actions={
+                                <button
+                                    onClick={() => navigate('/kanban-board')}
+                                    className="px-4 py-2 text-sm bg-secondary-100 text-secondary-700 hover:bg-secondary-200 rounded-lg font-medium flex items-center gap-2 transition-colors"
+                                >
+                                    View Full Board <Icon name="ArrowRight" size={16} />
+                                </button>
+                            }
+                        />
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {['To Do', 'In Progress', 'Review'].map(columnName => {
+                                const columnTasks = mockTasks.filter(t => t.status === columnName);
+                                return (
+                                    <div key={columnName} className="bg-secondary-50/50 border border-border rounded-xl p-4 flex flex-col h-full min-h-[300px]">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-semibold text-text-primary text-sm">{columnName}</h3>
+                                                <span className="px-2 py-0.5 bg-secondary-200 text-secondary-700 text-xs rounded-full font-medium">
+                                                    {columnTasks.length}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3 flex-1">
+                                            {columnTasks.map(task => (
+                                                <div key={task.id} className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow transition-shadow cursor-pointer hover:border-primary-300">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <span className="text-xs font-semibold text-text-secondary bg-secondary-100 px-2 py-0.5 rounded">
+                                                            {task.course}
+                                                        </span>
+                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.priority === 'High' ? 'text-error-700 bg-error-50' :
+                                                                task.priority === 'Medium' ? 'text-warning-700 bg-warning-50' :
+                                                                    'text-success-700 bg-success-50'
+                                                            }`}>
+                                                            {task.priority}
+                                                        </span>
+                                                    </div>
+                                                    <h4 className="text-sm font-medium text-text-primary mb-3">{task.title}</h4>
+                                                    <div className="flex items-center justify-between mt-auto pt-2 border-t border-border border-dashed text-xs text-text-secondary">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <Icon name="Calendar" size={12} />
+                                                            <span>{task.dueDate}</span>
+                                                        </div>
+                                                        {task.status === 'In Progress' && (
+                                                            <div className="flex items-center gap-1 text-warning-600 font-medium">
+                                                                <Icon name="Clock" size={12} />
+                                                                <span>Working</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {columnTasks.length === 0 && (
+                                                <div className="h-full flex flex-col items-center justify-center text-text-secondary text-sm border-2 border-dashed border-border rounded-lg p-6 bg-surface/50">
+                                                    <Icon name="CheckCircle2" size={24} className="mb-2 text-secondary-300" />
+                                                    All clear!
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* Add Task Button for each column */}
+                                        <button className="w-full mt-3 p-2.5 border-2 border-dashed border-secondary-300 rounded-lg text-secondary-500 hover:border-primary-300 hover:text-primary hover:bg-primary-50 transition-colors duration-200 flex items-center justify-center space-x-2">
+                                            <Icon name="Plus" size={14} />
+                                            <span className="text-xs font-medium">Add task</span>
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                 </div>
             </main >
         </div >

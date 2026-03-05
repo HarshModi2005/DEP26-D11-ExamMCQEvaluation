@@ -13,7 +13,7 @@ export default defineConfig({
     },
     plugins: [tsconfigPaths(), react(), tagger()],
     server: {
-        port: "4028",
+        port: "3000",
         host: "0.0.0.0",
         strictPort: true,
         allowedHosts: ['.amazonaws.com', '.builtwithrocket.new']

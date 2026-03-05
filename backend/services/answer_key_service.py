@@ -37,7 +37,7 @@ class AnswerKeyService:
             except Exception as e:
                 print(f"⚠️ Failed to load Service Account in AnswerKeyService: {e}")
 
-        self.vertex_api_key = os.getenv("VERTEX_AI_API_KEY")
+        self.vertex_api_key = os.getenv("VERTEX_AI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
         # Construct URL
         if self.creds:

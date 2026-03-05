@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../context/AuthContext';
@@ -86,8 +85,7 @@ const AnalyticsDashboard = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
-            <main className="lg:ml-64 pt-16 transition-all duration-300">
+            <main className="pt-16 transition-all duration-300">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
                     <PageHeader
                         title="Analytics"

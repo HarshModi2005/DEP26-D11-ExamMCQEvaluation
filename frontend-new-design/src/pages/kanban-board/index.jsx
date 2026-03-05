@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import CommandPalette from '../../components/ui/CommandPalette';
 import TaskDetailModal from '../../components/ui/TaskDetailModal';
 import PageHeader from '../../components/ui/PageHeader';
@@ -281,10 +280,9 @@ const KanbanBoard = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
             <CommandPalette />
 
-            <main className="ml-60 mt-16 p-6 flex flex-col h-[calc(100vh-4rem)]">
+            <main className="mt-16 p-6 flex flex-col h-[calc(100vh-4rem)]">
                 {/* Page Header with Actions */}
                 <PageHeader
                     actions={

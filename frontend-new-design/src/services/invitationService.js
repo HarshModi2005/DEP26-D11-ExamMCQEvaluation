@@ -32,7 +32,7 @@ export const invitationService = {
             .select('*')
             .eq('course_id', courseId)
             .eq('email', email)
-            .single();
+            .maybeSingle();
 
         if (existing) {
             if (existing.status === 'accepted') {

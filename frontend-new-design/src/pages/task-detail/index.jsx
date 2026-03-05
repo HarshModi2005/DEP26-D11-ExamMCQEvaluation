@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import CommandPalette from '../../components/ui/CommandPalette';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
@@ -211,8 +210,7 @@ See the attached Figma designs for UI implementation details.`,
             <div className="min-h-screen bg-background">
                 <Header />
                 <div className="flex">
-                    <Sidebar />
-                    <div className="flex-1 pt-16 pl-60">
+                    <div className="flex-1 pt-16">
                         <div className="flex items-center justify-center h-screen">
                             <div className="flex flex-col items-center">
                                 <Icon name="Loader" size={48} className="animate-spin text-primary mb-4" />
@@ -231,8 +229,7 @@ See the attached Figma designs for UI implementation details.`,
             <div className="min-h-screen bg-background">
                 <Header />
                 <div className="flex">
-                    <Sidebar />
-                    <div className="flex-1 pt-16 pl-60">
+                    <div className="flex-1 pt-16">
                         <div className="flex items-center justify-center h-screen">
                             <div className="text-center">
                                 <Icon name="AlertTriangle" size={48} className="text-warning mx-auto mb-4" />
@@ -257,8 +254,7 @@ See the attached Figma designs for UI implementation details.`,
         <div className="min-h-screen bg-background">
             <Header />
             <div className="flex">
-                <Sidebar />
-                <div className="flex-1 pt-16 pl-60">
+                <div className="flex-1 pt-16">
                     <div className="p-6">
                         {/* Page Header */}
                         <PageHeader
@@ -302,7 +298,7 @@ See the attached Figma designs for UI implementation details.`,
                                                         key={tab}
                                                         onClick={() => setActiveTab(tab)}
                                                         className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab
-                                                                ? 'border-primary text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
+                                                            ? 'border-primary text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
                                                             }`}
                                                     >
                                                         {tab.charAt(0).toUpperCase() + tab.slice(1)}

@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import CommandPalette from '../../components/ui/CommandPalette';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
@@ -25,11 +24,10 @@ const TeamManagement = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
             <CommandPalette />
 
             {/* Main Content */}
-            <main className="pt-16 lg:pl-60">
+            <main className="pt-16">
                 <div className="p-6">
                     {/* Page Header */}
                     <PageHeader

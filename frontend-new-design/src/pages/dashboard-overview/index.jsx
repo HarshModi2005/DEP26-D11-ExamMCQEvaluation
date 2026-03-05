@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import CommandPalette from '../../components/ui/CommandPalette';
 import TaskDetailModal from '../../components/ui/TaskDetailModal';
 import PageHeader from '../../components/ui/PageHeader';
@@ -214,11 +213,10 @@ const DashboardOverview = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
             <CommandPalette />
 
             {/* Main Content */}
-            <main className="lg:ml-60 pt-16">
+            <main className="pt-16">
                 <div className="p-6">
                     {/* Page Header */}
                     <PageHeader

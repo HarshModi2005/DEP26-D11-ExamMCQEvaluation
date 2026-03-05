@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import Header from '../../components/ui/Header';
-import Sidebar from '../../components/ui/Sidebar';
 import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
 
@@ -38,9 +37,8 @@ const GradingDutyAllocation = () => {
     return (
         <div className="min-h-screen bg-background">
             <Header />
-            <Sidebar />
 
-            <main className="lg:ml-60 pt-16">
+            <main className="pt-16">
                 <div className="p-6 max-w-7xl mx-auto space-y-6">
                     <PageHeader
                         title="Grading Duty Allocation"

@@ -3,9 +3,12 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
-    const { user, loading } = useAuth();
+    const { user, loading, profile } = useAuth();
+
+    console.log('[ProtectedRoute] render — loading:', loading, 'user:', user?.email, 'profile:', profile?.name);
 
     if (loading) {
+        console.log('[ProtectedRoute] showing loading spinner');
         return (
             <div className="min-h-screen bg-background flex items-center justify-center">
                 <div className="flex flex-col items-center space-y-4">
@@ -17,9 +20,11 @@ const ProtectedRoute = ({ children }) => {
     }
 
     if (!user) {
+        console.log('[ProtectedRoute] no user, redirecting to /login-register');
         return <Navigate to="/login-register" replace />;
     }
 
+    console.log('[ProtectedRoute] user authenticated, rendering children');
     return children;
 };
 
