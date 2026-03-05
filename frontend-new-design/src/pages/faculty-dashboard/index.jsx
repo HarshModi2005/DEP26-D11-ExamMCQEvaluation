@@ -6,6 +6,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../context/AuthContext';
 import { courseService } from '../../services/courseService';
+import { invitationService } from '../../services/invitationService';
 
 const GRADIENT_COLORS = [
     'from-blue-500 to-blue-600',
@@ -112,10 +113,12 @@ const FacultyDashboard = () => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [courses, setCourses] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [pendingInvites, setPendingInvites] = useState([]);
+    const [acceptingId, setAcceptingId] = useState(null);
 
     useEffect(() => {
         if (!user || !profile) return;
@@ -136,7 +139,34 @@ const FacultyDashboard = () => {
             }
         };
         fetchCourses();
+
+        // Fetch pending invitations for TAs
+        if (profile.role === 'ta' && user.email) {
+            invitationService.getMyPendingInvitations(user.email)
+                .then(data => setPendingInvites(data || []))
+                .catch(() => { });
+        }
     }, [user, profile]);
+
+    const handleAcceptInvite = async (inv) => {
+        setAcceptingId(inv.id);
+        try {
+            await invitationService.acceptInvitation(inv.id, user.id);
+            setPendingInvites(prev => prev.filter(i => i.id !== inv.id));
+            // Refresh courses
+            const data = await courseService.getCoursesByTA(user.id);
+            setCourses(data || []);
+        } catch (err) {
+            setError('Failed to accept invitation: ' + err.message);
+        } finally {
+            setAcceptingId(null);
+        }
+    };
+
+    const handleDeclineInvite = async (invId) => {
+        await invitationService.declineInvitation(invId);
+        setPendingInvites(prev => prev.filter(i => i.id !== invId));
+    };
 
     const filtered = courses.filter(c =>
         c.title?.toLowerCase().includes(search.toLowerCase()) ||
@@ -173,7 +203,51 @@ const FacultyDashboard = () => {
                             )
                         }
                     />
-
+                    {/* Pending Course Invitations for TAs */}
+                    {pendingInvites.length > 0 && (
+                        <div className="bg-primary-50 border border-primary-200 rounded-xl p-5">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Icon name="Mail" size={20} className="text-primary" />
+                                <h3 className="font-semibold text-text-primary">Course Invitations</h3>
+                                <span className="px-2 py-0.5 bg-primary text-white text-xs rounded-full">{pendingInvites.length}</span>
+                            </div>
+                            <div className="space-y-2">
+                                {pendingInvites.map(inv => (
+                                    <div key={inv.id} className="bg-surface border border-border rounded-lg p-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700">
+                                                <Icon name="BookOpen" size={20} />
+                                            </div>
+                                            <div>
+                                                <p className="font-medium text-text-primary">
+                                                    {inv.courses?.code ? `${inv.courses.code} — ` : ''}{inv.courses?.title || 'Unknown Course'}
+                                                </p>
+                                                <p className="text-xs text-text-secondary">
+                                                    Invited by {inv.courses?.profiles?.name || 'a professor'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={() => handleDeclineInvite(inv.id)}
+                                                className="px-3 py-1.5 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors text-sm">
+                                                Decline
+                                            </button>
+                                            <button onClick={() => handleAcceptInvite(inv)}
+                                                disabled={acceptingId === inv.id}
+                                                className="px-4 py-1.5 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors text-sm disabled:opacity-50 flex items-center gap-1">
+                                                {acceptingId === inv.id ? (
+                                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                ) : (
+                                                    <Icon name="Check" size={14} />
+                                                )}
+                                                Accept
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     {/* Search */}
                     <div className="flex items-center space-x-4">
                         <div className="relative flex-1 max-w-md">
@@ -250,8 +324,8 @@ const FacultyDashboard = () => {
                         </div>
                     )}
                 </div>
-            </main>
-        </div>
+            </main >
+        </div >
     );
 };
 

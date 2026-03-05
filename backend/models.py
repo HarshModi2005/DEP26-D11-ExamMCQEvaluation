@@ -1,34 +1,8 @@
-from enum import Enum
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
-# ── Authentication Models ──
-
-class UserRole(str, Enum):
-    TA = "ta"
-    STUDENT = "student"
-
-
-class User(BaseModel):
-    id: str
-    email: str
-    password: str
-    role: UserRole
-    roll_number: Optional[str] = None
-
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    role: UserRole
-    roll_number: Optional[str] = None
-
-
+# NOTE: Authentication is handled entirely by Supabase on the frontend.
+# No backend auth models needed.
 
 
 # ── Existing Models ──

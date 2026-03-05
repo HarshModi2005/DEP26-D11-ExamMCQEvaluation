@@ -1,11 +1,18 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
+import { useAuth } from '../../context/AuthContext';
 
 const LoginRegister = () => {
+    const { user, loading } = useAuth();
     const [activeTab, setActiveTab] = useState('login');
 
+    // If already authenticated, redirect to dashboard
+    if (!loading && user) {
+        return <Navigate to="/faculty-dashboard" replace />;
+    }
     return (
         <div className="min-h-screen bg-gradient-to-br from-primary-50 via-background to-secondary-50 flex items-center justify-center px-4 py-8">
             <div className="w-full max-w-6xl">

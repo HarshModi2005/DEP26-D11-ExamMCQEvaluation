@@ -8,9 +8,10 @@ const Header = () => {
     const { profile, user, logout } = useAuth();
     const navigate = useNavigate();
 
-    const initials = profile?.name
-        ? profile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-        : '??';
+    const displayName = profile?.name || user?.email?.split('@')[0] || 'User';
+
+    const initials = displayName
+        .split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
     const handleLogout = async () => {
         await logout();
@@ -51,7 +52,7 @@ const Header = () => {
                                 <span className="text-sm font-semibold text-primary-700">{initials}</span>
                             </div>
                             <div className="hidden md:block text-left">
-                                <p className="text-sm font-medium text-text-primary leading-tight">{profile?.name || 'Loading...'}</p>
+                                <p className="text-sm font-medium text-text-primary leading-tight">{displayName}</p>
                                 <p className="text-xs text-text-secondary capitalize">{profile?.role || user?.email || ''}</p>
                             </div>
                             <Icon name="ChevronDown" size={16} color="#64748B" />
@@ -61,7 +62,7 @@ const Header = () => {
                         {isUserMenuOpen && (
                             <div className="absolute right-0 top-12 w-56 bg-surface border border-border rounded-lg shadow-xl z-150">
                                 <div className="p-3 border-b border-border">
-                                    <p className="text-sm font-semibold text-text-primary">{profile?.name}</p>
+                                    <p className="text-sm font-semibold text-text-primary">{displayName}</p>
                                     <p className="text-xs text-text-secondary capitalize">{profile?.role} {profile?.department ? `• ${profile.department}` : ''}</p>
                                     {profile?.entry_number && (
                                         <p className="text-xs text-text-secondary font-mono mt-0.5">{profile.entry_number}</p>

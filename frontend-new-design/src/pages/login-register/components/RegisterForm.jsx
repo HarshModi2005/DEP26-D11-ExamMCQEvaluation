@@ -14,6 +14,7 @@ const RegisterForm = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [passwordStrength, setPasswordStrength] = useState({ score: 0, feedback: [] });
+    const [registrationSuccess, setRegistrationSuccess] = useState(false);
 
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -65,19 +66,50 @@ const RegisterForm = () => {
         if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
         setIsSubmitting(true);
         try {
-            await register(formData.email, formData.password, {
+            const result = await register(formData.email, formData.password, {
                 name: `${formData.firstName} ${formData.lastName}`,
                 role: formData.role,
                 entryNumber: formData.entryNumber,
                 department: formData.department,
             });
-            navigate('/faculty-dashboard');
+
+            if (result?.confirmEmail) {
+                // Email confirmation required — show success message
+                setRegistrationSuccess(true);
+            } else {
+                // Auto-confirmed — go straight to dashboard
+                navigate('/faculty-dashboard');
+            }
         } catch (err) {
+            console.error('Registration API Error:', err);
             setErrors({ general: err.message || 'Registration failed. Please try again.' });
         } finally {
             setIsSubmitting(false);
         }
     };
+
+    if (registrationSuccess) {
+        return (
+            <div className="space-y-6 text-center">
+                <div className="w-16 h-16 bg-success-50 rounded-full flex items-center justify-center mx-auto">
+                    <Icon name="CheckCircle" size={32} className="text-success" />
+                </div>
+                <div>
+                    <h3 className="text-xl font-semibold text-text-primary mb-2">Account created!</h3>
+                    <p className="text-text-secondary">
+                        We've sent a confirmation link to <strong>{formData.email}</strong>.
+                        Please check your inbox and click the link to activate your account.
+                    </p>
+                </div>
+                <div className="p-4 bg-primary-50 border border-primary-100 rounded-lg">
+                    <p className="text-sm text-primary-700">
+                        <Icon name="Info" size={14} className="inline mr-1" />
+                        After confirming your email, return here and sign in with your credentials.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <form onSubmit={handleSubmit} className="space-y-5">

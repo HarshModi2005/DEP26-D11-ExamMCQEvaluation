@@ -10,6 +10,7 @@ import { courseService } from '../../services/courseService';
 import { evaluationService } from '../../services/evaluationService';
 import { studentService } from '../../services/studentService';
 import { teamService } from '../../services/teamService';
+import { invitationService } from '../../services/invitationService';
 import { resultsService } from '../../services/resultsService';
 import { backendService } from '../../services/backendService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -193,20 +194,30 @@ const CourseDetail = () => {
     const [taSearchResults, setTaSearchResults] = useState([]);
     const [taSearchLoading, setTaSearchLoading] = useState(false);
 
+    // Invitation state
+    const [invitations, setInvitations] = useState([]);
+    const [showInviteModal, setShowInviteModal] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [inviteError, setInviteError] = useState('');
+    const [inviteSuccess, setInviteSuccess] = useState('');
+
     // Fetch all data
     const fetchAll = useCallback(async () => {
         setLoading(true);
         try {
-            const [courseData, evalsData, studentsData, tasData] = await Promise.all([
+            const [courseData, evalsData, studentsData, tasData, invitesData] = await Promise.all([
                 courseService.getCourseById(courseId),
                 evaluationService.getEvaluationsByCourse(courseId),
                 studentService.getStudentsByCourse(courseId),
                 teamService.getTAsByCourse(courseId),
+                invitationService.getInvitationsByCourse(courseId).catch(() => []),
             ]);
             setCourse(courseData);
             setEvaluations(evalsData || []);
             setStudents(studentsData || []);
             setTAs(tasData || []);
+            setInvitations(invitesData || []);
             if (courseData?.master_sheet_url) setImportUrl(courseData.master_sheet_url);
         } catch (err) {
             console.error('Failed to load course:', err);
@@ -266,6 +277,30 @@ const CourseDetail = () => {
     const handleRemoveTA = async (taId) => {
         await teamService.removeTA(courseId, taId);
         setTAs(prev => prev.filter(t => t.id !== taId));
+    };
+
+    const handleInviteTA = async (e) => {
+        e.preventDefault();
+        if (!inviteEmail.trim()) return;
+        setInviteLoading(true);
+        setInviteError('');
+        setInviteSuccess('');
+        try {
+            const inv = await invitationService.inviteTA(courseId, inviteEmail.trim(), user.id);
+            setInvitations(prev => [inv, ...prev]);
+            setInviteSuccess(`Invitation sent to ${inviteEmail.trim()}`);
+            setInviteEmail('');
+            setTimeout(() => { setShowInviteModal(false); setInviteSuccess(''); }, 1500);
+        } catch (err) {
+            setInviteError(err.message);
+        } finally {
+            setInviteLoading(false);
+        }
+    };
+
+    const handleCancelInvite = async (invId) => {
+        await invitationService.cancelInvitation(invId);
+        setInvitations(prev => prev.filter(i => i.id !== invId));
     };
 
     const handleEvalStatusChange = async (evalId, status) => {
@@ -545,10 +580,69 @@ const CourseDetail = () => {
 
                         {/* ── TEACHING TEAM ── */}
                         {activeTab === 'team' && (
-                            <div className="space-y-5">
+                            <div className="space-y-6">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-lg font-medium text-text-primary">Teaching Team</h3>
+                                    {profile?.role === 'professor' && (
+                                        <button onClick={() => { setShowInviteModal(true); setInviteError(''); setInviteSuccess(''); }}
+                                            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors text-sm shadow-sm">
+                                            <Icon name="UserPlus" size={16} />
+                                            Invite TA
+                                        </button>
+                                    )}
                                 </div>
+
+                                {/* ── Invite TA Modal ── */}
+                                {showInviteModal && (
+                                    <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+                                        <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                                            <div className="flex items-center justify-between p-6 border-b border-border">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
+                                                        <Icon name="UserPlus" size={20} className="text-primary" />
+                                                    </div>
+                                                    <div>
+                                                        <h2 className="text-lg font-semibold text-text-primary">Invite TA</h2>
+                                                        <p className="text-xs text-text-secondary">Send an invitation by email</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => setShowInviteModal(false)} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                                                    <Icon name="X" size={20} className="text-secondary-500" />
+                                                </button>
+                                            </div>
+                                            <form onSubmit={handleInviteTA} className="p-6 space-y-4">
+                                                {inviteError && (
+                                                    <div className="p-3 bg-error-50 border border-error-100 rounded-lg text-sm text-error flex items-center gap-2">
+                                                        <Icon name="AlertCircle" size={16} />{inviteError}
+                                                    </div>
+                                                )}
+                                                {inviteSuccess && (
+                                                    <div className="p-3 bg-success-50 border border-success-100 rounded-lg text-sm text-success-700 flex items-center gap-2">
+                                                        <Icon name="CheckCircle" size={16} />{inviteSuccess}
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <label className="block text-sm font-medium text-text-primary mb-1.5">TA's Email Address</label>
+                                                    <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                                                        placeholder="ta@university.edu" required
+                                                        className="w-full px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors text-sm" />
+                                                    <p className="text-xs text-text-secondary mt-1.5">
+                                                        The TA will be added automatically when they sign up with this email. If they already have an account, they'll see the course in their dashboard.
+                                                    </p>
+                                                </div>
+                                                <div className="flex justify-end gap-3 pt-1">
+                                                    <button type="button" onClick={() => setShowInviteModal(false)}
+                                                        className="px-4 py-2.5 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors text-sm">Cancel</button>
+                                                    <button type="submit" disabled={inviteLoading}
+                                                        className="px-5 py-2.5 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2 text-sm">
+                                                        {inviteLoading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Send" size={16} />}
+                                                        {inviteLoading ? 'Sending...' : 'Send Invitation'}
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Instructor */}
                                 <div>
@@ -564,18 +658,18 @@ const CourseDetail = () => {
                                     </div>
                                 </div>
 
-                                {/* TAs */}
+                                {/* Active TAs */}
                                 <div>
                                     <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Teaching Assistants ({tas.length})</p>
 
-                                    {/* Add TA search */}
+                                    {/* Quick search to add existing TAs */}
                                     {profile?.role === 'professor' && (
                                         <div className="mb-4 relative">
                                             <div className="flex gap-2">
                                                 <div className="relative flex-1">
                                                     <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary-400" />
                                                     <input type="text" value={taSearch} onChange={e => handleTaSearch(e.target.value)}
-                                                        placeholder="Search TAs by name or entry number..."
+                                                        placeholder="Search registered TAs by name or entry number..."
                                                         className="w-full pl-9 pr-4 py-2.5 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500 transition-colors" />
                                                 </div>
                                             </div>
@@ -603,29 +697,64 @@ const CourseDetail = () => {
                                     )}
 
                                     {tas.length === 0 ? (
-                                        <p className="text-sm text-text-secondary">No TAs assigned yet.</p>
+                                        <p className="text-sm text-text-secondary italic">No TAs assigned yet. Use the search above or invite a TA by email.</p>
                                     ) : (
                                         <div className="space-y-2">
                                             {tas.map(ta => (
                                                 <div key={ta.id} className="border border-border rounded-lg p-4 flex items-center justify-between">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 rounded-full bg-secondary-100 flex items-center justify-center text-secondary-600 font-bold text-sm">
+                                                        <div className="w-10 h-10 rounded-full bg-success-50 flex items-center justify-center text-success-700 font-bold text-sm">
                                                             {ta.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
                                                         </div>
                                                         <div>
                                                             <p className="font-medium text-text-primary">{ta.name}</p>
                                                             <p className="text-sm text-text-secondary">{ta.entry_number || ''} {ta.department ? `• ${ta.department}` : ''}</p>
                                                         </div>
+                                                        <span className="ml-2 px-2 py-0.5 bg-success-50 text-success-700 text-xs font-medium rounded-full">Active</span>
                                                     </div>
                                                     {profile?.role === 'professor' && (
                                                         <button onClick={() => handleRemoveTA(ta.id)}
-                                                            className="text-error hover:text-error-700 text-sm transition-colors">Remove</button>
+                                                            className="text-error hover:text-error-700 text-sm transition-colors flex items-center gap-1">
+                                                            <Icon name="UserMinus" size={14} /> Remove
+                                                        </button>
                                                     )}
                                                 </div>
                                             ))}
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Pending Invitations */}
+                                {profile?.role === 'professor' && invitations.filter(i => i.status === 'pending').length > 0 && (
+                                    <div>
+                                        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                                            Pending Invitations ({invitations.filter(i => i.status === 'pending').length})
+                                        </p>
+                                        <div className="space-y-2">
+                                            {invitations.filter(i => i.status === 'pending').map(inv => (
+                                                <div key={inv.id} className="border border-dashed border-warning-300 bg-warning-50 rounded-lg p-4 flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-full bg-warning-100 flex items-center justify-center text-warning-700">
+                                                            <Icon name="Clock" size={20} />
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-medium text-text-primary">{inv.email}</p>
+                                                            <p className="text-xs text-text-secondary">
+                                                                Invited {new Date(inv.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                {inv.profiles?.name ? ` by ${inv.profiles.name}` : ''}
+                                                            </p>
+                                                        </div>
+                                                        <span className="ml-2 px-2 py-0.5 bg-warning-100 text-warning-700 text-xs font-medium rounded-full">Pending</span>
+                                                    </div>
+                                                    <button onClick={() => handleCancelInvite(inv.id)}
+                                                        className="text-error hover:text-error-700 text-sm transition-colors flex items-center gap-1">
+                                                        <Icon name="X" size={14} /> Cancel
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 

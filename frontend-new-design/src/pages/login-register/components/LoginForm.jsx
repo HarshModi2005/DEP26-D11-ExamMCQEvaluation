@@ -37,6 +37,7 @@ const LoginForm = () => {
             await login(formData.email, formData.password);
             navigate('/faculty-dashboard');
         } catch (err) {
+            console.error('Login API Error:', err);
             setErrors({ general: err.message || 'Invalid email or password.' });
         } finally {
             setIsSubmitting(false);

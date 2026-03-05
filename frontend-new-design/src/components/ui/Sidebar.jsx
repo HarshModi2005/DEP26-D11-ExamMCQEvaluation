@@ -10,7 +10,6 @@ const Sidebar = () => {
 
     const navItems = [
         { path: '/faculty-dashboard', label: 'My Courses', icon: 'BookOpen' },
-        { path: '/kanban-board', label: 'Grading Queue', icon: 'Kanban' },
         { path: '/analytics-dashboard', label: 'Analytics', icon: 'BarChart3' },
     ];
 
