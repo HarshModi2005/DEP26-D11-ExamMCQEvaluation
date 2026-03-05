@@ -43,27 +43,23 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Call the backend login endpoint
-      const response = await api.post("/auth/login", {
-        email: formData.email,
-        password: formData.password
-      });
-
-      const { user, token } = response.data;
+      // Mock successful login
+      const mockUser = { role: role };
+      const mockToken = "dummy_token";
 
       // Store in localStorage for session persistence
-      localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
+      localStorage.setItem("token", mockToken);
+      localStorage.setItem("user", JSON.stringify(mockUser));
 
-      // Redirect based on server-returned role
-      if (user.role === "ta") {
+      // Redirect based on selected role
+      if (role === "ta") {
         router.push("/admin/dashboard");
       } else {
         router.push("/student/dashboard");
       }
     } catch (err: any) {
       console.error("Login failed:", err);
-      setError(err.response?.data?.detail || "Invalid email or password. Please try again.");
+      setError("Login error");
     } finally {
       setIsLoading(false);
     }
