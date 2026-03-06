@@ -40,9 +40,32 @@ export const resultsService = {
                     if (exact) studentId = exact.id;
                     else console.warn(`Multiple students found for roll: ${r.entry_number}, unable to match.`);
                 } else {
-                    console.warn(`Student not found for roll: ${r.entry_number}. Saving result without student link.`);
-                    skipped.push(r.entry_number);
+                    console.warn(`Student not found for roll: ${r.entry_number}. Auto-creating new student record.`);
+                    const cleanRoll = String(r.entry_number).trim().toUpperCase();
+
+                    const { data: newStudent, error: createErr } = await supabase
+                        .from('students')
+                        .upsert([{ roll_number: cleanRoll, name: r.name || 'Unknown' }], { onConflict: 'roll_number' })
+                        .select('id')
+                        .single();
+
+                    if (newStudent) {
+                        studentId = newStudent.id;
+                        // Link new student to course
+                        await supabase.from('course_students').upsert([{
+                            course_id: courseId,
+                            student_id: studentId
+                        }], { onConflict: 'course_id,student_id', ignoreDuplicates: true });
+                    } else {
+                        console.error(`Failed to create missing student ${r.entry_number}`, createErr);
+                        skipped.push(r.entry_number);
+                    }
                 }
+            }
+
+            if (!studentId) {
+                console.warn(`Skipping result for ${r.entry_number} because student_id is null`);
+                continue;
             }
 
             inserts.push({
@@ -56,8 +79,7 @@ export const resultsService = {
                 unattempted_count: r.unattempted_count,
                 negative_deduction: r.negative_deduction || 0,
                 details: r.details || [],
-                // Store roll number in comments when student couldn't be linked
-                comments: studentId ? (r.comments || '') : `[Roll: ${r.entry_number}] ${r.comments || ''}`,
+                comments: r.comments || '',
             });
         }
 
@@ -66,6 +88,17 @@ export const resultsService = {
         }
 
         if (inserts.length === 0) return;
+
+        // Clear existing results for this evaluation to prevent ghost duplicates from previous runs
+        const { error: deleteError } = await supabase
+            .from('submission_results')
+            .delete()
+            .eq('evaluation_id', evaluationId);
+
+        if (deleteError) {
+            console.error('Failed to clear old results:', deleteError);
+            throw deleteError;
+        }
 
         const { data, error } = await supabase
             .from('submission_results')
