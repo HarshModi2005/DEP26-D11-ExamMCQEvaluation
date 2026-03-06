@@ -433,7 +433,7 @@ def preview_sheet(sheet_url: str):
     Does NOT write anything.
     """
     try:
-        data = sheets_service.read_student_list(sheet_url)
+        data = sheets_service.read_student_list(sheet_url, require_student_names_tab=True)
         return {
             "sheet_name": data["sheet_name"],
             "columns_detected": data["columns"],
