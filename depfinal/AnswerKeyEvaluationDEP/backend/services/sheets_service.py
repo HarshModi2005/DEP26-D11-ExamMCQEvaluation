@@ -217,8 +217,17 @@ class SheetsService:
             entry_number = self._safe_get(row, entry_col, '').strip()
             if not entry_number:
                 continue
+                
+            # Ignore statistics summary rows
+            if entry_number.upper() in ("STATISTICS", "MEAN", "MEDIAN", "HIGHEST", "LOWEST", "MEAN / AVERAGE"):
+                continue
 
             name = self._safe_get(row, name_col, '').strip() if name_col is not None else ''
+            
+            # The user explicitly wants to only import entries that have a value under "Name"
+            if not name:
+                continue
+                
             existing_comment = self._safe_get(row, comments_col, '') if comments_col is not None else ''
 
             students.append({
