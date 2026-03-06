@@ -65,18 +65,6 @@ const CreateEvalModal = ({ course, courseTAs, instructor, currentUserId, onClose
                 createdBy: currentUserId,
             });
 
-            // If a subsheet name is provided AND the course has a master sheet configured,
-            // attempt to create the tab via the backend
-            if (form.subsheetName && course?.master_sheet_url) {
-                try {
-                    await backendService.createSheetTab(course.master_sheet_url, form.subsheetName);
-                    console.log(`Successfully requested creation of tab: ${form.subsheetName}`);
-                } catch (sheetErr) {
-                    console.error("Failed to create sheet tab automatically:", sheetErr);
-                    // We don't block the evaluation creation success if sheet tab creation fails
-                }
-            }
-
             onCreated(ev);
             onClose();
         } catch (err) {
