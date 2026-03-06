@@ -1,5 +1,36 @@
 import { supabase } from './supabaseClient';
 
+// Helper: Levenshtein distance
+function getLevenshteinDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+// Helper: clean roll number (alphanumeric only, uppercase)
+function cleanRollString(str) {
+    return String(str || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+}
+
 export const resultsService = {
     /**
      * Save/upsert an array of StudentResult objects for an evaluation.
@@ -8,58 +39,74 @@ export const resultsService = {
     async saveResults(evaluationId, courseId, results, gradedById) {
         if (!results || results.length === 0) return;
 
+        // Pre-fetch all students in the course for fuzzy matching
+        const { data: allCourseStudents } = await supabase
+            .from('course_students')
+            .select('student_id, students(id, roll_number)')
+            .eq('course_id', courseId);
+
+        const courseStudentRegistry = (allCourseStudents || []).map(cs => ({
+            id: cs.student_id,
+            roll_number: cs.students.roll_number,
+            clean_roll: cleanRollString(cs.students.roll_number)
+        }));
+
         const inserts = [];
         const skipped = [];
 
         for (const r of results) {
             let studentId = null;
+            const targetRaw = String(r.entry_number || '').trim();
+            const targetClean = cleanRollString(targetRaw);
 
-            // Look up the student via the course_students junction table
-            const { data: courseStudent } = await supabase
-                .from('course_students')
-                .select('student_id, students(id, roll_number)')
-                .eq('course_id', courseId)
-                .eq('students.roll_number', r.entry_number)
-                .maybeSingle();
+            // 1. Exact match against course registry
+            let match = courseStudentRegistry.find(s => s.roll_number.toUpperCase() === targetRaw.toUpperCase());
 
-            if (courseStudent?.student_id) {
-                studentId = courseStudent.student_id;
-            } else {
-                // Fallback: search all students globally by roll number (case-insensitive)
-                const { data: globalStudents } = await supabase
-                    .from('students')
-                    .select('id, roll_number')
-                    .ilike('roll_number', r.entry_number);
+            // 2. Clean alphanumeric match against course registry
+            if (!match) {
+                match = courseStudentRegistry.find(s => s.clean_roll === targetClean);
+            }
 
-                if (globalStudents && globalStudents.length === 1) {
-                    studentId = globalStudents[0].id;
-                    console.warn(`Matched student globally: ${r.entry_number} -> ${globalStudents[0].roll_number}`);
-                } else if (globalStudents && globalStudents.length > 1) {
-                    // Multiple global matches — try exact match
-                    const exact = globalStudents.find(s => s.roll_number.toUpperCase() === r.entry_number.toUpperCase());
-                    if (exact) studentId = exact.id;
-                    else console.warn(`Multiple students found for roll: ${r.entry_number}, unable to match.`);
-                } else {
-                    console.warn(`Student not found for roll: ${r.entry_number}. Auto-creating new student record.`);
-                    const cleanRoll = String(r.entry_number).trim().toUpperCase();
+            // 3. Fuzzy match (Levenshtein distance <= 2) against course registry
+            if (!match && targetClean.length > 5) {
+                let bestMatch = null;
+                let bestDist = 3; // Max threshold is 2
 
-                    const { data: newStudent, error: createErr } = await supabase
-                        .from('students')
-                        .upsert([{ roll_number: cleanRoll, name: r.name || 'Unknown' }], { onConflict: 'roll_number' })
-                        .select('id')
-                        .single();
-
-                    if (newStudent) {
-                        studentId = newStudent.id;
-                        // Link new student to course
-                        await supabase.from('course_students').upsert([{
-                            course_id: courseId,
-                            student_id: studentId
-                        }], { onConflict: 'course_id,student_id', ignoreDuplicates: true });
-                    } else {
-                        console.error(`Failed to create missing student ${r.entry_number}`, createErr);
-                        skipped.push(r.entry_number);
+                for (const reg of courseStudentRegistry) {
+                    const dist = getLevenshteinDistance(targetClean, reg.clean_roll);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestMatch = reg;
                     }
+                }
+                if (bestMatch) {
+                    match = bestMatch;
+                    console.log(`Fuzzy matched OCR typo [${targetRaw}] to student [${match.roll_number}]`);
+                }
+            }
+
+            if (match) {
+                studentId = match.id;
+            } else {
+                console.warn(`Student not found for roll: ${r.entry_number}. Auto-creating new student record.`);
+                const cleanRoll = targetClean || 'UNKNOWN';
+
+                const { data: newStudent, error: createErr } = await supabase
+                    .from('students')
+                    .upsert([{ roll_number: cleanRoll, name: r.name || 'Unknown' }], { onConflict: 'roll_number' })
+                    .select('id')
+                    .single();
+
+                if (newStudent) {
+                    studentId = newStudent.id;
+                    // Link new student to course
+                    await supabase.from('course_students').upsert([{
+                        course_id: courseId,
+                        student_id: studentId
+                    }], { onConflict: 'course_id,student_id', ignoreDuplicates: true });
+                } else {
+                    console.error(`Failed to create missing student ${r.entry_number}`, createErr);
+                    skipped.push(r.entry_number);
                 }
             }
 
