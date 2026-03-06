@@ -61,10 +61,29 @@ export const courseService = {
     },
 
     /**
+     * Helper to validate that a master sheet URL is unique across the system.
+     * Throws an error if the URL is already taken by another course.
+     */
+    async validateMasterSheetUrl(url, excludeCourseId = null) {
+        if (!url) return;
+        let query = supabase.from('courses').select('id, code, title').eq('master_sheet_url', url);
+        if (excludeCourseId) {
+            query = query.neq('id', excludeCourseId);
+        }
+        const { data, error } = await query;
+        if (error) throw error;
+        if (data && data.length > 0) {
+            const conflict = data[0];
+            throw new Error(`This Google Sheet is already in use by another course (${conflict.code} - ${conflict.title}). Please provide a unique sheet URL.`);
+        }
+    },
+
+    /**
      * Create a new course
      */
     async createCourse({ code, title, description, department, semester, instructorId, masterSheetUrl }) {
         console.log('[CourseService] createCourse called, code:', code, 'title:', title);
+        await this.validateMasterSheetUrl(masterSheetUrl);
         const { data, error } = await supabase
             .from('courses')
             .insert({
@@ -91,6 +110,9 @@ export const courseService = {
      */
     async updateCourse(courseId, updates) {
         console.log('[CourseService] updateCourse called, courseId:', courseId);
+        if (updates.master_sheet_url !== undefined) {
+            await this.validateMasterSheetUrl(updates.master_sheet_url, courseId);
+        }
         const { data, error } = await supabase
             .from('courses')
             .update(updates)

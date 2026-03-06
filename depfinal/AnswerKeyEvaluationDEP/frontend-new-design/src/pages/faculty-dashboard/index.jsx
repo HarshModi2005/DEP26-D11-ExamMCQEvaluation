@@ -6,6 +6,7 @@ import Icon from '../../components/AppIcon';
 import { useAuth } from '../../context/AuthContext';
 import { courseService } from '../../services/courseService';
 import { invitationService } from '../../services/invitationService';
+import { evaluationService } from '../../services/evaluationService';
 
 const GRADIENT_COLORS = [
     'from-blue-500 to-blue-600',
@@ -118,15 +119,8 @@ const FacultyDashboard = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [pendingInvites, setPendingInvites] = useState([]);
     const [acceptingId, setAcceptingId] = useState(null);
-
-    // Mock pending tasks for the Kanban board view
-    const mockTasks = [
-        { id: 1, title: 'Grade Midsem Exam', course: 'CS306', status: 'To Do', priority: 'High', dueDate: 'Mar 10' },
-        { id: 2, title: 'Review A1 Submissions', course: 'CS306', status: 'In Progress', priority: 'Medium', dueDate: 'Mar 12' },
-        { id: 3, title: 'Prepare Quiz 2', course: 'CS101', status: 'To Do', priority: 'Low', dueDate: 'Mar 15' },
-        { id: 4, title: 'Finalize Grades', course: 'CS306', status: 'Review', priority: 'High', dueDate: 'Mar 08' },
-        { id: 5, title: 'Update Syllabus', course: 'CS101', status: 'In Progress', priority: 'Medium', dueDate: 'Mar 20' },
-    ];
+    const [myEvaluations, setMyEvaluations] = useState([]);
+    const [evalsLoading, setEvalsLoading] = useState(false);
 
     useEffect(() => {
         console.log('[FacultyDashboard] useEffect triggered — user:', user?.email, 'profile:', profile?.name, profile?.role);
@@ -178,6 +172,31 @@ const FacultyDashboard = () => {
                     console.warn('[FacultyDashboard] Failed to load invitations:', err.message);
                 });
         }
+
+        // Fetch evaluations assigned to or created by the user
+        const fetchMyEvaluations = async () => {
+            setEvalsLoading(true);
+            try {
+                // Fetch duties-based assignments
+                const assigned = await evaluationService.getMyAssignedEvaluations(user.id);
+                // For professors, also fetch self-created evaluations
+                let created = [];
+                if (profile.role === 'professor') {
+                    created = await evaluationService.getMyCreatedEvaluations(user.id);
+                }
+                // Merge & deduplicate by evaluation id
+                const map = new Map();
+                [...assigned, ...created].forEach(ev => {
+                    if (ev && ev.id) map.set(ev.id, ev);
+                });
+                setMyEvaluations(Array.from(map.values()));
+            } catch (err) {
+                console.warn('[FacultyDashboard] Failed to load evaluations:', err.message);
+            } finally {
+                setEvalsLoading(false);
+            }
+        };
+        fetchMyEvaluations();
     }, [user, profile]);
 
     const handleAcceptInvite = async (inv) => {
@@ -355,79 +374,89 @@ const FacultyDashboard = () => {
                         </div>
                     )}
 
-                    {/* Pending Tasks Section - Kanban Style */}
+                    {/* Pending Evaluations Section */}
                     <div className="pt-8 border-t border-border mt-8 space-y-6">
                         <PageHeader
-                            title="My Pending Tasks"
-                            description="Tasks assigned to you across all your courses."
-                            actions={
-                                <button
-                                    onClick={() => navigate('/kanban-board')}
-                                    className="px-4 py-2 text-sm bg-secondary-100 text-secondary-700 hover:bg-secondary-200 rounded-lg font-medium flex items-center gap-2 transition-colors"
-                                >
-                                    View Full Board <Icon name="ArrowRight" size={16} />
-                                </button>
-                            }
+                            title="My Pending Evaluations"
+                            description="Evaluations assigned to you across all your courses."
                         />
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {['To Do', 'In Progress', 'Review'].map(columnName => {
-                                const columnTasks = mockTasks.filter(t => t.status === columnName);
-                                return (
-                                    <div key={columnName} className="bg-secondary-50/50 border border-border rounded-xl p-4 flex flex-col h-full min-h-[300px]">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <h3 className="font-semibold text-text-primary text-sm">{columnName}</h3>
-                                                <span className="px-2 py-0.5 bg-secondary-200 text-secondary-700 text-xs rounded-full font-medium">
-                                                    {columnTasks.length}
-                                                </span>
+                        {evalsLoading ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {[1, 2, 3, 4].map(i => (
+                                    <div key={i} className="bg-surface border border-border rounded-xl p-6 animate-pulse">
+                                        <div className="h-4 bg-secondary-100 rounded w-1/3 mb-3" />
+                                        <div className="h-5 bg-secondary-100 rounded w-3/4 mb-2" />
+                                        <div className="h-3 bg-secondary-100 rounded w-1/2" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {[
+                                    { key: 'draft', label: 'Draft', icon: 'FileEdit', dotColor: 'bg-secondary-400', headerBg: 'bg-secondary-50', badgeBg: 'bg-secondary-100 text-secondary-700' },
+                                    { key: 'active', label: 'Active', icon: 'Zap', dotColor: 'bg-blue-500', headerBg: 'bg-blue-50', badgeBg: 'bg-blue-100 text-blue-700' },
+                                    { key: 'grading', label: 'Grading', icon: 'ClipboardCheck', dotColor: 'bg-amber-500', headerBg: 'bg-amber-50', badgeBg: 'bg-amber-100 text-amber-700' },
+                                    { key: 'published', label: 'Published', icon: 'CheckCircle2', dotColor: 'bg-emerald-500', headerBg: 'bg-emerald-50', badgeBg: 'bg-emerald-100 text-emerald-700' },
+                                ].map(col => {
+                                    const colEvals = myEvaluations.filter(ev => ev.status === col.key);
+                                    return (
+                                        <div key={col.key} className={`${col.headerBg} border border-border rounded-xl p-4 flex flex-col min-h-[280px]`}>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-2.5 h-2.5 rounded-full ${col.dotColor}`} />
+                                                    <h3 className="font-semibold text-text-primary text-sm">{col.label}</h3>
+                                                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${col.badgeBg}`}>
+                                                        {colEvals.length}
+                                                    </span>
+                                                </div>
+                                                <Icon name={col.icon} size={16} className="text-secondary-400" />
+                                            </div>
+                                            <div className="space-y-3 flex-1">
+                                                {colEvals.map(ev => (
+                                                    <div
+                                                        key={ev.id}
+                                                        onClick={() => navigate(`/evaluate/${ev.id}`)}
+                                                        className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer hover:border-primary-300 hover:-translate-y-0.5"
+                                                    >
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <span className="text-xs font-semibold text-primary-700 bg-primary-50 px-2 py-0.5 rounded">
+                                                                {ev.courses?.code || '—'}
+                                                            </span>
+                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${col.badgeBg}`}>
+                                                                {col.label}
+                                                            </span>
+                                                        </div>
+                                                        <h4 className="text-sm font-medium text-text-primary mb-1">{ev.name}</h4>
+                                                        <p className="text-xs text-text-secondary mb-3 line-clamp-1">
+                                                            {ev.courses?.title || ''}
+                                                        </p>
+                                                        <div className="flex items-center justify-between mt-auto pt-2 border-t border-border border-dashed text-xs text-text-secondary">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <Icon name="Calendar" size={12} />
+                                                                <span>{new Date(ev.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                                                            </div>
+                                                            {ev.total_marks > 0 && (
+                                                                <div className="flex items-center gap-1 font-medium">
+                                                                    <Icon name="Award" size={12} />
+                                                                    <span>{ev.total_marks} marks</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {colEvals.length === 0 && (
+                                                    <div className="h-full flex flex-col items-center justify-center text-text-secondary text-sm border-2 border-dashed border-border rounded-lg p-6 bg-surface/50">
+                                                        <Icon name="CheckCircle2" size={24} className="mb-2 text-secondary-300" />
+                                                        No evaluations
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="space-y-3 flex-1">
-                                            {columnTasks.map(task => (
-                                                <div key={task.id} className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow transition-shadow cursor-pointer hover:border-primary-300">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <span className="text-xs font-semibold text-text-secondary bg-secondary-100 px-2 py-0.5 rounded">
-                                                            {task.course}
-                                                        </span>
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.priority === 'High' ? 'text-error-700 bg-error-50' :
-                                                                task.priority === 'Medium' ? 'text-warning-700 bg-warning-50' :
-                                                                    'text-success-700 bg-success-50'
-                                                            }`}>
-                                                            {task.priority}
-                                                        </span>
-                                                    </div>
-                                                    <h4 className="text-sm font-medium text-text-primary mb-3">{task.title}</h4>
-                                                    <div className="flex items-center justify-between mt-auto pt-2 border-t border-border border-dashed text-xs text-text-secondary">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <Icon name="Calendar" size={12} />
-                                                            <span>{task.dueDate}</span>
-                                                        </div>
-                                                        {task.status === 'In Progress' && (
-                                                            <div className="flex items-center gap-1 text-warning-600 font-medium">
-                                                                <Icon name="Clock" size={12} />
-                                                                <span>Working</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {columnTasks.length === 0 && (
-                                                <div className="h-full flex flex-col items-center justify-center text-text-secondary text-sm border-2 border-dashed border-border rounded-lg p-6 bg-surface/50">
-                                                    <Icon name="CheckCircle2" size={24} className="mb-2 text-secondary-300" />
-                                                    All clear!
-                                                </div>
-                                            )}
-                                        </div>
-                                        {/* Add Task Button for each column */}
-                                        <button className="w-full mt-3 p-2.5 border-2 border-dashed border-secondary-300 rounded-lg text-secondary-500 hover:border-primary-300 hover:text-primary hover:bg-primary-50 transition-colors duration-200 flex items-center justify-center space-x-2">
-                                            <Icon name="Plus" size={14} />
-                                            <span className="text-xs font-medium">Add task</span>
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                 </div>

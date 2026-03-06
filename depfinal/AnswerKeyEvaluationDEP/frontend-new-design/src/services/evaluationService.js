@@ -126,4 +126,37 @@ export const evaluationService = {
             if (error) throw error;
         }
     },
+
+    /**
+     * Fetch all evaluations assigned to a user (via evaluation_duties).
+     * Returns evaluations with joined course info.
+     */
+    async getMyAssignedEvaluations(userId) {
+        const { data, error } = await supabase
+            .from('evaluation_duties')
+            .select(`
+                evaluation_id,
+                evaluations(
+                    id, name, status, total_marks, negative_marking,
+                    created_at, subsheet_name, drive_folder_url,
+                    courses(id, code, title)
+                )
+            `)
+            .eq('assignee_id', userId);
+        if (error) throw error;
+        return (data || []).map(d => d.evaluations).filter(Boolean);
+    },
+
+    /**
+     * Fetch all evaluations created by a user (professor self-assigned case).
+     * Returns evaluations with joined course info.
+     */
+    async getMyCreatedEvaluations(userId) {
+        const { data, error } = await supabase
+            .from('evaluations')
+            .select(`*, courses(id, code, title)`)
+            .eq('created_by', userId);
+        if (error) throw error;
+        return data || [];
+    },
 };
