@@ -196,8 +196,8 @@ class SheetsService:
         ).execute()
 
         values = result.get('values', [])
-        if not values or len(values) < 2:
-            raise ValueError("Sheet is empty or has no data rows")
+        if not values or len(values) < 1:
+            raise ValueError("Sheet is empty and has no headers")
 
         headers = values[0]
         columns = self._detect_columns(headers)
@@ -303,10 +303,38 @@ class SheetsService:
         batch_data = []
         matched_normalized = set()
 
+        # Identify which students are already in the sheet
+        for student in students:
+            raw_entry = student.get('entry_number', '')
+            normalized = self._normalize_entry_number(raw_entry)
+            if normalized and normalized in results_map:
+                matched_normalized.add(normalized)
+                
+        # Append unmatched students to the `students` list virtually
+        last_row = max((s['row'] for s in students), default=1)
+        for normalized, result in results_map.items():
+            if normalized not in matched_normalized:
+                last_row += 1
+                students.append({
+                    "row": last_row,
+                    "entry_number": result.get('entry_number', ''),
+                    "name": result.get('name', ''),
+                    "existing_comment": "",
+                    "is_new": True
+                })
+
         # DEBUG
         print(f"DEBUG: Results Map Keys: {list(results_map.keys())}")
 
         for student in students:
+            if student.get('is_new'):
+                # Batch write their entry_number and name
+                entry_col_letter = columns['entry_number']['letter']
+                batch_data.append({"range": f"'{sheet_name}'!{entry_col_letter}{student['row']}", "values": [[student['entry_number']]]})
+                if 'name' in columns:
+                    name_col_letter = columns['name']['letter']
+                    batch_data.append({"range": f"'{sheet_name}'!{name_col_letter}{student['row']}", "values": [[student['name']]]})
+            
             raw_entry = student['entry_number']
             normalized = self._normalize_entry_number(raw_entry)
             
