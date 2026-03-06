@@ -1,0 +1,19 @@
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+openai
+pillow
+numpy
+requests
+pytest
+google-generativeai
+# ── New for objective pipeline ──
+openpyxl
+pandas
+PyPDF2
+python-docx
+passlib[bcrypt]
