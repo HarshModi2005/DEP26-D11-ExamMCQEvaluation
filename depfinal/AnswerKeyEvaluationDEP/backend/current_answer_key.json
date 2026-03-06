@@ -2,7 +2,7 @@
   "total_questions": 5,
   "answers": {
     "1": {
-      "correct_option": "B",
+      "correct_option": "C",
       "marks": 1.0
     },
     "2": {
@@ -14,7 +14,7 @@
       "marks": 1.0
     },
     "4": {
-      "correct_option": "C",
+      "correct_option": "D",
       "marks": 1.0
     },
     "5": {
