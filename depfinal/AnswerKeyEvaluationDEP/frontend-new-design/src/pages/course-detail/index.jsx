@@ -322,6 +322,10 @@ const CourseDetail = () => {
         setEvaluations(prev => prev.map(e => e.id === evalId ? { ...e, status } : e));
     };
 
+    const handleEvalCreated = (newEval) => {
+        setEvaluations(prev => [newEval, ...prev]);
+    };
+
     const loadAnalytics = async (ev) => {
         setSelectedEvalForAnalytics(ev);
         setAnalyticsLoading(true);
@@ -891,16 +895,23 @@ const CourseDetail = () => {
                                             placeholder="https://docs.google.com/spreadsheets/d/..." />
                                         <button onClick={async () => {
                                             const val = document.getElementById('masterSheetInput').value;
-                                            await courseService.updateCourse(courseId, { master_sheet_url: val });
-                                            setCourse(prev => ({ ...prev, master_sheet_url: val }));
-                                            setImportUrl(val);
-                                            alert('Saved!');
+                                            try {
+                                                await courseService.updateCourse(courseId, { master_sheet_url: val });
+                                                setCourse(prev => ({ ...prev, master_sheet_url: val }));
+                                                setImportUrl(val);
+                                                alert('Saved!');
+                                            } catch (err) {
+                                                alert(err.message);
+                                            }
                                         }}
                                             className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors text-sm">
                                             Save
                                         </button>
                                     </div>
-                                    <p className="text-xs text-text-secondary mt-1">The central class list sheet for this course. Used to import students and export marks.</p>
+                                    <p className="text-xs text-text-secondary mt-1 flex flex-col gap-1">
+                                        <span>The central class list sheet for this course. Used to import students and export marks.</span>
+                                        <span className="text-warning-600 font-medium">This URL must be unique and cannot be used by another course.</span>
+                                    </p>
                                 </div>
                             </div>
                         )}
