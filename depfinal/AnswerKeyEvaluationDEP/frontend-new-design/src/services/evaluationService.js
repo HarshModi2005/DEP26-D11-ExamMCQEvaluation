@@ -159,4 +159,25 @@ export const evaluationService = {
         if (error) throw error;
         return data || [];
     },
+
+    /**
+     * Update the has_mismatches flag for an evaluation
+     */
+    async updateHasMismatches(evaluationId, hasMismatches) {
+        const { data, error } = await supabase
+            .from('evaluations')
+            .update({ has_mismatches: hasMismatches })
+            .eq('id', evaluationId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    /**
+     * Dismiss mismatch alerts for an evaluation
+     */
+    async dismissMismatches(evaluationId) {
+        return this.updateHasMismatches(evaluationId, false);
+    }
 };

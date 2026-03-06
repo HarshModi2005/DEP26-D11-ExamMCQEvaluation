@@ -361,7 +361,20 @@ const EvaluatePage = () => {
         try {
             const res = await backendService.exportToSheets(course.master_sheet_url, evaluation.subsheet_name);
             await evaluationService.updateStatus(evaluationId, 'published');
-            setEvaluation(prev => ({ ...prev, status: 'published' }));
+
+            if (res.has_mismatches) {
+                await evaluationService.updateHasMismatches(evaluationId, true);
+
+                // Save detailed mismatch info inside answer_key_data JSONB
+                const updatedAnswerKeyData = {
+                    ...(evaluation.answer_key_data || {}),
+                    mismatches: res.name_mismatches || [],
+                    not_found: res.not_found_in_results || []
+                };
+                await evaluationService.saveAnswerKey(evaluationId, updatedAnswerKeyData);
+            }
+
+            setEvaluation(prev => ({ ...prev, status: 'published', has_mismatches: Boolean(res.has_mismatches) }));
 
             setExportMsg(`✅ Exported to Google Sheet. Updated: ${res.updated}, Not found: ${res.not_found?.length || 0}. Updating Super Sheet...`);
 

@@ -166,6 +166,81 @@ const CreateEvalModal = ({ course, courseTAs, instructor, currentUserId, onClose
     );
 };
 
+// ─── Mismatch Details Modal ────────────────────────────────────────────────────
+const MismatchModal = ({ evaluation, onClose }) => {
+    const data = evaluation?.answer_key_data || {};
+    const mismatches = data.mismatches || [];
+    const notFound = data.not_found || [];
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-2xl border border-border my-4 flex flex-col max-h-[90vh]">
+                <div className="flex items-center justify-between p-6 border-b border-border flex-shrink-0">
+                    <h2 className="text-xl font-semibold text-text-primary flex items-center gap-2">
+                        <Icon name="AlertTriangle" size={20} className="text-error-600" />
+                        Mismatch Details
+                    </h2>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto space-y-6">
+                    {mismatches.length === 0 && notFound.length === 0 && (
+                        <p className="text-text-secondary text-sm">No detailed mismatch data found. The alert might be from an older export.</p>
+                    )}
+
+                    {mismatches.length > 0 && (
+                        <div>
+                            <h3 className="font-medium text-text-primary mb-3">Name Mismatches</h3>
+                            <div className="border border-border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-secondary-50 text-text-secondary border-b border-border">
+                                        <tr>
+                                            <th className="px-4 py-2 font-medium">Entry Number</th>
+                                            <th className="px-4 py-2 font-medium">Sheet Name</th>
+                                            <th className="px-4 py-2 font-medium">OCR Name</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-border">
+                                        {mismatches.map((m, idx) => (
+                                            <tr key={idx} className="hover:bg-secondary-50">
+                                                <td className="px-4 py-2 font-mono">{m.entry_number}</td>
+                                                <td className="px-4 py-2">{m.sheet_name}</td>
+                                                <td className="px-4 py-2 text-warning-700">{m.ocr_name || '—'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {notFound.length > 0 && (
+                        <div>
+                            <h3 className="font-medium text-text-primary mb-3">New Students (Not in Roster)</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {notFound.map((roll, idx) => (
+                                    <span key={idx} className="px-2.5 py-1 bg-secondary-100 text-secondary-800 rounded text-sm font-mono border border-secondary-200">
+                                        {roll}
+                                    </span>
+                                ))}
+                            </div>
+                            <p className="text-xs text-text-secondary mt-2">These students were not found in the `student_names` tab and were appended to the bottom of the sheet.</p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-6 border-t border-border bg-secondary-50 flex justify-end flex-shrink-0 rounded-b-2xl">
+                    <button onClick={onClose} className="px-5 py-2.5 bg-secondary-200 text-secondary-800 font-medium rounded-xl hover:bg-secondary-300 transition-colors">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────────────
 const CourseDetail = () => {
     const { courseId } = useParams();
@@ -179,6 +254,7 @@ const CourseDetail = () => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
     const [showCreateEval, setShowCreateEval] = useState(false);
+    const [selectedMismatchEval, setSelectedMismatchEval] = useState(null);
 
     // Analytics state
     const [selectedEvalForAnalytics, setSelectedEvalForAnalytics] = useState(null);
@@ -269,6 +345,23 @@ const CourseDetail = () => {
         finally { setTaSearchLoading(false); }
     };
 
+    const handleStatusChange = async (newStatus) => {
+        try {
+            await courseService.updateStatus(courseId, newStatus);
+            setCourse(prev => ({ ...prev, status: newStatus }));
+        } catch (err) {
+            setError('Failed to update status: ' + err.message);
+        }
+    };
+
+    const handleDismissMismatch = async (evaluationId) => {
+        try {
+            await evaluationService.dismissMismatches(evaluationId);
+            setEvaluations(prev => prev.map(ev => ev.id === evaluationId ? { ...ev, has_mismatches: false } : ev));
+        } catch (err) {
+            console.error('Failed to dismiss mismatch alert:', err);
+        }
+    };
     const handleAddTA = async (ta) => {
         await teamService.addTA(courseId, ta.id);
         setTAs(prev => [...prev, ta]);
@@ -486,6 +579,26 @@ const CourseDetail = () => {
                                                         <div className="flex items-center gap-3 mb-1">
                                                             <h4 className="font-semibold text-text-primary">{ev.name}</h4>
                                                             <StatusBadge status={ev.status} />
+                                                            {ev.has_mismatches && (
+                                                                <span className="flex items-center gap-1 text-xs text-error-600 bg-error-50 px-2 py-0.5 rounded-full border border-error-200">
+                                                                    <div className="w-2 h-2 rounded-full bg-error-500 animate-pulse" />
+                                                                    Mismatches
+                                                                    <button
+                                                                        onClick={() => setSelectedMismatchEval(ev)}
+                                                                        className="ml-2 text-primary hover:underline transition-colors font-medium border-l border-error-200 pl-2"
+                                                                        title="View Details"
+                                                                    >
+                                                                        View
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDismissMismatch(ev.id)}
+                                                                        className="ml-1 text-error-400 hover:text-error-800 transition-colors"
+                                                                        title="Dismiss Alert"
+                                                                    >
+                                                                        <Icon name="X" size={12} />
+                                                                    </button>
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <p className="text-sm text-text-secondary mb-2">
                                                             {ev.total_marks > 0 ? `${ev.total_marks} marks` : 'Marks not set'}
@@ -907,6 +1020,24 @@ const CourseDetail = () => {
                     </div>
                 </div>
             </main>
+
+            {showCreateEval && (
+                <CreateEvalModal
+                    course={course}
+                    instructor={course.instructor_id === user.id ? profile : null}
+                    courseTAs={tas}
+                    currentUserId={user.id}
+                    onClose={() => setShowCreateEval(false)}
+                    onCreated={ev => setEvaluations(prev => [ev, ...prev])}
+                />
+            )}
+
+            {selectedMismatchEval && (
+                <MismatchModal
+                    evaluation={selectedMismatchEval}
+                    onClose={() => setSelectedMismatchEval(null)}
+                />
+            )}
         </div>
     );
 };
