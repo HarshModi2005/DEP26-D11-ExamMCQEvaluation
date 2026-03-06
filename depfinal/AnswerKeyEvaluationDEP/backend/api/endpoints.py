@@ -375,6 +375,7 @@ def export_to_sheets(request: ExportToSheetsRequest):
                 "name": r.name,
                 "total_score": r.total_score,
                 "comments": r.comments,  # Pass comments to sheet
+                "details": [d.model_dump() for d in r.details],
             }
             for r in _current_results
         ]
@@ -386,13 +387,15 @@ def export_to_sheets(request: ExportToSheetsRequest):
                 # DB results have student_id (which is roll_no) and score
                 entry = row.get("student_id", "")
                 score = row.get("score", 0)
-                # Try to get name from students table
+                # Try to get name and details from results table
                 details_raw = row.get("details")
                 name = ""
+                extracted_details = []
                 if details_raw:
                     try:
-                        details = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
-                        name = details.get("name", "") or ""
+                        details_obj = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                        name = details_obj.get("name", "") or ""
+                        extracted_details = details_obj.get("details", [])
                     except (json.JSONDecodeError, AttributeError):
                         pass
                 
@@ -402,6 +405,7 @@ def export_to_sheets(request: ExportToSheetsRequest):
                         "name": name,
                         "total_score": score,
                         "comments": row.get("feedback", ""), 
+                        "details": extracted_details
                     })
 
     if not results_dicts:

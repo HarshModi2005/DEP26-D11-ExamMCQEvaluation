@@ -256,7 +256,18 @@ class SheetsService:
             raise RuntimeError("Sheets service not initialized. Check credentials.")
 
         if subsheet_name:
-            self.create_sheet_if_not_exists(sheet_url, subsheet_name)
+            # Figure out total_questions dynamically to generate headers
+            max_q = 0
+            for r in results:
+                details = r.get('details', [])
+                for d in details:
+                    try:
+                        qn = int(d.get('question_number', 0)) if isinstance(d, dict) else int(getattr(d, 'question_number', 0))
+                        if qn > max_q: max_q = qn
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+                        
+            self.create_sheet_if_not_exists(sheet_url, subsheet_name, total_questions=max_q)
 
         # Read current state
         sheet_data = self.read_student_list(sheet_url, subsheet_name)
@@ -472,42 +483,31 @@ class SheetsService:
         return summary
 
     def _append_statistics(self, spreadsheet_id: str, sheet_name: str, students: List[Dict], columns: Dict, results_map: Dict):
-        """Calculates and appends Mean, Median, Highest, and Lowest at the bottom of the sheet."""
+        """Calculates and appends Mean, Median, Highest, and Lowest at the bottom of the sheet using formulas."""
         if not students: return
         
-        # Calculate statistics for Total marks
-        scores = []
-        for s in students:
-            normalized = self._normalize_entry_number(s['entry_number'])
-            if normalized in results_map:
-                scores.append(results_map[normalized].get('total_score', 0))
-        
-        if not scores: return
-        
-        import statistics
-        mean_val = round(statistics.mean(scores), 2)
-        median_val = round(statistics.median(scores), 2)
-        high_val = round(max(scores), 2)
-        low_val = round(min(scores), 2)
-
         # Find the last student row
+        start_row = 2
         last_row = max(s['row'] for s in students)
+        if last_row < start_row: return
         start_stat_row = last_row + 2
         
         marks_col_letter = columns['marks']['letter']
         name_col_letter = columns.get('name', {}).get('letter', 'A') # Fallback to A
         
-        # Build batch data for stats
+        range_str = f"{marks_col_letter}{start_row}:{marks_col_letter}{last_row}"
+        
+        # Build batch data for stats using native Google sheet formulas
         stats_data = [
             {"range": f"'{sheet_name}'!{name_col_letter}{start_stat_row}", "values": [["STATISTICS"]]},
             {"range": f"'{sheet_name}'!{name_col_letter}{start_stat_row+1}", "values": [["Mean / Average"]]},
-            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+1}", "values": [[mean_val]]},
+            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+1}", "values": [[f"=IFERROR(ROUND(AVERAGE({range_str}), 2), 0)"]]},
             {"range": f"'{sheet_name}'!{name_col_letter}{start_stat_row+2}", "values": [["Median"]]},
-            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+2}", "values": [[median_val]]},
+            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+2}", "values": [[f"=IFERROR(ROUND(MEDIAN({range_str}), 2), 0)"]]},
             {"range": f"'{sheet_name}'!{name_col_letter}{start_stat_row+3}", "values": [["Highest"]]},
-            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+3}", "values": [[high_val]]},
+            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+3}", "values": [[f"=IFERROR(MAX({range_str}), 0)"]]},
             {"range": f"'{sheet_name}'!{name_col_letter}{start_stat_row+4}", "values": [["Lowest"]]},
-            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+4}", "values": [[low_val]]},
+            {"range": f"'{sheet_name}'!{marks_col_letter}{start_stat_row+4}", "values": [[f"=IFERROR(MIN({range_str}), 0)"]]},
         ]
 
         try:
@@ -522,7 +522,7 @@ class SheetsService:
     #  Tab Creation & Super Sheet
     # ──────────────────────────────────────
 
-    def create_sheet_if_not_exists(self, sheet_url: str, sheet_name: str) -> bool:
+    def create_sheet_if_not_exists(self, sheet_url: str, sheet_name: str, total_questions: int = 0) -> bool:
         """Creates a new sheet tab if it doesn't exist. Copies header from first sheet if possible."""
         if not self.service:
              raise RuntimeError("Sheets service not initialized.")
@@ -556,6 +556,12 @@ class SheetsService:
         if not needs_creation and not needs_population:
             return False # Already exists and has data/headers
             
+        # Build dynamic headers based on total_questions
+        headers = ["Entry Number", "Name"]
+        if total_questions > 0:
+            headers.extend([f"Q{i}" for i in range(1, total_questions + 1)])
+        headers.extend(["Marks", "Comments"])
+        
         # Create it if it doesn't exist
         if needs_creation:
             try:
@@ -587,11 +593,15 @@ class SheetsService:
                         if entry_idx is not None:
                             for i, row in enumerate(values):
                                 if i == 0:
-                                    new_values.append(["Entry Number", "Name", "Marks", "Comments"])
+                                    new_values.append(headers)
                                 else:
-                                    entry = self._safe_get(row, entry_idx, "")
+                                    entry = self._safe_get(row, entry_idx, "").strip()
+                                    if entry.upper() in ("STATISTICS", "MEAN", "MEDIAN", "HIGHEST", "LOWEST", "MEAN / AVERAGE"):
+                                        break
                                     name = self._safe_get(row, name_idx, "") if name_idx is not None else ""
-                                    new_values.append([entry, name, "", ""])
+                                    # Create a row of empty strings matching the header length
+                                    empty_row = [entry, name] + [""] * (len(headers) - 2)
+                                    new_values.append(empty_row)
                                     
                             self.service.spreadsheets().values().update(
                                 spreadsheetId=spreadsheet_id,
@@ -605,7 +615,7 @@ class SheetsService:
                                 spreadsheetId=spreadsheet_id,
                                 range=f"'{sheet_name}'!A1",
                                 valueInputOption="USER_ENTERED",
-                                body={"values": [["Entry Number", "Name", "Marks", "Comments"]]}
+                                body={"values": [headers]}
                             ).execute()
                     else:
                         # Empty first sheet
@@ -613,7 +623,7 @@ class SheetsService:
                             spreadsheetId=spreadsheet_id,
                             range=f"'{sheet_name}'!A1",
                             valueInputOption="USER_ENTERED",
-                            body={"values": [["Entry Number", "Name", "Marks", "Comments"]]}
+                            body={"values": [headers]}
                         ).execute()
             except Exception as e:
                  raise RuntimeError(f"Failed to create/populate sheet: {e}")
