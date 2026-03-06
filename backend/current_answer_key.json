@@ -2,7 +2,7 @@
   "total_questions": 5,
   "answers": {
     "1": {
-      "correct_option": "A",
+      "correct_option": "B",
       "marks": 1.0
     },
     "2": {
@@ -10,7 +10,7 @@
       "marks": 1.0
     },
     "3": {
-      "correct_option": "C",
+      "correct_option": "B",
       "marks": 1.0
     },
     "4": {
@@ -18,13 +18,13 @@
       "marks": 1.0
     },
     "5": {
-      "correct_option": "A",
+      "correct_option": "C",
       "marks": 1.0
     }
   },
   "negative_marking": 0.0,
   "metadata": {
-    "source_file": "answer_key.pdf",
+    "source_file": "answer_key.jpeg",
     "raw_question_count": 5,
     "parsed_question_count": 5
   }
