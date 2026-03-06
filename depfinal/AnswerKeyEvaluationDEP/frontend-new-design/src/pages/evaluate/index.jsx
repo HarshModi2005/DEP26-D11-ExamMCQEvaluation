@@ -321,8 +321,36 @@ const EvaluatePage = () => {
             const processedResults = pipelineResult.results || [];
             if (processedResults.length > 0) {
                 setPipelineLog(prev => [...prev, '[Database] Committing grades and schema extraction to permanent storage...']);
-                await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
+                const saveResult = await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
                 setPipelineProgress(90);
+
+                // Warn about skipped (unmatched) students
+                const skippedRolls = saveResult?.skipped || [];
+                const notFoundRolls = saveResult?.notFoundRolls || [];
+                const nameMismatches = saveResult?.nameMismatches || [];
+
+                if (skippedRolls.length > 0) {
+                    setPipelineLog(prev => [...prev, `[Warning] ${skippedRolls.length} student(s) not found in course roster and were skipped: ${skippedRolls.join(', ')}`]);
+                }
+                if (nameMismatches.length > 0) {
+                    setPipelineLog(prev => [...prev, `[Warning] ${nameMismatches.length} name mismatch(es) detected between OCR and roster.`]);
+                }
+
+                // Flag mismatches on the evaluation (triggers alert badge in course detail)
+                if (notFoundRolls.length > 0 || nameMismatches.length > 0) {
+                    try {
+                        await evaluationService.updateHasMismatches(evaluationId, true);
+                        const updatedAnswerKeyData = {
+                            ...(evaluation.answer_key_data || {}),
+                            mismatches: nameMismatches,
+                            not_found: notFoundRolls
+                        };
+                        await evaluationService.saveAnswerKey(evaluationId, updatedAnswerKeyData);
+                        setEvaluation(prev => ({ ...prev, has_mismatches: true, answer_key_data: updatedAnswerKeyData }));
+                    } catch (mismatchErr) {
+                        console.error('Failed to save mismatch data:', mismatchErr);
+                    }
+                }
 
                 // Update eval status to grading
                 await evaluationService.updateStatus(evaluationId, 'grading');
@@ -332,7 +360,7 @@ const EvaluatePage = () => {
                 const fresh = await resultsService.getResultsByEvaluation(evaluationId);
                 setResults(fresh || []);
                 setPipelineProgress(100);
-                setPipelineLog(prev => [...prev, `[System] Operation concluded successfully. ${fresh.length} assessment records stored.`]);
+                setPipelineLog(prev => [...prev, `[System] Operation concluded successfully. ${fresh.length} assessment records stored.${skippedRolls.length > 0 ? ` ${skippedRolls.length} unmatched roll(s) skipped.` : ''}`]);
             } else {
                 setPipelineLog(prev => [...prev, '[Critical] Zero assessments matched. Please verify Drive directory contents and permissions.']);
             }

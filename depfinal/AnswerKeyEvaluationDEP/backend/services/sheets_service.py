@@ -363,34 +363,46 @@ class SheetsService:
             student_name_clean = student_name.strip().lower()
             norm_student_entry = self._normalize_entry_number(student_entry)
             
-            # 1. Exact entry match
-            if norm_student_entry and norm_student_entry in results_map and norm_student_entry not in matched_normalized:
-                return norm_student_entry
-                
-            # 2. Fuzzy/Name match fallback
+            best_key = None
+            best_score = 0
+            
             for norm_key, r in results_map.items():
                 if norm_key in matched_normalized: continue
                 ocr_name = r.get('name', '').strip().lower()
                 
-                if student_name_clean and ocr_name and student_name_clean == ocr_name:
-                    return norm_key
+                score = 0
+                
+                # 1. Score Entry Number
+                if norm_student_entry and norm_key:
+                    if norm_student_entry == norm_key:
+                        score += 100
+                    else:
+                        ratio = difflib.SequenceMatcher(None, norm_student_entry, norm_key).ratio()
+                        if ratio >= 0.75:
+                            score += int(50 * ratio)
+                            
+                # 2. Score Name
+                if student_name_clean and ocr_name:
+                    if student_name_clean == ocr_name:
+                        score += 100
+                    else:
+                        ratio = difflib.SequenceMatcher(None, student_name_clean, ocr_name).ratio()
+                        if ratio >= 0.75:
+                            score += int(50 * ratio)
+                        else:
+                            # Word intersection fallback
+                            s_parts = set(student_name_clean.split())
+                            o_parts = set(ocr_name.split())
+                            intersection = s_parts.intersection(o_parts)
+                            if len(intersection) >= 2 or (len(intersection) >= 1 and len(s_parts) == 1 and len(o_parts) == 1):
+                                score += 30
+                                
+                # Pick the highest scoring match that is at least a decent fuzzy match or word match
+                if score > best_score and score >= 40:
+                    best_score = score
+                    best_key = norm_key
                     
-                # High-confidence fuzzy on entry number (e.g. ABJL vs AJBL)
-                if norm_student_entry and _fuzzy_match(norm_student_entry, norm_key, 0.8):
-                    return norm_key
-                    
-                # High-confidence fuzzy on name
-                if student_name_clean and ocr_name and _fuzzy_match(student_name_clean, ocr_name, 0.8):
-                    return norm_key
-                    
-                # Word intersection fallback
-                s_parts = set(student_name_clean.split())
-                o_parts = set(ocr_name.split())
-                intersection = s_parts.intersection(o_parts)
-                if len(intersection) >= 2 or (len(intersection) >= 1 and len(s_parts) == 1 and len(o_parts) == 1):
-                    return norm_key
-                    
-            return None
+            return best_key
 
         # Determine best match for every existing student in the roster
         for student in students:
@@ -505,7 +517,7 @@ class SheetsService:
             
             # DEBUG: Print details for the first matched student
             if len(matched_normalized) == 1:
-                print(f"🔍 DEBUG: Inspecting first student {raw_entry}")
+                print(f"🔍 DEBUG: Inspecting first student {student['entry_number']}")
                 print(f"   Details count: {len(details)}")
                 print(f"   Q_MAP keys (int): {list(q_map.keys())}")
                 print(f"   Question Cols keys (int): {list(question_cols.keys())}")

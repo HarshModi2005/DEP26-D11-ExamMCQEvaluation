@@ -1,29 +1,28 @@
 import { supabase } from './supabaseClient';
 
-// Helper: Levenshtein distance
-function getLevenshteinDistance(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-    }
-    for (let j = 0; j <= a.length; j++) {
-        matrix[0][j] = j;
-    }
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
+// Helper: Compute similarity ratio between two strings (like Python's difflib.SequenceMatcher)
+function similarityRatio(a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const longer = a.length >= b.length ? a : b;
+    const shorter = a.length >= b.length ? b : a;
+    if (longer.length === 0) return 1;
+
+    // Longest common subsequence approach for ratio
+    const m = shorter.length;
+    const n = longer.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (shorter[i - 1] === longer[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
             } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1,
-                    Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
-                );
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
             }
         }
     }
-    return matrix[b.length][a.length];
+    const lcs = dp[m][n];
+    return (2.0 * lcs) / (m + n);
 }
 
 // Helper: clean roll number (alphanumeric only, uppercase)
@@ -31,110 +30,175 @@ function cleanRollString(str) {
     return String(str || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
 }
 
+// Helper: normalize entry number (match backend pattern yyyyBBBnnnn)
+function normalizeEntryNumber(raw) {
+    if (!raw) return null;
+    const clean = raw.trim();
+    const pattern = /(\d{4})\s*([A-Za-z]{2,4})\s*(\d{2,5})/;
+    const m = clean.match(pattern);
+    if (m) {
+        return `${m[1]}${m[2].toUpperCase()}${m[3]}`;
+    }
+    const fallback = clean.replace(/[\s\-_./]/g, '').toUpperCase();
+    return fallback.length >= 6 ? fallback : null;
+}
+
+// Helper: check name mismatch (mirrors backend logic)
+function checkNameMismatch(registryName, ocrName) {
+    if (!registryName || !ocrName) return false;
+    const s = registryName.trim().toLowerCase();
+    const o = ocrName.trim().toLowerCase();
+    if (!s || !o || s === 'unknown' || o === 'unknown') return false;
+    if (s === o) return false;
+    const sParts = new Set(s.split(/\s+/));
+    const oParts = new Set(o.split(/\s+/));
+    const intersection = [...sParts].filter(w => oParts.has(w));
+    if (intersection.length > 0) return false;
+    if (s.includes(o) || o.includes(s)) return false;
+    for (const word of sParts) { if (word.length >= 3 && o.includes(word)) return false; }
+    for (const word of oParts) { if (word.length >= 3 && s.includes(word)) return false; }
+    return true; // names are mismatched
+}
+
 export const resultsService = {
     /**
      * Save/upsert an array of StudentResult objects for an evaluation.
-     * Matches student by roll_number within the course.
+     * Uses combined entry-number + name scoring (mirrors backend sheets_service).
+     * Returns { data, skipped, notFoundRolls, nameMismatches }.
      */
     async saveResults(evaluationId, courseId, results, gradedById) {
-        if (!results || results.length === 0) return;
+        if (!results || results.length === 0) return { data: [], skipped: [], notFoundRolls: [], nameMismatches: [] };
 
-        // Pre-fetch all students in the course for fuzzy matching
+        // Pre-fetch all students in the course for matching
         const { data: allCourseStudents } = await supabase
             .from('course_students')
-            .select('student_id, students(id, roll_number)')
+            .select('student_id, students(id, roll_number, name)')
             .eq('course_id', courseId);
 
         const courseStudentRegistry = (allCourseStudents || []).map(cs => ({
             id: cs.student_id,
             roll_number: cs.students.roll_number,
-            clean_roll: cleanRollString(cs.students.roll_number)
+            name: cs.students.name || '',
+            clean_roll: cleanRollString(cs.students.roll_number),
+            normalized: normalizeEntryNumber(cs.students.roll_number)
         }));
 
         const inserts = [];
         const skipped = [];
+        const notFoundRolls = [];
+        const nameMismatches = [];
+        const claimedStudentIds = new Set();
 
-        for (const r of results) {
-            let studentId = null;
-            const targetRaw = String(r.entry_number || '').trim();
+        // Combined scoring function (mirrors backend _find_best_match)
+        function findBestMatch(targetRaw, ocrName) {
             const targetClean = cleanRollString(targetRaw);
+            const targetNorm = normalizeEntryNumber(targetRaw);
+            const ocrNameClean = (ocrName || '').trim().toLowerCase();
 
-            // 1. Exact match against course registry
-            let match = courseStudentRegistry.find(s => s.roll_number.toUpperCase() === targetRaw.toUpperCase());
+            let bestMatch = null;
+            let bestScore = 0;
 
-            // 2. Clean alphanumeric match against course registry
-            if (!match) {
-                match = courseStudentRegistry.find(s => s.clean_roll === targetClean);
-            }
+            for (const reg of courseStudentRegistry) {
+                if (claimedStudentIds.has(reg.id)) continue;
 
-            // 3. Fuzzy match (Levenshtein distance <= 2) against course registry
-            if (!match && targetClean.length > 5) {
-                let bestMatch = null;
-                let bestDist = 3; // Max threshold is 2
+                let score = 0;
+                const regNameClean = reg.name.trim().toLowerCase();
 
-                for (const reg of courseStudentRegistry) {
-                    const dist = getLevenshteinDistance(targetClean, reg.clean_roll);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        bestMatch = reg;
+                // 1. Score Entry Number
+                if (targetNorm && reg.normalized) {
+                    if (targetNorm === reg.normalized) {
+                        score += 100;
+                    } else {
+                        const ratio = similarityRatio(targetNorm, reg.normalized);
+                        if (ratio >= 0.75) {
+                            score += Math.floor(50 * ratio);
+                        }
                     }
                 }
-                if (bestMatch) {
-                    match = bestMatch;
-                    console.log(`Fuzzy matched OCR typo [${targetRaw}] to student [${match.roll_number}]`);
+                // Also try cleaned match
+                if (score < 100 && targetClean && reg.clean_roll) {
+                    if (targetClean === reg.clean_roll) {
+                        score = Math.max(score, 100);
+                    } else {
+                        const ratio = similarityRatio(targetClean, reg.clean_roll);
+                        if (ratio >= 0.75) {
+                            score = Math.max(score, Math.floor(50 * ratio));
+                        }
+                    }
+                }
+
+                // 2. Score Name
+                if (ocrNameClean && regNameClean) {
+                    if (ocrNameClean === regNameClean) {
+                        score += 100;
+                    } else {
+                        const ratio = similarityRatio(ocrNameClean, regNameClean);
+                        if (ratio >= 0.75) {
+                            score += Math.floor(50 * ratio);
+                        } else {
+                            // Word intersection fallback
+                            const sParts = new Set(regNameClean.split(/\s+/));
+                            const oParts = new Set(ocrNameClean.split(/\s+/));
+                            const intersection = [...sParts].filter(w => oParts.has(w));
+                            if (intersection.length >= 2 || (intersection.length >= 1 && sParts.size === 1 && oParts.size === 1)) {
+                                score += 30;
+                            }
+                        }
+                    }
+                }
+
+                if (score > bestScore && score >= 40) {
+                    bestScore = score;
+                    bestMatch = reg;
                 }
             }
+
+            return bestMatch;
+        }
+
+        for (const r of results) {
+            const targetRaw = String(r.entry_number || '').trim();
+            const ocrName = r.name || '';
+
+            const match = findBestMatch(targetRaw, ocrName);
 
             if (match) {
-                studentId = match.id;
-            } else {
-                console.warn(`Student not found for roll: ${r.entry_number}. Auto-creating new student record.`);
-                const cleanRoll = targetClean || 'UNKNOWN';
+                claimedStudentIds.add(match.id);
 
-                const { data: newStudent, error: createErr } = await supabase
-                    .from('students')
-                    .upsert([{ roll_number: cleanRoll, name: r.name || 'Unknown' }], { onConflict: 'roll_number' })
-                    .select('id')
-                    .single();
-
-                if (newStudent) {
-                    studentId = newStudent.id;
-                    // Link new student to course
-                    await supabase.from('course_students').upsert([{
-                        course_id: courseId,
-                        student_id: studentId
-                    }], { onConflict: 'course_id,student_id', ignoreDuplicates: true });
-                } else {
-                    console.error(`Failed to create missing student ${r.entry_number}`, createErr);
-                    skipped.push(r.entry_number);
+                // Check for name mismatch
+                if (checkNameMismatch(match.name, ocrName)) {
+                    nameMismatches.push({
+                        entry_number: match.roll_number,
+                        sheet_name: match.name,
+                        ocr_name: ocrName
+                    });
                 }
-            }
 
-            if (!studentId) {
-                console.warn(`Skipping result for ${r.entry_number} because student_id is null`);
-                continue;
+                inserts.push({
+                    evaluation_id: evaluationId,
+                    student_id: match.id,
+                    graded_by: gradedById,
+                    total_score: r.total_score,
+                    max_score: r.max_score,
+                    correct_count: r.correct_count,
+                    incorrect_count: r.incorrect_count,
+                    unattempted_count: r.unattempted_count,
+                    negative_deduction: r.negative_deduction || 0,
+                    details: r.details || [],
+                    comments: r.comments || '',
+                });
+            } else {
+                console.warn(`Student not found in course roster for roll: ${r.entry_number}. Skipping.`);
+                skipped.push(r.entry_number || cleanRollString(targetRaw) || 'UNKNOWN');
+                notFoundRolls.push(r.entry_number || cleanRollString(targetRaw) || 'UNKNOWN');
             }
-
-            inserts.push({
-                evaluation_id: evaluationId,
-                student_id: studentId,
-                graded_by: gradedById,
-                total_score: r.total_score,
-                max_score: r.max_score,
-                correct_count: r.correct_count,
-                incorrect_count: r.incorrect_count,
-                unattempted_count: r.unattempted_count,
-                negative_deduction: r.negative_deduction || 0,
-                details: r.details || [],
-                comments: r.comments || '',
-            });
         }
 
         if (skipped.length > 0) {
-            console.warn(`Results saved without student match for rolls: ${skipped.join(', ')}`);
+            console.warn(`Skipped results for unmatched rolls (not in course roster): ${skipped.join(', ')}`);
         }
 
-        if (inserts.length === 0) return;
+        if (inserts.length === 0) return { data: [], skipped, notFoundRolls, nameMismatches };
 
         // Clear existing results for this evaluation to prevent ghost duplicates from previous runs
         const { error: deleteError } = await supabase
@@ -155,7 +219,7 @@ export const resultsService = {
             console.error('Supabase upsert error:', error);
             throw error;
         }
-        return data;
+        return { data, skipped, notFoundRolls, nameMismatches };
     },
 
     /**
