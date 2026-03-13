@@ -1,0 +1,72 @@
+--- Document Start ---
+# CN
+
+## Physical Layer :
+
+### ① Modulation Scheme ↔ NRZ (non-return to zeroes)
+
+*   To send data, sender and receiver clocks should be sync-ed.
+*   Instead of sending clock as well, make data change frequently which acts as a synchronizer.
+
+| Data    | NRZ          | NRZI         |
+| :------ | :----------- | :----------- |
+| 01101   | signal charge w/ clak | signal charge w/ |
+
+(Bent through NRZI)
+
+**4B5B encoding**
+
+converts 4 bits of data to "frequently changing" 5 bits of data.
+
+max 3 consecutive 0s
+
+### ② Max Data Rate of channel:
+
+*   **Nyquist Sampling for noiseless channels**
+
+    MDR = $\frac{2 \cdot B \cdot \log_2 V}{I}$
+
+    V = 2 \[Binary 0/1]
+    = 4 \[QPSK]
+
+    $B$ = Bandwidth
+
+    levels (modulation) of signal
+
+*   **Shannon channel capacity for noisy channels**
+
+    MDR = $B \cdot \log_2 (1 + \frac{S}{N})$
+
+    $$
+    SNR = (\frac{S}{N}) = 10 \log_{10} (\frac{S}{N}) \text{dB}
+    $$
+
+    { Signal-to-
+    noise
+    ratio }
+
+    Signal-to-
+    noise ratio
+    = [SNR]
+
+### ③ Delay in transmission:
+
+*   **Transmission delay** → from bit in computer to transmission link
+
+    Packet size: L bits
+    Data rate: R bits/sec
+
+    } $d_{trans} = L/R$
+
+*   **Propagation delay** → physical distance to be travelled
+
+    length of wire: m metres
+    speed of data transmission: c metres/sec
+
+    } $d_{prop} = m/c$
+
+*   **Processing delay** → processing data delay by receiver
+
+*   **Queue delay** → queueing of data due to output channel being slower en transmission than input channel.
+
+--- Document End ---

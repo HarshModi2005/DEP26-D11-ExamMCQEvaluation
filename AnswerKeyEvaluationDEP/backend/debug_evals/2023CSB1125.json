@@ -1,0 +1,48 @@
+{
+  "entry_number": "2023CSB1125",
+  "name": "Ishita Garg",
+  "total_score": 2.0,
+  "max_score": 5.0,
+  "correct_count": 2,
+  "incorrect_count": 3,
+  "unattempted_count": 0,
+  "negative_deduction": 0.0,
+  "details": [
+    {
+      "question_number": 1,
+      "marked": "A",
+      "correct": "A",
+      "result": "correct",
+      "score": 1.0
+    },
+    {
+      "question_number": 2,
+      "marked": "D",
+      "correct": "B",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 3,
+      "marked": "B",
+      "correct": "C",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 4,
+      "marked": "C",
+      "correct": "C",
+      "result": "correct",
+      "score": 1.0
+    },
+    {
+      "question_number": 5,
+      "marked": "D",
+      "correct": "A",
+      "result": "incorrect",
+      "score": -0.0
+    }
+  ],
+  "comments": " [DEBUG: S_Keys=[1, 2, 3, 4, 5]]"
+}
