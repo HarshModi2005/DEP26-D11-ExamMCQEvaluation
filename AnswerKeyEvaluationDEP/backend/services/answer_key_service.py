@@ -146,7 +146,6 @@ class AnswerKeyService:
             return AnswerKey(
                 total_questions=data["total_questions"],
                 answers=converted_answers,
-                negative_marking=data.get("negative_marking", 0.0),
                 metadata=data.get("metadata", {})
             )
         except Exception as e:
@@ -186,9 +185,9 @@ class AnswerKeyService:
                 headers = [h.strip().lower() for h in next(reader)]
 
             # Detect column indices
-            q_col, opt_col, marks_col = self._detect_csv_columns(headers)
+            q_col, type_col, pos_col, neg_col, opt_col = self._detect_excel_columns(headers)
 
-            for row in reader:
+            for idx, row in enumerate(reader, start=2 if has_header else 1):
                 if not row or all(cell.strip() == '' for cell in row):
                     continue
 
@@ -196,18 +195,37 @@ class AnswerKeyService:
                     if q_col is not None and opt_col is not None:
                         q_num = self._parse_question_number(row[q_col].strip())
                         option = row[opt_col].strip().upper()
-                        marks = 1.0
-                        if marks_col is not None and marks_col < len(row):
-                            try:
-                                marks = float(row[marks_col].strip())
-                            except (ValueError, IndexError):
-                                marks = 1.0
-                        answers[q_num] = {"correct_option": option, "marks": marks}
+                        
+                        q_type = "SMCQ"
+                        if type_col is not None and type_col < len(row) and row[type_col].strip():
+                            q_type = str(row[type_col]).strip().upper()
+
+                        pos_marks = 1.0
+                        if pos_col is not None and pos_col < len(row) and row[pos_col].strip():
+                            try: pos_marks = float(row[pos_col].strip())
+                            except: pass
+
+                        neg_marks = 0.0
+                        if neg_col is not None and neg_col < len(row) and row[neg_col].strip():
+                            try: neg_marks = float(row[neg_col].strip())
+                            except: pass
+                            
+                        answers[q_num] = {
+                            "type": q_type, 
+                            "correct_option": option, 
+                            "positive_marks": pos_marks, 
+                            "negative_marks": neg_marks
+                        }
                     else:
                         # Try to parse "Q1: A" style from first column
                         parsed = self._parse_inline_answer(row[0])
                         if parsed:
-                            answers[parsed[0]] = {"correct_option": parsed[1], "marks": 1.0}
+                            answers[parsed[0]] = {
+                                "type": "SMCQ",
+                                "correct_option": parsed[1], 
+                                "positive_marks": 1.0,
+                                "negative_marks": 0.0
+                            }
                 except (ValueError, IndexError) as e:
                     print(f"  ⚠️  Skipping row {row}: {e}")
                     continue
@@ -240,26 +258,47 @@ class AnswerKeyService:
         start_idx = 1 if has_header else 0
         headers = first_row if has_header else None
 
-        q_col, opt_col, marks_col = self._detect_csv_columns(headers)
+        q_col, type_col, pos_col, neg_col, opt_col = self._detect_excel_columns(headers)
         # Default column positions if detection fails
-        if q_col is None:
-            q_col = 0
-        if opt_col is None:
-            opt_col = 1
+        if q_col is None: q_col = 0
+        if type_col is None: type_col = 1
+        if pos_col is None: pos_col = 2
+        if neg_col is None: neg_col = 3
+        if opt_col is None: opt_col = 4
 
         for row in rows[start_idx:]:
             if not row or all(cell is None for cell in row):
                 continue
             try:
-                q_num = self._parse_question_number(str(row[q_col]).strip())
-                option = str(row[opt_col]).strip().upper()
-                marks = 1.0
-                if marks_col is not None and marks_col < len(row) and row[marks_col]:
-                    try:
-                        marks = float(row[marks_col])
-                    except (ValueError, TypeError):
-                        marks = 1.0
-                answers[q_num] = {"correct_option": option, "marks": marks}
+                # Ensure we have enough columns gracefully
+                val_q    = str(row[q_col]).strip()    if q_col    is not None and q_col    < len(row) else ""
+                val_type = str(row[type_col]).strip().upper() if type_col is not None and type_col < len(row) else "SMCQ"
+                val_pos  = str(row[pos_col]).strip()  if pos_col  is not None and pos_col  < len(row) else "1.0"
+                val_neg  = str(row[neg_col]).strip()  if neg_col  is not None and neg_col  < len(row) else "0.0"
+                val_opt  = str(row[opt_col]).strip().upper() if opt_col is not None and opt_col < len(row) else ""
+
+                if not val_q or not val_opt:
+                    continue
+
+                q_num = self._parse_question_number(val_q)
+                option = val_opt
+                
+                pos_marks = 1.0
+                if val_pos:
+                    try: pos_marks = float(val_pos)
+                    except: pass
+                    
+                neg_marks = 0.0
+                if val_neg:
+                    try: neg_marks = float(val_neg)
+                    except: pass
+
+                answers[q_num] = {
+                    "type": val_type,
+                    "correct_option": option,
+                    "positive_marks": pos_marks,
+                    "negative_marks": neg_marks
+                }
             except (ValueError, IndexError):
                 continue
 
@@ -314,7 +353,12 @@ class AnswerKeyService:
             parsed = self._parse_inline_answer(line)
             if parsed:
                 q_num, option = parsed
-                answers[q_num] = {"correct_option": option, "marks": 1.0}
+                answers[q_num] = {
+                    "type": "SMCQ",
+                    "correct_option": option, 
+                    "positive_marks": 1.0, 
+                    "negative_marks": 0.0
+                }
 
         if not answers:
             raise ValueError("No answers could be parsed from text content")
@@ -389,42 +433,28 @@ class AnswerKeyService:
     #  Helpers
     # ──────────────────────────────────────────
 
-    def _detect_csv_columns(self, headers: list) -> tuple:
-        """Detect question_number, option, and marks columns from headers."""
+    def _detect_excel_columns(self, headers: list) -> tuple:
+        """Detect question_number, type, positive_marks, negative_marks, and option from headers."""
         if not headers:
-            return 0, 1, None  # default: first col = question, second = option
+            return 0, 1, 2, 3, 4
 
-        q_col = None
-        opt_col = None
-        marks_col = None
+        q_col = type_col = pos_col = neg_col = opt_col = None
 
-        q_keywords = {'question', 'q', 'number', 'q_no', 'qno', 'q.no', 'q no',
-                       'question_number', 'question number', 'sl', 'sr', 'sno', "s.no"}
-        opt_keywords = {'correct', 'option', 'answer', 'correct_option', 'correct option',
-                         'ans', 'key', 'correct_answer', 'correct answer'}
-        marks_keywords = {'marks', 'mark', 'score', 'weight', 'points'}
+        q_kw = {'question', 'q', 'number', 'q_no'}
+        type_kw = {'type'}
+        pos_kw = {'positive', 'marks', 'score'}
+        neg_kw = {'negative'}
+        opt_kw = {'correct', 'option', 'answer', 'key'}
 
         for idx, header in enumerate(headers):
             h = header.lower().strip()
-            if q_col is None and any(kw in h for kw in q_keywords):
-                q_col = idx
-            elif opt_col is None and any(kw in h for kw in opt_keywords):
-                opt_col = idx
-            elif marks_col is None and any(kw in h for kw in marks_keywords):
-                marks_col = idx
+            if q_col is None and any(k in h for k in q_kw): q_col = idx
+            elif type_col is None and any(k in h for k in type_kw): type_col = idx
+            elif pos_col is None and any(k in h for k in pos_kw) and 'negative' not in h: pos_col = idx
+            elif neg_col is None and any(k in h for k in neg_kw): neg_col = idx
+            elif opt_col is None and any(k in h for k in opt_kw): opt_col = idx
 
-        # Fallback: if we found neither, assume col 0 = question, col 1 = option
-        if q_col is None and opt_col is None:
-            q_col = 0
-            opt_col = 1 if len(headers) > 1 else 0
-
-        # If only one was found, infer the other
-        if q_col is not None and opt_col is None:
-            opt_col = q_col + 1
-        elif opt_col is not None and q_col is None:
-            q_col = max(0, opt_col - 1)
-
-        return q_col, opt_col, marks_col
+        return q_col, type_col, pos_col, neg_col, opt_col
 
     def _parse_question_number(self, text: str) -> int:
         """Extract integer question number from text like 'Q1', '1.', 'Question 1', '1'"""
@@ -462,28 +492,53 @@ class AnswerKeyService:
         return None
 
     def _normalize(self, raw: Dict, source_file: str = "") -> AnswerKey:
-        """Convert raw parsed dict to AnswerKey model."""
+        """Convert raw parsed dict to AnswerKey model. Also handles strict format validation."""
         raw_answers = raw.get("answers", {})
         answers = {}
+        validation_errors = []
 
         for key, value in raw_answers.items():
             q_num = int(key)
             if isinstance(value, dict):
+                q_type = str(value.get("type", "SMCQ")).strip().upper()
                 option = str(value.get("correct_option", "")).strip().upper()
-                marks = float(value.get("marks", 1.0))
+                pos_marks = float(value.get("positive_marks", 1.0))
+                neg_marks = float(value.get("negative_marks", 0.0))
             elif isinstance(value, str):
+                q_type = "SMCQ"
                 option = value.strip().upper()
-                marks = 1.0
+                pos_marks = 1.0
+                neg_marks = 0.0
             else:
                 continue
+                
+            # Perform validation based on Type
+            if q_type == "SMCQ":
+                if not option or len(option) != 1 or not option.isalpha():
+                    validation_errors.append(f"Row {q_num}: Invalid answer '{option}' for SMCQ. Expected a single alphabet character.")
+                else:
+                    answers[q_num] = AnswerKeyEntry(type=q_type, correct_option=option, positive_marks=pos_marks, negative_marks=neg_marks)
+            
+            elif q_type == "MMCQ":
+                if not option or not bool(re.search(r'[A-Za-z]', option)):
+                     validation_errors.append(f"Row {q_num}: Invalid answer '{option}' for MMCQ. Expected multiple alphabetical options.")
+                else:
+                    answers[q_num] = AnswerKeyEntry(type=q_type, correct_option=option, positive_marks=pos_marks, negative_marks=neg_marks)
+            
+            elif q_type == "NCQ":
+                try:
+                    # Strip standard NCQ answers to float
+                    float(re.sub(r'[^0-9.-]', '', str(option)))
+                    answers[q_num] = AnswerKeyEntry(type=q_type, correct_option=option, positive_marks=pos_marks, negative_marks=neg_marks)
+                except ValueError:
+                    validation_errors.append(f"Row {q_num}: Invalid answer '{option}' for NCQ. Expected a numerical/decimal value.")
+            
+            else:
+                validation_errors.append(f"Row {q_num}: Unknown Question Type '{q_type}'. Expected SMCQ, MMCQ, or NCQ.")
 
-            # Validate option is a single letter A-D (or allow broader)
-            if option and len(option) == 1 and option.isalpha():
-                answers[q_num] = AnswerKeyEntry(correct_option=option, marks=marks)
-            elif option:
-                # Allow non-standard options but warn
-                print(f"  ⚠️  Q{q_num}: unusual option '{option}' — keeping as-is")
-                answers[q_num] = AnswerKeyEntry(correct_option=option, marks=marks)
+        if validation_errors:
+            error_msg = "; ".join(validation_errors)
+            raise ValueError(f"Format Validation Errors:\n{error_msg}")
 
         if not answers:
             raise ValueError("No valid answers found after normalization")
@@ -491,7 +546,6 @@ class AnswerKeyService:
         return AnswerKey(
             total_questions=len(answers),
             answers=answers,
-            negative_marking=raw.get("negative_marking", 0.0),
             metadata={
                 "source_file": source_file,
                 "raw_question_count": len(raw_answers),
@@ -503,23 +557,23 @@ class AnswerKeyService:
         return """
 You are analyzing an ANSWER KEY document for an objective/MCQ examination.
 
-Extract ALL question numbers and their correct options. Return ONLY a valid JSON object (no markdown):
+Extract ALL question numbers and their correct options. Be mindful of three possible formats: SMCQ (Single Choice), MMCQ (Multiple Choice), and NCQ (Numerical).
+Return ONLY a valid JSON object (no markdown):
 
 {
     "answers": {
-        "1": {"correct_option": "A", "marks": 1},
-        "2": {"correct_option": "C", "marks": 1},
-        "3": {"correct_option": "B", "marks": 1},
+        "1": {"type": "SMCQ", "correct_option": "A", "positive_marks": 1.0, "negative_marks": 0.0},
+        "2": {"type": "SMCQ", "correct_option": "C", "positive_marks": 1.0, "negative_marks": 0.0},
+        "3": {"type": "MMCQ", "correct_option": "A,B,C", "positive_marks": 4.0, "negative_marks": 1.0},
+        "4": {"type": "NCQ", "correct_option": "4.15", "positive_marks": 3.0, "negative_marks": 0.0},
         ...
-    },
-    "negative_marking": 0
+    }
 }
 
 Rules:
 - Question numbers must be integers (as strings in the JSON keys)
-- Options should be single uppercase letters (A, B, C, D)
-- If marks per question are visible, include them; otherwise default to 1
-- If negative marking info is visible, include it; otherwise set to 0
+- 'type' should be one of SMCQ, MMCQ, or NCQ.
+- If positive/negative marks per question are visible, include them; otherwise default to 1.0 positive, 0.0 negative.
 - Include ALL questions visible in the document
 - Return ONLY the JSON object, no explanation text
 """

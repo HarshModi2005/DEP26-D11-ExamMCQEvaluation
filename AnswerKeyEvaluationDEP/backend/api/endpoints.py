@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from models import (
     Student, Submission, EvaluationResult,
-    AnswerKey, StudentResult, PipelineSummary, SheetUpdateSummary,
+    AnswerKey, AnswerKeyEntry, StudentResult, PipelineSummary, SheetUpdateSummary,
     ProcessFolderRequest, ExportToSheetsRequest, FullPipelineRequest,
 )
 from services.drive_service import DriveService
@@ -193,6 +193,8 @@ async def upload_answer_key(file: UploadFile = File(...)):
             "total_questions": _current_answer_key.total_questions,
             "answer_key": _current_answer_key.model_dump(),
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse answer key: {str(e)}")
     finally:
@@ -226,7 +228,6 @@ def set_answer_key_manual(answers: dict):
     _current_answer_key = AnswerKey(
         total_questions=len(parsed),
         answers=parsed,
-        negative_marking=negative,
         metadata={"source": "manual_input"}
     )
 
@@ -239,6 +240,113 @@ def set_answer_key_manual(answers: dict):
 # ═══════════════════════════════════════
 #  PHASE 2B — PROCESS STUDENT SHEETS
 # ═══════════════════════════════════════
+
+@router.post("/process-zip")
+async def process_zip_folder(file: UploadFile = File(...)):
+    import zipfile
+    import uuid
+    global _current_answer_key, _current_results
+
+    async def event_generator():
+        yield f"data: {json.dumps({'type': 'log', 'message': '[System] Initializing OCR pipeline for ZIP upload...'})}\n\n"
+        
+        if _current_answer_key is None:
+            yield f"data: {json.dumps({'type': 'error', 'message': '[Error] No answer key loaded. Please upload one first.'})}\n\n"
+            return
+            
+        temp_dir = tempfile.mkdtemp(prefix="student_zip_")
+        try:
+            # Save uploaded zip
+            local_zip_path = os.path.join(temp_dir, file.filename)
+            with open(local_zip_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+                
+            extract_dir = os.path.join(temp_dir, "extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            with zipfile.ZipFile(local_zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+                
+            # Collect valid image files
+            valid_exts = {".jpg", ".jpeg", ".png", ".pdf"}
+            student_files = []
+            for root, _, files in os.walk(extract_dir):
+                for f in files:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in valid_exts and "answer" not in f.lower():
+                        student_files.append({"name": f, "path": os.path.join(root, f)})
+                        
+            if not student_files:
+                yield f"data: {json.dumps({'type': 'error', 'message': '[Error] No valid student sheets found in ZIP.'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'type': 'log', 'message': f'[System] Identified {len(student_files)} student sheets in ZIP.'})}\n\n"
+            
+            # Using the ZIP filename and size as a folder_id equivalent for session state
+            folder_id = f"ZIP_{file.filename}_{file.size}"
+            
+            # Load existing session if present
+            session_data = state_service.load_session(folder_id)
+            if session_data:
+                processed_file_ids = set(session_data.get("processed_file_ids", []))
+                # For ZIP, the results might be dicts or StudentResult objects depending on state_service serialization
+                loaded_results = session_data.get("results", [])
+                _current_results = [
+                    StudentResult(**r) if isinstance(r, dict) else r for r in loaded_results
+                ]
+                yield f"data: {json.dumps({'type': 'log', 'message': f'[System] Resuming session. Loaded {len(processed_file_ids)} previously processed sheets.'})}\n\n"
+                for r in _current_results:
+                    yield f"data: {json.dumps({'type': 'result', 'data': r.model_dump()})}\n\n"
+            else:
+                processed_file_ids = set()
+                _current_results = []
+
+            success_count = len(_current_results)
+            
+            for idx, sfile in enumerate(student_files, 1):
+                try:
+                    sfile_name = sfile["name"]
+                    
+                    if sfile_name in processed_file_ids:
+                        yield f"data: {json.dumps({'type': 'log', 'message': f'[Skip] Document {idx}/{len(student_files)}: {sfile_name} already processed.'})}\n\n"
+                        continue
+                        
+                    yield f"data: {json.dumps({'type': 'log', 'message': f'[Process] Document {idx}/{len(student_files)}: Extracting {sfile_name}...'})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                    student_answers = ocr_service.extract_objective_sheet(sfile["path"])
+                    if "error" in student_answers:
+                        err_msg = student_answers["error"]
+                        yield f"data: {json.dumps({'type': 'log', 'message': f'[Error] Failed extracting {sfile_name}: {err_msg}'})}\n\n"
+                        continue
+
+                    s_result = eval_service.match_and_score(_current_answer_key, student_answers)
+                    _current_results.append(s_result)
+                    
+                    processed_file_ids.add(sfile_name)
+                    
+                    # Instead of saving to database directly, we save to the session file
+                    state_service.save_session(folder_id, list(processed_file_ids), _current_results, [])
+                    success_count += 1
+
+                    
+                    yield f"data: {json.dumps({'type': 'log', 'message': f'[Score] Evaluated {s_result.entry_number} ({s_result.name}): Score {s_result.total_score}/{s_result.max_score}'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'result', 'data': s_result.model_dump()})}\n\n"
+
+                except Exception as eval_err:
+                     yield f"data: {json.dumps({'type': 'log', 'message': f'[System Error] Crash evaluating {sfile_name}: {str(eval_err)}'})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'log', 'message': f'[Complete] Evaluation finished. Synced {success_count} results.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'[System Error] Pipeline crash: {str(e)}'})}\n\n"
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @router.post("/process-drive-folder")
 async def process_drive_folder(request: ProcessFolderRequest):
@@ -386,10 +494,28 @@ def export_to_sheets(request: ExportToSheetsRequest):
     Entry numbers are matched using the format yyyybbbnnnn (e.g. 2023CSB1122).
     Names are cross-verified — mismatches are flagged but marks are still written.
     """
-    # Try in-memory results first, fall back to database
+    # Try payload results first (from frontend Supabase), then in-memory, then local db
     results_dicts = []
     
-    if _current_results:
+    if request.results and len(request.results) > 0:
+        for r in request.results:
+            # Supabase rows have student info nested under r["students"]
+            stu_obj = r.get("students") or {}
+            if isinstance(stu_obj, dict):
+                stu_name = stu_obj.get("name", "") or r.get("name", "")
+                roll_number = stu_obj.get("roll_number", "") or r.get("entry_number", "") or r.get("student_id", "")
+            else:
+                stu_name = r.get("name", "")
+                roll_number = r.get("entry_number", "") or r.get("student_id", "")
+
+            results_dicts.append({
+                "entry_number": roll_number,
+                "name": stu_name,
+                "total_score": r.get("total_score") or r.get("score") or 0,
+                "comments": r.get("comments") or r.get("feedback") or "",
+                "details": r.get("details", [])
+            })
+    elif _current_results:
         results_dicts = [
             {
                 "entry_number": r.entry_number,
@@ -401,7 +527,7 @@ def export_to_sheets(request: ExportToSheetsRequest):
             for r in _current_results
         ]
     else:
-        # Pull from database
+        # Pull from local database (legacy fallback)
         db_results = db.get_all_results()
         if db_results:
             for row in db_results:
@@ -436,7 +562,34 @@ def export_to_sheets(request: ExportToSheetsRequest):
         )
 
     try:
+        # Standard sheet update
         summary = sheets_service.update_marks(request.sheet_url, results_dicts, request.subsheet_name)
+        
+        # New Feature: Create the student responses separate tab
+        # request.subsheet_name is typically the evaluation name
+        eval_name = request.subsheet_name if request.subsheet_name else "UnknownEval"
+        try:
+            # Build a plain answer map from the frontend answer_key_data dict.
+            # Format: {"answers": {"1": "A", "2": "C"}, ...} OR {"answers": {"1": {"correct_option": "A"}, ...}}
+            ak_answers_map = {}
+            if _current_answer_key and hasattr(_current_answer_key, 'entries'):
+                for e in _current_answer_key.entries:
+                    ak_answers_map[int(e.question_number)] = e.correct_answer
+            elif request.answer_key_data and "answers" in request.answer_key_data:
+                for q_str, val in request.answer_key_data["answers"].items():
+                    try:
+                        qn = int(q_str)
+                        if isinstance(val, dict):
+                            ak_answers_map[qn] = val.get("correct_option") or val.get("correct_answer", "")
+                        else:
+                            ak_answers_map[qn] = str(val)
+                    except (ValueError, TypeError):
+                        pass
+
+            sheets_service.export_student_responses(request.sheet_url, results_dicts, ak_answers_map, eval_name)
+        except Exception as sheet_err:
+            print(f"Non-fatal error creating student responses sheet: {sheet_err}")
+            
         return summary
 
     except RuntimeError as e:

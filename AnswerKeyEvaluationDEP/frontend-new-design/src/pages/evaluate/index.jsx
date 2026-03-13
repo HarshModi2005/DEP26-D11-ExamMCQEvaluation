@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { evaluationService } from '../../services/evaluationService';
 import { resultsService } from '../../services/resultsService';
 import { backendService } from '../../services/backendService';
+import { supabase } from '../../services/supabaseClient';
 
 // ── Status Badge ──────────────────────────
 const StatusBadge = ({ status }) => {
@@ -23,6 +24,7 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
     const [mode, setMode] = useState('view'); // 'view' | 'manual' | 'upload'
     const [driveUrl, setDriveUrl] = useState(evaluation?.drive_folder_url || '');
     const [loading, setLoading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
     const [err, setErr] = useState('');
     const [manualJson, setManualJson] = useState('{\n  "answers": { "1": "A", "2": "B" },\n  "marks_per_question": 1,\n  "negative_marking": 0\n}');
     const [uploadFile, setUploadFile] = useState(null);
@@ -53,13 +55,13 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
 
     const loadFromUpload = async () => {
         if (!uploadFile) { setErr('Please select a file.'); return; }
-        setLoading(true); setErr('');
+        setLoading(true); setErr(''); setUploadProgress(0);
         try {
-            const res = await backendService.uploadAnswerKey(uploadFile);
+            const res = await backendService.uploadAnswerKey(uploadFile, (pct) => setUploadProgress(pct));
             await evaluationService.saveAnswerKey(evaluation.id, res.answer_key);
             onKeyLoaded(res.answer_key);
         } catch (e) { setErr(e.message); }
-        finally { setLoading(false); }
+        finally { setLoading(false); setUploadProgress(0); }
     };
 
     return (
@@ -88,7 +90,7 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
             </div>
 
             <div className="p-4 space-y-3">
-                {err && <div className="p-3 bg-error-50 border border-error-100 rounded-lg text-sm text-error">{err}</div>}
+                {err && <div className="p-3 bg-error-50 border border-error-100 rounded-lg text-sm text-error whitespace-pre-wrap font-mono relative"><Icon name="AlertCircle" size={16} className="absolute top-3 left-3" /> <div className="ml-6">{err}</div></div>}
 
                 {/* From Drive */}
                 {mode === 'view' && (
@@ -108,18 +110,58 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                 {/* Upload File */}
                 {mode === 'upload' && (
                     <div className="space-y-3">
-                        <p className="text-xs text-text-secondary">Upload CSV, XLSX, PDF, or image of the answer key.</p>
-                        <label className="block w-full border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-primary-300 transition-colors">
-                            <Icon name="Upload" size={20} className="mx-auto mb-2 text-secondary-400" />
-                            <p className="text-sm text-text-secondary">{uploadFile ? uploadFile.name : 'Click to select file'}</p>
+                        <div className="bg-primary-50 p-3 rounded-lg border border-primary-100 text-xs text-primary-800 space-y-1.5">
+                            <p className="font-semibold flex items-center gap-1.5"><Icon name="Info" size={14} /> Expected Format Columns:</p>
+                            <ul className="list-disc pl-5 space-y-0.5">
+                                <li><strong>Question</strong>: e.g. 1, 2, 3</li>
+                                <li><strong>Type</strong>: <code className="bg-white px-1 rounded">SMCQ</code> (Single), <code className="bg-white px-1 rounded">MMCQ</code> (Multi), or <code className="bg-white px-1 rounded">NCQ</code> (Numerical)</li>
+                                <li><strong>Positive Marks</strong>: e.g. 3.0</li>
+                                <li><strong>Negative Marks</strong>: e.g. 1.0</li>
+                                <li><strong>Correct Answer</strong>: Letter(s) or number based on Type</li>
+                            </ul>
+                        </div>
+                        <label className={`block w-full border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all duration-200 ${uploadFile ? 'border-success-500 bg-success-50' : 'border-border hover:border-primary-300 bg-white'}`}>
+                            {uploadFile ? (
+                                <>
+                                    <Icon name="CheckCircle" size={20} className="mx-auto mb-2 text-success-500" />
+                                    <p className="text-sm font-semibold text-success-700">{uploadFile.name}</p>
+                                    <p className="text-xs text-success-600 mt-0.5">{(uploadFile.size / 1024).toFixed(0)} KB · Ready to parse</p>
+                                </>
+                            ) : (
+                                <>
+                                    <Icon name="Upload" size={20} className="mx-auto mb-2 text-secondary-400" />
+                                    <p className="text-sm text-text-secondary">Click to select file</p>
+                                </>
+                            )}
                             <input type="file" className="sr-only" accept=".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.txt"
                                 onChange={e => setUploadFile(e.target.files[0])} />
                         </label>
                         <button onClick={loadFromUpload} disabled={loading || !uploadFile}
                             className="w-full py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Upload" size={14} />}
-                            {loading ? 'Uploading...' : 'Upload & Parse'}
+                            {loading
+                                ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                : <Icon name="Upload" size={14} />}
+                            {loading
+                                ? (uploadProgress > 0 && uploadProgress < 100 ? `Uploading... (${uploadProgress}%)` : 'Processing...')
+                                : 'Upload & Parse'}
                         </button>
+                        {loading && (
+                            <div>
+                                <div className="w-full bg-secondary-100 rounded-full h-1.5 mt-1">
+                                    <div
+                                        className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                                        style={{ width: uploadProgress > 0 ? `${uploadProgress}%` : '30%' }}
+                                    />
+                                </div>
+                                <p className="text-xs text-text-secondary mt-1 text-center">
+                                    {uploadProgress > 0 && uploadProgress < 100
+                                        ? `Uploading file to server... ${uploadProgress}%`
+                                        : uploadProgress >= 100
+                                            ? 'Analysing answer key...'
+                                            : 'Preparing upload...'}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -144,7 +186,7 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                         <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                             {Object.entries(evaluation.answer_key_data.answers).slice(0, 20).map(([q, a]) => (
                                 <span key={q} className="px-1.5 py-0.5 bg-white border border-success-200 rounded text-xs font-mono">
-                                    Q{q}:{typeof a === 'object' ? a.correct_option : a}
+                                    Q{q}: {typeof a === 'object' ? `${a.type || 'SMCQ'} [${a.correct_option}] (+${a.positive_marks || 1}/-${a.negative_marks || 0})` : a}
                                 </span>
                             ))}
                             {Object.keys(evaluation.answer_key_data.answers).length > 20 && (
@@ -259,6 +301,9 @@ const EvaluatePage = () => {
     const [error, setError] = useState('');
     const [exportMsg, setExportMsg] = useState('');
     const [driveFolderUrl, setDriveFolderUrl] = useState('');
+    const [pipelineMode, setPipelineMode] = useState('drive'); // 'drive' | 'zip'
+    const [zipFile, setZipFile] = useState(null);
+    const [zipUploadProgress, setZipUploadProgress] = useState(0);
     const [showLogs, setShowLogs] = useState(false);
     const [clearLoading, setClearLoading] = useState(false);
 
@@ -285,9 +330,19 @@ const EvaluatePage = () => {
     };
 
     const handleRunPipeline = async () => {
-        const url = driveFolderUrl || evaluation?.drive_folder_url;
-        if (!url) { setError('Please enter the Google Drive folder URL containing student answer sheets.'); return; }
         if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
+
+        let targetName = "";
+        let url = "";
+
+        if (pipelineMode === 'drive') {
+            url = driveFolderUrl || evaluation?.drive_folder_url;
+            if (!url) { setError('Please enter the Google Drive folder URL containing student answer sheets.'); return; }
+            targetName = url;
+        } else {
+            if (!zipFile) { setError('Please upload a ZIP file containing the student sheets.'); return; }
+            targetName = zipFile.name;
+        }
 
         setPipelineLoading(true);
         setError('');
@@ -295,27 +350,43 @@ const EvaluatePage = () => {
         setPipelineProgress(10);
         setPipelineLog([
             `[System] Initializing OCR text extraction pipeline...`,
-            `[System] Target Directory: ${url}`,
+            `[System] Target Source: ${targetName}`,
             `[Info] Processing duration estimated at 20-30 seconds per document. Please standby.`,
         ]);
 
         try {
-            // Save drive folder URL if changed
-            if (url !== evaluation.drive_folder_url) {
-                await evaluationService.updateDriveFolderUrl(evaluationId, url);
-                setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+            let pipelineResult;
+
+            if (pipelineMode === 'drive') {
+                // Save drive folder URL if changed
+                if (url !== evaluation.drive_folder_url) {
+                    await evaluationService.updateDriveFolderUrl(evaluationId, url);
+                    setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+                }
+
+                pipelineResult = await backendService.processDriveFolder(url, (event) => {
+                    if (event.message) setPipelineLog(prev => [...prev, event.message]);
+                    if (event.type === 'process') setPipelineProgress(prev => Math.min(prev + 5, 80));
+                });
+            } else {
+                setZipUploadProgress(0);
+                const collectedZipResults = [];
+                pipelineResult = await backendService.processZipFolder(
+                    zipFile,
+                    (event) => {
+                        if (event.message) setPipelineLog(prev => [...prev, event.message]);
+                        if (event.type === 'process') setPipelineProgress(prev => Math.min(prev + 5, 80));
+                        // Collect individual student result events
+                        if (event.type === 'result' && event.data) {
+                            collectedZipResults.push(event.data);
+                        }
+                    },
+                    (pct) => setZipUploadProgress(pct)
+                );
+                setZipUploadProgress(0);
+                // Override pipelineResult.results with what we collected from SSE events
+                pipelineResult = { ...pipelineResult, results: collectedZipResults };
             }
-
-            const pipelineResult = await backendService.processDriveFolder(url, (event) => {
-                if (event.message) {
-                    setPipelineLog(prev => [...prev, event.message]);
-                }
-
-                if (event.type === 'process') {
-                    // Slight visual bump in progress bar
-                    setPipelineProgress(prev => Math.min(prev + 5, 80));
-                }
-            });
 
             setPipelineProgress(80);
 
@@ -388,7 +459,7 @@ const EvaluatePage = () => {
         setExportLoading(true);
         setExportMsg('');
         try {
-            const res = await backendService.exportToSheets(course.master_sheet_url, evaluation.subsheet_name);
+            const res = await backendService.exportToSheets(course.master_sheet_url, evaluation.subsheet_name, results, evaluation.answer_key_data);
             await evaluationService.updateStatus(evaluationId, 'published');
 
             if (res.has_mismatches) {
@@ -434,11 +505,25 @@ const EvaluatePage = () => {
         setClearLoading(true);
         setError('');
         try {
+            // 1. Clear backend local session cache + answer key
             await backendService.clearResults();
+
+            // 2. Delete from Supabase DB so results don't reappear on page refresh
+            const { error: dbErr } = await supabase
+                .from('submission_results')
+                .delete()
+                .eq('evaluation_id', evaluationId);
+            if (dbErr) throw dbErr;
+
+            // 3. Reset evaluation status back to draft in DB
+            await evaluationService.updateStatus(evaluationId, 'draft');
+
+            // 4. Update local state
             setResults([]);
             setEvaluation(prev => ({ ...prev, status: 'draft', has_mismatches: false }));
-            setPipelineLog(prev => [...prev, '[System] Session cleared. All cached results and loaded answer keys have been removed.']);
             setPipelineProgress(0);
+            setPipelineLog([]);
+            setShowLogs(false);
         } catch (err) {
             setError('Failed to clear results: ' + err.message);
         } finally {
@@ -549,14 +634,63 @@ const EvaluatePage = () => {
                                     <h3 className="font-semibold text-text-primary">OCR Pipeline</h3>
                                 </div>
                                 <div className="p-4 space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-medium text-text-secondary mb-1">
-                                            Google Drive Folder (Student Answer Sheets)
-                                        </label>
-                                        <input type="url" value={driveFolderUrl} onChange={e => setDriveFolderUrl(e.target.value)}
-                                            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
-                                            placeholder="https://drive.google.com/drive/folders/..." />
+                                    <div className="flex bg-secondary-50 border border-border rounded-lg overflow-hidden mb-4">
+                                        <button onClick={() => setPipelineMode('drive')} className={`flex-1 py-2 text-sm font-medium transition-colors ${pipelineMode === 'drive' ? 'bg-primary-50 text-primary border-b-2 border-primary' : 'text-text-secondary hover:bg-secondary-100'}`}>Google Drive Link</button>
+                                        <button onClick={() => setPipelineMode('zip')} className={`flex-1 py-2 text-sm font-medium transition-colors ${pipelineMode === 'zip' ? 'bg-primary-50 text-primary border-b-2 border-primary' : 'text-text-secondary hover:bg-secondary-100'}`}>Upload ZIP File</button>
                                     </div>
+
+                                    {pipelineMode === 'drive' ? (
+                                        <div>
+                                            <label className="block text-xs font-medium text-text-secondary mb-1">
+                                                Google Drive Folder (Student Answer Sheets)
+                                            </label>
+                                            <input type="url" value={driveFolderUrl} onChange={e => setDriveFolderUrl(e.target.value)}
+                                                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                                                placeholder="https://drive.google.com/drive/folders/..." />
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <label className="block text-xs font-medium text-text-secondary mb-1">
+                                                ZIP Archive (Containing student image files)
+                                            </label>
+                                            <label className={`block w-full border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all duration-200 ${zipFile ? 'border-success-500 bg-success-50' : 'border-border hover:border-primary-300 bg-white'}`}>
+                                                {zipFile ? (
+                                                    <>
+                                                        <Icon name="CheckCircle" size={20} className="mx-auto mb-2 text-success-500" />
+                                                        <p className="text-sm font-semibold text-success-700">{zipFile.name}</p>
+                                                        <p className="text-xs text-success-600 mt-0.5">{(zipFile.size / 1024 / 1024).toFixed(2)} MB · Ready to process</p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Icon name="FileArchive" size={20} className="mx-auto mb-2 text-secondary-400" />
+                                                        <p className="text-sm font-medium text-text-primary">Select ZIP File</p>
+                                                        <p className="text-xs text-text-secondary mt-0.5">Drop a .zip archive here</p>
+                                                    </>
+                                                )}
+                                                <input type="file" className="sr-only" accept=".zip,application/zip" onChange={e => setZipFile(e.target.files[0])} />
+                                            </label>
+                                            {pipelineLoading && pipelineMode === 'zip' && (
+                                                <div className="mt-2">
+                                                    <div className="flex justify-between text-xs text-text-secondary mb-1">
+                                                        <span>
+                                                            {zipUploadProgress > 0 && zipUploadProgress < 100
+                                                                ? `Uploading ZIP to server...`
+                                                                : zipUploadProgress >= 100
+                                                                    ? 'Processing sheets...'
+                                                                    : 'Preparing upload...'}
+                                                        </span>
+                                                        {zipUploadProgress > 0 && <span>{zipUploadProgress}%</span>}
+                                                    </div>
+                                                    <div className="w-full bg-secondary-100 rounded-full h-1.5">
+                                                        <div
+                                                            className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                                                            style={{ width: zipUploadProgress > 0 ? `${zipUploadProgress}%` : '20%' }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Checklist */}
                                     <div className="space-y-2">
@@ -564,9 +698,9 @@ const EvaluatePage = () => {
                                             <Icon name={evaluation?.answer_key_data ? 'CheckCircle' : 'Circle'} size={16} />
                                             Answer key loaded
                                         </div>
-                                        <div className={`flex items-center gap-2 text-sm ${driveFolderUrl ? 'text-success-600' : 'text-secondary-400'}`}>
-                                            <Icon name={driveFolderUrl ? 'CheckCircle' : 'Circle'} size={16} />
-                                            Drive folder URL set
+                                        <div className={`flex items-center gap-2 text-sm ${(pipelineMode === 'drive' && driveFolderUrl) || (pipelineMode === 'zip' && zipFile) ? 'text-success-600' : 'text-secondary-400'}`}>
+                                            <Icon name={(pipelineMode === 'drive' && driveFolderUrl) || (pipelineMode === 'zip' && zipFile) ? 'CheckCircle' : 'Circle'} size={16} />
+                                            {pipelineMode === 'drive' ? 'Drive folder URL set' : 'ZIP file uploaded'}
                                         </div>
                                     </div>
 

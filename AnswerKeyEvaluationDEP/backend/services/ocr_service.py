@@ -278,10 +278,12 @@ Extract ONLY the following fields and return as valid JSON (no markdown):
 Rules:
 - "entry_number": Look for roll number, entry number, enrollment number, registration number, student ID, etc.
 - "name": The student's name as written on the sheet.
-- "answers": A dictionary mapping question number (as string) to the marked option (single uppercase letter A/B/C/D).
+- "answers": A dictionary mapping question number (as string) to the marked answer.
 - If a question appears unanswered or blank, DO NOT include it in answers.
-- If multiple options are marked for a question, set the value to "MULTIPLE".
-- Options must be single uppercase letters: A, B, C, or D.
+- If multiple options are marked for an SMCQ question or they are linked, set the value to "MULTIPLE".
+- FOR SMCQ: Single uppercase letters A, B, C, or D.
+- FOR MMCQ: Multiple options marked (e.g. "A,B"), return the exact characters.
+- FOR NCQ: A literal number (e.g. 1.25, 4, 3.1) returned as a string.
 - Question numbers must be integers represented as strings.
 - If entry_number or name is not found, set to null.
 

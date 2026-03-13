@@ -30,14 +30,15 @@ class EvaluationResult(BaseModel):
 # ── Answer Key Models ──
 
 class AnswerKeyEntry(BaseModel):
+    type: str = "SMCQ" # SMCQ, MMCQ, NCQ
     correct_option: str
-    marks: float = 1.0
+    positive_marks: float = 1.0
+    negative_marks: float = 0.0
 
 
 class AnswerKey(BaseModel):
     total_questions: int
     answers: Dict[int, AnswerKeyEntry]  # {1: AnswerKeyEntry(...), ...}
-    negative_marking: float = 0.0  # marks deducted per wrong answer
     metadata: Dict = {}  # source file, timestamp, etc.
 
 
@@ -45,8 +46,10 @@ class AnswerKey(BaseModel):
 
 class QuestionResult(BaseModel):
     question_number: int
-    marked: Optional[str] = None
-    correct: str
+    marked: Optional[str] = None          # student's chosen option (from OCR)
+    chosen_option: Optional[str] = None   # alias for marked (used in export)
+    correct: str = ""
+    correct_answer: Optional[str] = None  # alias for correct
     result: str  # "correct", "incorrect", "unattempted", "multiple"
     score: float
 
@@ -73,6 +76,9 @@ class ProcessFolderRequest(BaseModel):
 class ExportToSheetsRequest(BaseModel):
     sheet_url: str
     subsheet_name: Optional[str] = None
+    results: Optional[List[Dict]] = []
+    answer_key_data: Optional[Dict] = None
+
 
 
 class FullPipelineRequest(BaseModel):

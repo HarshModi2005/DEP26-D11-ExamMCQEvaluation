@@ -654,9 +654,134 @@ class SheetsService:
         except Exception as e:
             print(f"❌ Failed to append stats to {sheet_name}: {e}")
 
+    def export_student_responses(self, sheet_url: str, results: List[Dict], ak_answers_map: Dict, evaluation_name: str):
+        """
+        Creates a new sheet named studentResponse_<evaluation_name> and writes
+        every student's chosen answer for each question, with the answer key at the bottom.
+        
+        ak_answers_map: Dict[int, str] — {question_number: correct_answer}
+        """
+        if not self.service: return
+        spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
+        
+        target_sheet_name = f"studentResponse_{evaluation_name}"
+
+        # Ensure ak_answers_map is a plain dict (int keys -> str values)
+        if ak_answers_map is None:
+            ak_answers_map = {}
+        
+        # 1. Create or clear the sheet
+        spreadsheet = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        existing_sheets = {s['properties']['title']: s['properties']['sheetId'] for s in spreadsheet.get('sheets', [])}
+        
+        if target_sheet_name not in existing_sheets:
+            try:
+                self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": [{"addSheet": {"properties": {"title": target_sheet_name}}}]}
+                ).execute()
+            except Exception as e:
+                print(f"Failed to create response sheet: {e}")
+                return
+        else:
+            self.service.spreadsheets().values().clear(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{target_sheet_name}'"
+            ).execute()
+
+        # 2. Determine max question number
+        max_q = max(ak_answers_map.keys(), default=0)
+        # Also check from student details
+        for r in results:
+            details = r.get('details') or []
+            for d in details:
+                try:
+                    qn = int(d.get('question_number', 0)) if isinstance(d, dict) else int(getattr(d, 'question_number', 0))
+                    if qn > max_q:
+                        max_q = qn
+                except (ValueError, TypeError):
+                    pass
+                
+        if max_q == 0:
+            print("No questions found to export responses.")
+            return
+
+        headers = ["Entry Number", "Name"] + [f"Q{i}" for i in range(1, max_q + 1)]
+        rows = [headers]
+        
+        # Populate student rows
+        for r in results:
+            entry = r.get('entry_number', '')
+            name = r.get('name', '')
+            details = r.get('details') or []
+            
+            # Build question -> chosen_option map from details
+            student_choices = {}
+            for d in details:
+                try:
+                    qn = int(d.get('question_number', 0)) if isinstance(d, dict) else int(getattr(d, 'question_number', 0))
+                    choice = (d.get('chosen_option') or d.get('student_answer', '')) if isinstance(d, dict) else (getattr(d, 'chosen_option', '') or getattr(d, 'student_answer', ''))
+                    student_choices[qn] = str(choice) if choice else ""
+                except (ValueError, TypeError):
+                    pass
+                
+            row_data = [entry, name] + [student_choices.get(i, "") for i in range(1, max_q + 1)]
+            rows.append(row_data)
+            
+        # 3. Answer Key row
+        ak_row = ["Answer Key", ""] + [str(ak_answers_map.get(i, "")) for i in range(1, max_q + 1)]
+        rows.append([])  # spacer row
+        rows.append(ak_row)
+        
+        # 4. Write data
+        try:
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{target_sheet_name}'!A1",
+                valueInputOption="USER_ENTERED",
+                body={"values": rows}
+            ).execute()
+            
+            # Apply bold formatting to Header and Answer Key rows
+            sheet_id = next(
+                (s['properties']['sheetId'] for s in
+                 self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute().get('sheets', [])
+                 if s['properties']['title'] == target_sheet_name), None
+            )
+            
+            if sheet_id is not None:
+                ak_row_index = len(rows) - 1  # 0-indexed
+                self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={
+                        "requests": [
+                            {
+                                "repeatCell": {
+                                    "range": {"sheetId": sheet_id, "startRowIndex": ak_row_index, "endRowIndex": ak_row_index + 1},
+                                    "cell": {"userEnteredFormat": {"textFormat": {"bold": True}, "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9}}},
+                                    "fields": "userEnteredFormat(textFormat.bold,backgroundColor)"
+                                }
+                            },
+                            {
+                                "repeatCell": {
+                                    "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
+                                    "cell": {"userEnteredFormat": {"textFormat": {"bold": True}, "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95}}},
+                                    "fields": "userEnteredFormat(textFormat.bold,backgroundColor)"
+                                }
+                            }
+                        ]
+                    }
+                ).execute()
+                
+            print(f"✅ Student responses sheet '{target_sheet_name}' written with {len(results)} students and {max_q} questions.")
+                
+        except Exception as e:
+            print(f"Failed to populate response sheet: {e}")
+
     # ──────────────────────────────────────
     #  Tab Creation & Super Sheet
     # ──────────────────────────────────────
+
 
     def create_sheet_if_not_exists(self, sheet_url: str, sheet_name: str, total_questions: int = 0) -> bool:
         """Creates a new sheet tab if it doesn't exist. Copies header from first sheet if possible."""
