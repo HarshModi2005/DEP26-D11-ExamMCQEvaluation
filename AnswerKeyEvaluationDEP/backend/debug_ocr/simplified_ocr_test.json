@@ -1,0 +1,20 @@
+{
+  "student_name": null,
+  "roll_number": null,
+  "exam_code": null,
+  "objective_answers": [],
+  "subjective_answers": [
+    {
+      "question_number": 1,
+      "answer_text": "Modulation Scheme NRZ (non-return to zeroes)\n• To cend data, sender and recelier clocks should be syne-ed.\n• Instead of sending clock as sender well, maks data change frequently\nwhich ads as synchronizer.\nData\n01101\nNRZ\nsignal change\nw/clakli\nNRZI\nSignal charge\nw/\nBent\nthrough\nNRZY\n485B encoding\nconverte 4 bits of data\nto frequently changing\n5 bits of data\nmax 3\nconsecutive O"
+    },
+    {
+      "question_number": 2,
+      "answer_text": "Max Data Rate of channel:\ni> Nyquist Sampling for noiseless channels -\nMDR = 2.8. Log. V levels (medeschis A\nT\nBandwidth\nV = 2 [Binary 0/1]\n= 4 [QPSK]\n2) Shannon channel capacity for noisy channels -\nSNR\n[signal-to-\nnoise\nratio\n= (S)\nN\n} dB\n= 10 logio (S)\nN\nMDR = B. log2(1+)\nsignal-to-\nnoise ratio\n*[SNR]"
+    },
+    {
+      "question_number": 3,
+      "answer_text": "Delay in transmission:\n• Transmission delay + from bit in computer to transmission link\nPacket size: L bits\nDate rate : R bits/sec\n} dtrans = L/R\n• Propagation delay physkal distance to be travelled\nlenath & wire: m metres\nspeee of data transmission : c metres/sec } dprop= m/c\n• Processing delay processing data delay by receiver\n• Queue delay + queveling y data due to output channel being\nslower en transmission than input channel."
+    }
+  ]
+}

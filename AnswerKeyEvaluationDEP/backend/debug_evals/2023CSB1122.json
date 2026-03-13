@@ -1,0 +1,48 @@
+{
+  "entry_number": "2023CSB1122",
+  "name": "Harsh Modi",
+  "total_score": 3.0,
+  "max_score": 5.0,
+  "correct_count": 3,
+  "incorrect_count": 2,
+  "unattempted_count": 0,
+  "negative_deduction": 0.0,
+  "details": [
+    {
+      "question_number": 1,
+      "marked": "A",
+      "correct": "A",
+      "result": "correct",
+      "score": 1.0
+    },
+    {
+      "question_number": 2,
+      "marked": "C",
+      "correct": "B",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 3,
+      "marked": "D",
+      "correct": "C",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 4,
+      "marked": "C",
+      "correct": "C",
+      "result": "correct",
+      "score": 1.0
+    },
+    {
+      "question_number": 5,
+      "marked": "A",
+      "correct": "A",
+      "result": "correct",
+      "score": 1.0
+    }
+  ],
+  "comments": "Question 1 and 5 answers were circled instead of being in parenthesis. Question 2 and 3 answers were in parenthesis. Question 4 answer was in parenthesis. [DEBUG: S_Keys=[1, 2, 3, 4, 5]]"
+}

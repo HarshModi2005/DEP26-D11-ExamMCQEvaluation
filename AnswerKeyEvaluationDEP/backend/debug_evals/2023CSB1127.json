@@ -1,0 +1,48 @@
+{
+  "entry_number": "2023CSB1127",
+  "name": "Karan Verma",
+  "total_score": 2.0,
+  "max_score": 5.0,
+  "correct_count": 2,
+  "incorrect_count": 3,
+  "unattempted_count": 0,
+  "negative_deduction": 0.0,
+  "details": [
+    {
+      "question_number": 1,
+      "marked": "A",
+      "correct": "A",
+      "result": "correct",
+      "score": 1.0
+    },
+    {
+      "question_number": 2,
+      "marked": "D",
+      "correct": "B",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 3,
+      "marked": "D",
+      "correct": "C",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 4,
+      "marked": "D",
+      "correct": "C",
+      "result": "incorrect",
+      "score": -0.0
+    },
+    {
+      "question_number": 5,
+      "marked": "A",
+      "correct": "A",
+      "result": "correct",
+      "score": 1.0
+    }
+  ],
+  "comments": "The number '1' before the answer 'a' was likely intended to be '1) a'.  The handwritten answers 'a', 'd', 'd', 'd', 'a' were converted to uppercase letters A, D, D, D, A respectively. [DEBUG: S_Keys=[1, 2, 3, 4, 5]]"
+}
