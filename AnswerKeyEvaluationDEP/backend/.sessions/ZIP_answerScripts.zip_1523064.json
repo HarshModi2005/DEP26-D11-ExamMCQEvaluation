@@ -1,0 +1,631 @@
+{
+  "processed_file_ids": [
+    "Screenshot from 2026-03-13 18-33-01.png",
+    "Screenshot from 2026-03-13 18-33-06.png",
+    "Screenshot from 2026-03-13 18-33-26.png",
+    "Screenshot from 2026-03-13 18-33-13.png",
+    "Screenshot from 2026-03-13 18-33-17.png",
+    "Screenshot from 2026-03-13 18-32-55.png"
+  ],
+  "results": [
+    {
+      "entry_number": "2023CSB1122",
+      "name": "Harsh Modi",
+      "total_score": 36.0,
+      "max_score": 36.0,
+      "correct_count": 10,
+      "incorrect_count": 0,
+      "unattempted_count": 0,
+      "negative_deduction": 0.0,
+      "details": [
+        {
+          "question_number": 1,
+          "marked": "B",
+          "chosen_option": "B",
+          "correct": "B",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 2,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "C",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 3,
+          "marked": "AC",
+          "chosen_option": "AC",
+          "correct": "AC",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 4,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "A",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 5,
+          "marked": "2.5",
+          "chosen_option": "2.5",
+          "correct": "2.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 6,
+          "marked": "BCD",
+          "chosen_option": "BCD",
+          "correct": "BCD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 7,
+          "marked": "D",
+          "chosen_option": "D",
+          "correct": "D",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 8,
+          "marked": "7.0",
+          "chosen_option": "7.0",
+          "correct": "7.0",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 9,
+          "marked": "ABD",
+          "chosen_option": "ABD",
+          "correct": "ABD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 10,
+          "marked": "3.5",
+          "chosen_option": "3.5",
+          "correct": "3.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        }
+      ],
+      "comments": ""
+    },
+    {
+      "entry_number": "2023CSB1125",
+      "name": "Ishita Garg",
+      "total_score": 10.0,
+      "max_score": 36.0,
+      "correct_count": 4,
+      "incorrect_count": 6,
+      "unattempted_count": 0,
+      "negative_deduction": 4.0,
+      "details": [
+        {
+          "question_number": 1,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "B",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 2,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "C",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 3,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "AC",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -0.0
+        },
+        {
+          "question_number": 4,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "A",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 5,
+          "marked": "2.4",
+          "chosen_option": "2.4",
+          "correct": "2.5",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 6,
+          "marked": "BD",
+          "chosen_option": "BD",
+          "correct": "BCD",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -0.0
+        },
+        {
+          "question_number": 7,
+          "marked": "B",
+          "chosen_option": "B",
+          "correct": "D",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 8,
+          "marked": "7.0",
+          "chosen_option": "7.0",
+          "correct": "7.0",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 9,
+          "marked": "ABD",
+          "chosen_option": "ABD",
+          "correct": "ABD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 10,
+          "marked": "3.6",
+          "chosen_option": "3.6",
+          "correct": "3.5",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        }
+      ],
+      "comments": ""
+    },
+    {
+      "entry_number": "2023CSB1166",
+      "name": "sumit Singh",
+      "total_score": 36.0,
+      "max_score": 36.0,
+      "correct_count": 10,
+      "incorrect_count": 0,
+      "unattempted_count": 0,
+      "negative_deduction": 0.0,
+      "details": [
+        {
+          "question_number": 1,
+          "marked": "B",
+          "chosen_option": "B",
+          "correct": "B",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 2,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "C",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 3,
+          "marked": "AC",
+          "chosen_option": "AC",
+          "correct": "AC",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 4,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "A",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 5,
+          "marked": "2.5",
+          "chosen_option": "2.5",
+          "correct": "2.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 6,
+          "marked": "BCD",
+          "chosen_option": "BCD",
+          "correct": "BCD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 7,
+          "marked": "D",
+          "chosen_option": "D",
+          "correct": "D",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 8,
+          "marked": "7.0",
+          "chosen_option": "7.0",
+          "correct": "7.0",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 9,
+          "marked": "ABD",
+          "chosen_option": "ABD",
+          "correct": "ABD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 10,
+          "marked": "3.5",
+          "chosen_option": "3.5",
+          "correct": "3.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        }
+      ],
+      "comments": ""
+    },
+    {
+      "entry_number": "2023CSB1159",
+      "name": "Sarvan Suthar",
+      "total_score": 36.0,
+      "max_score": 36.0,
+      "correct_count": 10,
+      "incorrect_count": 0,
+      "unattempted_count": 0,
+      "negative_deduction": 0.0,
+      "details": [
+        {
+          "question_number": 1,
+          "marked": "B",
+          "chosen_option": "B",
+          "correct": "B",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 2,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "C",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 3,
+          "marked": "AC",
+          "chosen_option": "AC",
+          "correct": "AC",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 4,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "A",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 5,
+          "marked": "2.5",
+          "chosen_option": "2.5",
+          "correct": "2.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 6,
+          "marked": "BCD",
+          "chosen_option": "BCD",
+          "correct": "BCD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 7,
+          "marked": "D",
+          "chosen_option": "D",
+          "correct": "D",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 8,
+          "marked": "7.0",
+          "chosen_option": "7.0",
+          "correct": "7.0",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 9,
+          "marked": "ABD",
+          "chosen_option": "ABD",
+          "correct": "ABD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 10,
+          "marked": "3.5",
+          "chosen_option": "3.5",
+          "correct": "3.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        }
+      ],
+      "comments": "Stain on the bottom right corner."
+    },
+    {
+      "entry_number": "2023CSB1100",
+      "name": "Arth",
+      "total_score": 36.0,
+      "max_score": 36.0,
+      "correct_count": 10,
+      "incorrect_count": 0,
+      "unattempted_count": 0,
+      "negative_deduction": 0.0,
+      "details": [
+        {
+          "question_number": 1,
+          "marked": "B",
+          "chosen_option": "B",
+          "correct": "B",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 2,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "C",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 3,
+          "marked": "AC",
+          "chosen_option": "AC",
+          "correct": "AC",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 4,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "A",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 5,
+          "marked": "2.5",
+          "chosen_option": "2.5",
+          "correct": "2.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 6,
+          "marked": "BCD",
+          "chosen_option": "BCD",
+          "correct": "BCD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 7,
+          "marked": "D",
+          "chosen_option": "D",
+          "correct": "D",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 3.0
+        },
+        {
+          "question_number": 8,
+          "marked": "7.0",
+          "chosen_option": "7.0",
+          "correct": "7.0",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 9,
+          "marked": "ABD",
+          "chosen_option": "ABD",
+          "correct": "ABD",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        },
+        {
+          "question_number": 10,
+          "marked": "3.5",
+          "chosen_option": "3.5",
+          "correct": "3.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        }
+      ],
+      "comments": ""
+    },
+    {
+      "entry_number": "2023CSB1127",
+      "name": "Rahul Sharma",
+      "total_score": 0.0,
+      "max_score": 36.0,
+      "correct_count": 1,
+      "incorrect_count": 9,
+      "unattempted_count": 0,
+      "negative_deduction": 6.0,
+      "details": [
+        {
+          "question_number": 1,
+          "marked": "D",
+          "chosen_option": "D",
+          "correct": "B",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 2,
+          "marked": "A",
+          "chosen_option": "A",
+          "correct": "C",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 3,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "AC",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -0.0
+        },
+        {
+          "question_number": 4,
+          "marked": "B",
+          "chosen_option": "B",
+          "correct": "A",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 5,
+          "marked": "3.0",
+          "chosen_option": "3.0",
+          "correct": "2.5",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 6,
+          "marked": "AD",
+          "chosen_option": "AD",
+          "correct": "BCD",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -0.0
+        },
+        {
+          "question_number": 7,
+          "marked": "C",
+          "chosen_option": "C",
+          "correct": "D",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 8,
+          "marked": "6.9",
+          "chosen_option": "6.9",
+          "correct": "7.0",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -1.0
+        },
+        {
+          "question_number": 9,
+          "marked": "AC",
+          "chosen_option": "AC",
+          "correct": "ABD",
+          "correct_answer": null,
+          "result": "incorrect",
+          "score": -0.0
+        },
+        {
+          "question_number": 10,
+          "marked": "3.5",
+          "chosen_option": "3.5",
+          "correct": "3.5",
+          "correct_answer": null,
+          "result": "correct",
+          "score": 4.0
+        }
+      ],
+      "comments": ""
+    }
+  ],
+  "errors": []
+}

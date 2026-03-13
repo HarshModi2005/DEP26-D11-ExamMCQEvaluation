@@ -65,61 +65,98 @@ class EvaluationService:
         print(f"DEBUG: Student Ans Keys: {list(student_ans.keys())}")
         print(f"DEBUG: Answer Key Keys: {list(answer_key.answers.keys())}")
         
-        # Iterate strictly over answer key questions
         for q_num, key_entry in answer_key.answers.items():
             correct_option = key_entry.correct_option.strip().upper()
-            marks = key_entry.marks
-            max_score += marks
+            q_type = key_entry.type.strip().upper()
+            pos_marks = key_entry.positive_marks
+            neg_marks = key_entry.negative_marks
+            max_score += pos_marks
 
             if q_num in student_ans:
                 marked = student_ans[q_num]
                 
-                # DEBUG: Print comparison for ALL questions
-                print(f"🧐 Student [{name}] Q{q_num}: Marked='{marked}' vs Key='{correct_option}' [{'MATCH' if marked == correct_option else 'MISMATCH'}]")
+                print(f"🧐 Student [{name}] Q{q_num}: Marked='{marked}' vs Key='{correct_option}' (Type: {q_type})")
 
-                if marked == "MULTIPLE":
-                    # Multiple options marked -> Incorrect
+                # Helper to log incorrect
+                def mark_incorrect(reason="incorrect"):
+                    nonlocal incorrect_count, negative_deduction, total_score
                     incorrect_count += 1
-                    neg = answer_key.negative_marking
-                    negative_deduction += neg
-                    total_score -= neg
+                    negative_deduction += neg_marks
+                    total_score -= neg_marks
                     details.append(QuestionResult(
                         question_number=q_num,
                         marked=marked,
+                        chosen_option=marked,
                         correct=correct_option,
-                        result="multiple",
-                        score=-neg
+                        result=reason,
+                        score=-neg_marks
                     ))
-                    comments_list.append(f"Q{q_num}: Multiple marks")
-                
-                elif marked == correct_option:
+
+                # Helper to log correct
+                def mark_correct():
+                    nonlocal correct_count, total_score
                     correct_count += 1
-                    total_score += marks
+                    total_score += pos_marks
                     details.append(QuestionResult(
                         question_number=q_num,
                         marked=marked,
+                        chosen_option=marked,
                         correct=correct_option,
                         result="correct",
-                        score=marks
+                        score=pos_marks
                     ))
+
+                if marked == "MULTIPLE" and q_type == "SMCQ":
+                    comments_list.append(f"Q{q_num}: Multiple marks")
+                    mark_incorrect("multiple")
+                    continue
                 
-                else:
-                    incorrect_count += 1
-                    neg = answer_key.negative_marking
-                    negative_deduction += neg
-                    total_score -= neg
-                    details.append(QuestionResult(
-                        question_number=q_num,
-                        marked=marked,
-                        correct=correct_option,
-                        result="incorrect",
-                        score=-neg
-                    ))
+                # Evaluation Logic based on Type
+                if q_type == "SMCQ":
+                    if marked == correct_option:
+                        mark_correct()
+                    else:
+                        mark_incorrect()
+
+                elif q_type == "MMCQ":
+                    # For MMCQ, we split by commas or any non-alphabetical delimiter, or just treat as set of chars
+                    # Example: Key='A, B' or 'AB'. 
+                    key_set = set(re.findall(r'[A-Z]', correct_option))
+                    marked_set = set(re.findall(r'[A-Z]', marked))
+                    
+                    if key_set == marked_set:
+                        mark_correct()
+                    else:
+                        mark_incorrect("incorrect")
+
+                elif q_type == "NCQ":
+                    # For NCQ, we extract numbers and compare to 1 decimal place
+                    try:
+                        key_val = round(float(re.sub(r'[^0-9.-]', '', str(correct_option))), 1)
+                        # Extract the first float-like sequence from marked string
+                        match = re.search(r'-?\d+(?:\.\d+)?', marked)
+                        if match:
+                            marked_val = round(float(match.group()), 1)
+                            if marked_val == key_val:
+                                mark_correct()
+                            else:
+                                mark_incorrect()
+                        else:
+                            mark_incorrect()
+                    except ValueError:
+                        mark_incorrect()
+                        
+                else: # Fallback
+                     if marked == correct_option:
+                        mark_correct()
+                     else:
+                        mark_incorrect()
             else:
                 unattempted_count += 1
                 details.append(QuestionResult(
                     question_number=q_num,
                     marked=None,
+                    chosen_option=None,
                     correct=correct_option,
                     result="unattempted",
                     score=0.0

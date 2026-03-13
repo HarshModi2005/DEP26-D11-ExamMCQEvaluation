@@ -1,71 +1,70 @@
 {
-  "total_questions": 15,
+  "total_questions": 10,
   "answers": {
     "1": {
-      "correct_option": "C",
-      "marks": 1.0
+      "type": "SMCQ",
+      "correct_option": "B",
+      "positive_marks": 3.0,
+      "negative_marks": 1.0
     },
     "2": {
-      "correct_option": "A",
-      "marks": 1.0
+      "type": "SMCQ",
+      "correct_option": "C",
+      "positive_marks": 3.0,
+      "negative_marks": 1.0
     },
     "3": {
-      "correct_option": "D",
-      "marks": 1.0
+      "type": "MMCQ",
+      "correct_option": "AC",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
     },
     "4": {
-      "correct_option": "D",
-      "marks": 1.0
+      "type": "SMCQ",
+      "correct_option": "A",
+      "positive_marks": 3.0,
+      "negative_marks": 1.0
     },
     "5": {
-      "correct_option": "A",
-      "marks": 1.0
+      "type": "NCQ",
+      "correct_option": "2.5",
+      "positive_marks": 4.0,
+      "negative_marks": 1.0
     },
     "6": {
-      "correct_option": "B",
-      "marks": 1.0
+      "type": "MMCQ",
+      "correct_option": "BCD",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
     },
     "7": {
-      "correct_option": "C",
-      "marks": 1.0
+      "type": "SMCQ",
+      "correct_option": "D",
+      "positive_marks": 3.0,
+      "negative_marks": 1.0
     },
     "8": {
-      "correct_option": "D",
-      "marks": 1.0
+      "type": "NCQ",
+      "correct_option": "7.0",
+      "positive_marks": 4.0,
+      "negative_marks": 1.0
     },
     "9": {
-      "correct_option": "B",
-      "marks": 1.0
+      "type": "MMCQ",
+      "correct_option": "ABD",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
     },
     "10": {
-      "correct_option": "A",
-      "marks": 1.0
-    },
-    "11": {
-      "correct_option": "D",
-      "marks": 1.0
-    },
-    "12": {
-      "correct_option": "C",
-      "marks": 1.0
-    },
-    "13": {
-      "correct_option": "A",
-      "marks": 1.0
-    },
-    "14": {
-      "correct_option": "B",
-      "marks": 1.0
-    },
-    "15": {
-      "correct_option": "D",
-      "marks": 1.0
+      "type": "NCQ",
+      "correct_option": "3.5",
+      "positive_marks": 4.0,
+      "negative_marks": 1.0
     }
   },
-  "negative_marking": 0.0,
   "metadata": {
-    "source_file": "answer_key.pdf",
-    "raw_question_count": 15,
-    "parsed_question_count": 15
+    "source_file": "answer_key.xlsx",
+    "raw_question_count": 10,
+    "parsed_question_count": 10
   }
 }
