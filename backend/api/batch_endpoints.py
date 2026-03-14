@@ -14,14 +14,15 @@ from typing import List, Dict
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
-from ..services.multi_region_ocr_service import MultiRegionOCRService
-from ..services.drive_service import DriveService
-from ..services.evaluation_service import EvaluationService
-from ..services.answer_key_service import AnswerKeyService
+from services.optimized_ocr_service import OptimizedOCRService
+from services.drive_service import DriveService
+from services.evaluation_service import EvaluationService
+from services.answer_key_service import AnswerKeyService
 
 # Initialize services
 router = APIRouter(prefix="/api/batch", tags=["batch"])
-multi_ocr_service = MultiRegionOCRService()
+# Exposed at module level so main.py lifespan can call cleanup()
+optimized_ocr_service = OptimizedOCRService()
 drive_service = DriveService()
 answer_key_service = AnswerKeyService()
 
@@ -316,7 +317,7 @@ async def _process_student_sheets_batch(student_sheets: List[Dict],
         
         for batch_paths in batches:
             # Process batch with OCR
-            ocr_results = await multi_ocr_service.process_batch(batch_paths, max_concurrent)
+            ocr_results = await optimized_ocr_service.process_batch_optimized(batch_paths)
             
             # Score each result
             for image_path, ocr_result in zip(batch_paths, ocr_results):
@@ -375,8 +376,5 @@ async def _download_file_async(file_id: str, local_path: str, sheet_file: Dict) 
     except Exception as e:
         return local_path, sheet_file, False
 
-# Cleanup on shutdown
-@router.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup resources on shutdown"""
-    await multi_ocr_service.cleanup()
+# Cleanup is handled by the lifespan context manager in main.py
+# which calls optimized_ocr_service.cleanup() on shutdown.
