@@ -13,10 +13,12 @@ from models import (
 )
 from services.drive_service import DriveService
 from services.ocr_service import OCRService
+from services.optimized_ocr_service import OptimizedOCRService
 from services.evaluation_service import EvaluationService
 from services.answer_key_service import AnswerKeyService
 from services.sheets_service import SheetsService
 from database import Database
+import asyncio
 import uuid
 import os
 import json
@@ -27,7 +29,8 @@ from typing import Optional
 router = APIRouter()
 db = Database()
 drive_service = DriveService()
-ocr_service = OCRService()
+ocr_service = OCRService()                   # kept for the legacy /process-file endpoint
+optimized_ocr = OptimizedOCRService()        # used for the main /process-drive-folder pipeline
 eval_service = EvaluationService()
 answer_key_service = AnswerKeyService()
 sheets_service = SheetsService()
@@ -233,16 +236,17 @@ def set_answer_key_manual(answers: dict):
 # ═══════════════════════════════════════
 
 @router.post("/process-drive-folder")
-def process_drive_folder(request: ProcessFolderRequest):
+async def process_drive_folder(request: ProcessFolderRequest):
     """
     Main endpoint: Process all student answer sheets in a Drive folder.
-    
+
     1. Lists all files in the folder
     2. Separates answer key from student sheets
     3. Extracts answer key (if not already loaded)
-    4. OCR processes each student sheet
-    5. Scores each against the answer key
-    6. Returns all results
+    4. Downloads all student sheets in parallel
+    5. OCR-processes the entire batch concurrently via OptimizedOCRService
+    6. Scores each result against the answer key
+    7. Returns all results
     """
     global _current_answer_key, _current_results
 
@@ -282,51 +286,72 @@ def process_drive_folder(request: ProcessFolderRequest):
             detail="No student answer sheets found in the folder (only the answer key was found)."
         )
 
-    # Step 2: Process each student sheet
+    # Step 2: Download all sheets in parallel
     _current_results = []
     errors = []
     temp_dir = tempfile.mkdtemp(prefix="sheets_")
 
     try:
-        for idx, sheet_file in enumerate(student_sheets):
-            file_name = sheet_file["name"]
-            file_id = sheet_file["id"]
-            print(f"\n{'='*50}")
-            print(f"Processing [{idx+1}/{len(student_sheets)}]: {file_name}")
+        # --- Parallel download ---
+        async def _download(sheet_file):
+            local_path = os.path.join(temp_dir, sheet_file["name"])
+            ok = await asyncio.to_thread(
+                drive_service.download_file, sheet_file["id"], local_path
+            )
+            return local_path, sheet_file, ok
+
+        download_results = await asyncio.gather(*[_download(sf) for sf in student_sheets])
+
+        successful_downloads = [
+            (lp, sf) for lp, sf, ok in download_results if ok
+        ]
+        failed_downloads = [
+            sf for _, sf, ok in download_results if not ok
+        ]
+        for sf in failed_downloads:
+            errors.append({"file": sf["name"], "error": "Download failed"})
+
+        if not successful_downloads:
+            raise HTTPException(status_code=500, detail="All downloads failed.")
+
+        # --- Parallel OCR via OptimizedOCRService ---
+        image_paths = [lp for lp, _ in successful_downloads]
+        file_map = {lp: sf for lp, sf in successful_downloads}
+
+        print(f"\n🚀 Running parallel OCR on {len(image_paths)} sheets...")
+        ocr_results = await optimized_ocr.process_batch_optimized(
+            image_paths,
+            target_time_minutes=5.0,
+        )
+
+        # --- Score each result ---
+        for ocr_result in ocr_results:
+            idx = ocr_result.get("index", 0)
+            image_path = image_paths[idx] if idx < len(image_paths) else None
+            sheet_file = file_map.get(image_path, {})
+            file_name = sheet_file.get("name", f"image_{idx}")
+
+            if "error" in ocr_result:
+                errors.append({"file": file_name, "error": ocr_result["error"]})
+                continue
 
             try:
-                # Download
-                local_path = os.path.join(temp_dir, file_name)
-                download_ok = drive_service.download_file(file_id, local_path)
-                if not download_ok:
-                    errors.append({"file": file_name, "error": "Download failed"})
-                    continue
-
-                # OCR Extract
-                extracted = ocr_service.extract_objective_sheet(local_path)
-                if "error" in extracted:
-                    errors.append({"file": file_name, "error": extracted["error"]})
-                    continue
-
-                # Score
                 student_result = EvaluationService.match_and_score(
-                    _current_answer_key, extracted
+                    _current_answer_key, ocr_result
                 )
                 _current_results.append(student_result)
 
                 print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
                       f"{student_result.total_score}/{student_result.max_score}")
 
-                # Also save to DB
                 db.add_student(Student(
                     id=student_result.entry_number,
                     name=student_result.name,
                     roll_number=student_result.entry_number
                 ))
-
             except Exception as e:
                 errors.append({"file": file_name, "error": str(e)})
-                print(f"  ❌ Error: {e}")
+                print(f"  ❌ Scoring error for {file_name}: {e}")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -434,13 +459,13 @@ def preview_sheet(sheet_url: str):
 # ═══════════════════════════════════════
 
 @router.post("/full-pipeline")
-def run_full_pipeline(request: FullPipelineRequest):
+async def run_full_pipeline(request: FullPipelineRequest):
     """
     One-click pipeline:
     Drive folder → Extract answer key → OCR all sheets → Score → Write to Google Sheets
     """
     # Step 1 & 2: Process drive folder (extracts key + scores students)
-    folder_result = process_drive_folder(
+    folder_result = await process_drive_folder(
         ProcessFolderRequest(folder_url=request.drive_folder_url)
     )
 
