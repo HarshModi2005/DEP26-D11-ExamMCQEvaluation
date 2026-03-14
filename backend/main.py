@@ -15,6 +15,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: cleanly close OptimizedOCRService connection pools
     await batch_endpoints.optimized_ocr_service.cleanup()
+    await endpoints.optimized_ocr.cleanup()
 
 
 app = FastAPI(
