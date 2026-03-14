@@ -5,6 +5,7 @@ load_dotenv()
 
 from fastapi.middleware.cors import CORSMiddleware
 from api import endpoints
+from api import batch_endpoints
 
 app = FastAPI(title="Automated Answer Sheet Evaluation System")
 
@@ -17,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(endpoints.router, prefix="/api")
+app.include_router(batch_endpoints.router, prefix="/api")
 
 @app.get("/")
 def read_root():
