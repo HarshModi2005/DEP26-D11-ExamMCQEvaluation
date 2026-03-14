@@ -7,7 +7,7 @@ import re
 class OCRService:
     def __init__(self, api_key: str = None, provider: str = None):
         """
-        Initialize OCR service with Vertex AI Gemini 2.5 Flash Lite.
+        Initialize OCR service with Google Workspace Gemini 3.1 Flash Lite.
         """
         from google.oauth2 import service_account
         import google.auth.transport.requests
@@ -15,7 +15,7 @@ class OCRService:
         
         self.project_id = "project-75abf07c-e594-4660-ab7"
         self.location = "us-central1"
-        self.model_id = "gemini-2.5-flash-lite"
+        self.model_id = "gemini-3.1-flash-lite"
         self.creds = None
         
         # Try finding Service Account credentials
@@ -40,7 +40,7 @@ class OCRService:
                 f"publishers/google/models/{self.model_id}:streamGenerateContent"
              )
         elif self.vertex_api_key:
-            # Use generativelanguage endpoint if using AI Studio API Key (Vertex AI doesn't support ?key=)
+            # Use generativelanguage endpoint if using Google AI Studio API Key
              self.vertex_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_id}:streamGenerateContent?key={self.vertex_api_key}"
         else:
             self.vertex_url = None

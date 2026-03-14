@@ -1,147 +1,57 @@
-# LLM Provider Configuration
+# Google Workspace & AI Integration Guide (March 2026)
 
-This application supports multiple LLM providers for subjective answer evaluation.
+This application is powered by **Gemini for Google Workspace** and **Google AI Studio**. 
 
 ## Supported Providers
 
-### 1. Google Gemini (Default)
-- **Provider ID**: `gemini`
-- **Model**: `gemini-2.5-flash`
-- **API Key**: Set in `GOOGLE_API_KEY` environment variable
-- **Free tier**: Yes (with limits)
+### 1. Google Gemini (Latest: 3.1)
+- **Primary Model**: `gemini-3.1-flash` (Optimized for speed/cost)
+- **High Intelligence Model**: `gemini-3.1-pro` (Optimized for reasoning)
+- **Lite Model**: `gemini-3.1-flash-lite` (Used for high-throughput OCR)
+- **API Key**: Set in `GOOGLE_API_KEY` environment variable.
+- **Enterprise Access**: Through Google Workspace editions (Business/Enterprise).
 
-### 2. OpenRouter
-- **Provider ID**: `openrouter`
-- **Model**: Configurable (default: `google/gemini-2.0-flash-exp:free`)
-- **API Key**: Set in `OPENROUTER_API_KEY` environment variable
-- **Supports**: Multiple models including free tiers
+### 2. OpenRouter (Multi-model aggregation)
+- **Default**: `google/gemini-3.1-flash`
+- **Supported**: Access to frontier models from OpenAI, Anthropic, and Meta.
+- **Note**: Ensure `OPENROUTER_API_KEY` is set.
 
 ## Configuration
 
-### Environment Variables (.env file)
+### Environment Variables (.env)
 
 ```bash
-# API Keys
-GOOGLE_API_KEY=your_google_api_key_here
-OPENROUTER_API_KEY=your_openrouter_api_key_here
-GROQ_API_KEY=your_groq_api_key_here
-ZAI_API_KEY=your_zai_api_key_here
+# API Keys (Rotate your keys if they were created before Jan 2025)
+GOOGLE_API_KEY=your_key_here
+OPENROUTER_API_KEY=your_key_here
+GROQ_API_KEY=your_key_here
 
 # Provider Selection (gemini, groq, openrouter, or auto)
-# "auto" (default) will test models and pick the first working one
 LLM_PROVIDER=auto
 
-# Specific Model Overrides (Optional)
-# Defaults to gemini-1.5-flash if not set
-GEMINI_MODEL=gemini-1.5-flash
-
-# Defaults to google/gemini-2.0-flash-lite-001 if not set
-OPENROUTER_MODEL=google/gemini-2.0-flash-lite-001
-
-## Pipeline (Hybrid)
-1. **GLM-OCR (Zai)**: Primary cloud OCR (High Accuracy).
-2. **Local OCR**: Secondary fallback (EasyOCR/Paddle/Tesseract).
-3. **Vision API**: Tertiary fallback (Gemini/Groq Vision).
-4. **Text Structuring**: LLM cleans and formats raw OCR text into JSON.
-5. **Evaluation**: LLM grades the JSON data.
-
-## Available Models (For Text Structuring & Grading)
-
-### Groq (Fastest Backup)
-- **Text**: `llama-3.3-70b-versatile` (Used for structuring & grading)
-- **Vision (Fallback)**: `llama-3.2-11b-vision-preview`
-
-### Gemini (Primary)
-- `gemini-1.5-flash`
-
-### OpenRouter (Secondary Backup)
-- `google/gemini-2.0-flash-lite-001` (and others)
+# Specific Model Overrides
+GEMINI_MODEL=gemini-3.1-flash
 ```
 
-## Available Gemini Models (For Your Key)
+## Parallelism & Quotas (2026 Update)
 
-Based on your API key, you have access to these models (subject to quota limits):
+As of March 2026, **Gemini 3.1 Flash Lite** offers significantly higher concurrency limits than its predecessors.
 
-- `gemini-1.5-flash` (Stable, recommended)
-- `gemini-2.0-flash`
-- `gemini-2.5-flash` (Note: May have 0 quota in some regions)
-- `gemini-3-flash-preview` (Experimental)
-- `nano-banana-pro` (Experimental/Internal?)
+- **Standard Tier**: 15 requests per minute (RPM).
+- **AI Expanded Access (Workspace Add-on)**: ~60-120 RPM (Project dependent).
+- **Pay-as-you-go**: Scale up to 2000+ RPM.
 
-To try any of these, just set `GEMINI_MODEL=model-name` in your `.env` file and restart.
-
-### Switching Providers
-
-To switch between providers, simply change the `LLM_PROVIDER` value in your `.env` file:
-
-**Use Gemini:**
+To test your specific safe parallelism limit, use the included benchmark tool:
 ```bash
-LLM_PROVIDER=gemini
+python test_gemini_parallelism.py
 ```
 
-**Use OpenRouter:**
-```bash
-LLM_PROVIDER=openrouter
-```
+## Troubleshooting Branding Changes
 
-After changing the provider, restart your backend server for the changes to take effect.
+If you see references to "G Suite", "MakerSuite", or "Duet AI", please note:
+- **G Suite** is now **Google Workspace**.
+- **MakerSuite** has been fully migrated to **Google AI Studio**.
+- **Duet AI** has been renamed to **Gemini for Workspace**.
+- **Vertex AI Search and Conversation** is now just **Vertex AI Search**.
 
-## OpenRouter Models
-
-Some popular models available on OpenRouter:
-
-- `google/gemini-2.0-flash-exp:free` - Free Gemini 2.0 Flash (recommended for testing)
-- `openai/gpt-3.5-turbo` - OpenAI GPT-3.5 Turbo
-- `anthropic/claude-2` - Anthropic Claude 2
-- `meta-llama/llama-2-70b-chat` - Meta's Llama 2
-
-Check [OpenRouter's model listings](https://openrouter.ai/models) for more options and pricing.
-
-## Usage in Code
-
-The `EvaluationService` and `OCRService` automatically use the configured provider:
-
-```python
-from services.evaluation_service import EvaluationService
-from services.ocr_service import OCRService
-
-# Uses provider from LLM_PROVIDER env var
-service = EvaluationService()
-ocr = OCRService()
-
-# Or override provider programmatically
-service = EvaluationService(provider="openrouter")
-ocr = OCRService(provider="openrouter")
-```
-
-## Automatic Fallback (OCR Only)
-
- The `OCRService` includes automatic fallback logic:
- 1. Tries the primary provider configured in `LLM_PROVIDER` (e.g., Gemini).
- 2. If it fails (e.g., due to rate limits), it automatically attempts to use the secondary provider (e.g., OpenRouter) if the API key is available.
- 
- This ensures higher reliability for critical OCR tasks.
-
-## Cost Considerations
-
-- **Gemini**: Free tier available with rate limits
-- **OpenRouter**: Varies by model
-  - Some models have free tiers (e.g., `google/gemini-2.0-flash-exp:free`)
-  - Others are pay-per-use
-  - Check OpenRouter for current pricing
-
-## Troubleshooting
-
-### API Key Not Working
-- Verify the API key is correctly set in `.env`
-- Check that you have sufficient credits/quota
-- Ensure no extra spaces in the key
-
-### Provider Not Found
-- Ensure `LLM_PROVIDER` is set to either `gemini` or `openrouter`
-- Restart the backend after changing the provider
-
-### OpenRouter Authentication Errors
-- Verify your OpenRouter API key is valid
-- Check that you have credits in your OpenRouter account
-- Ensure the model you selected is available
+For any issues with authentication, ensure your **Service Account** has the `roles/aiplatform.user` role in the Google Cloud Console.

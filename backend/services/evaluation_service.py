@@ -157,15 +157,16 @@ class EvaluationService:
 
         # Candidates
         self.gemini_candidates = [
-            "gemini-1.5-flash",
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-lite-preview-02-05"
+            "gemini-3.1-flash",
+            "gemini-3.1-pro",
+            "gemini-3.0-flash",
+            "gemini-1.5-flash"
         ]
         
         self.groq_candidates = [
+            "llama-4-70b-chat", # Assumed later version in 2026
             "llama-3.3-70b-versatile",
-            "llama3-70b-8192",
-            "mixtral-8x7b-32768"
+            "llama3-70b-8192"
         ]
         
         self.openrouter_candidates = [
