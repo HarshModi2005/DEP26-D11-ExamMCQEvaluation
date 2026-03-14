@@ -1,3 +1,0 @@
-Test commit from Ishita Garg - $(date)
-This commit should appear as authored by Ishita Garg
-Access token authentication with proper Git identity configuration
