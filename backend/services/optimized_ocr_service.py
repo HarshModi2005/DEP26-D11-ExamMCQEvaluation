@@ -72,8 +72,8 @@ class OptimizedOCRService:
         
         # Prioritize fastest model
         models = [
-            "gemini-2.5-flash-lite",  # Fastest - use primarily
-            "gemini-2.5-flash",       # Backup
+            "gemini-2.5-flash",       # Primary - more capable than lite
+            "gemini-2.5-flash-lite",  # Backup - faster but less capable
         ]
         
         endpoints = []

@@ -157,6 +157,7 @@ class EvaluationService:
 
         # Candidates
         self.gemini_candidates = [
+            "gemini-2.5-flash",
             "gemini-3.1-flash",
             "gemini-3.1-pro",
             "gemini-3.0-flash",
@@ -219,10 +220,10 @@ class EvaluationService:
         
         # Fallback
         self.active_provider = "gemini"
-        self.active_model_name = "gemini-1.5-flash"
+        self.active_model_name = "gemini-2.5-flash"
         if self.gemini_key:
             genai.configure(api_key=self.gemini_key)
-            self.model = genai.GenerativeModel("gemini-1.5-flash")
+            self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def _test_gemini(self, model_name):
         try:

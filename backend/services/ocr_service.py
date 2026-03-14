@@ -15,7 +15,7 @@ class OCRService:
         
         self.project_id = "project-75abf07c-e594-4660-ab7"
         self.location = "us-central1"
-        self.model_id = "gemini-3.1-flash-lite"
+        self.model_id = "gemini-2.5-flash"
         self.creds = None
         
         # Try finding Service Account credentials

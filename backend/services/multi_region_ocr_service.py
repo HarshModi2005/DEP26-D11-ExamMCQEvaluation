@@ -46,8 +46,8 @@ class LoadBalancer:
     def __init__(self, endpoints: List[OCREndpoint]):
         self.endpoints = endpoints
         self.model_priority = {
-            "gemini-2.5-flash-lite": 1,  # Fastest
-            "gemini-2.5-flash": 2,       # Balanced
+            "gemini-2.5-flash": 1,       # Primary - balanced speed and capability
+            "gemini-2.5-flash-lite": 2,  # Backup - faster but less capable
             "gemini-2.5-pro": 3          # Most capable
         }
     
@@ -131,8 +131,8 @@ class MultiRegionOCRService:
         ]
         
         models = [
-            "gemini-2.5-flash-lite",
             "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
             "gemini-2.5-pro"
         ]
         
