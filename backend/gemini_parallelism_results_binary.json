@@ -1,0 +1,132 @@
+{
+  "timestamp": "2026-03-13T23:49:50.802770",
+  "model": "gemini-pro",
+  "safe_limit": 0,
+  "logs": [
+    {
+      "concurrency": 150,
+      "total": 150,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 150,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 75,
+      "total": 75,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 75,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 37,
+      "total": 37,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 37,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 18,
+      "total": 18,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 18,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 9,
+      "total": 9,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 9,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 4,
+      "total": 4,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 4,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 2,
+      "total": 2,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 2,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    },
+    {
+      "concurrency": 1,
+      "total": 1,
+      "success_count": 0,
+      "rate_limit_count": 0,
+      "other_error_count": 1,
+      "success_rate_pct": 0.0,
+      "avg_latency_ms": null,
+      "max_latency_ms": null,
+      "sample_rl_errors": [],
+      "sample_other_errors": [
+        "HTTP 404 \u2014 {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/project-75abf07c-e594-4660-ab7/locations/asia-east1/publishers/google/models/gemini-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n"
+      ]
+    }
+  ]
+}
