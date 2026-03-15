@@ -164,6 +164,115 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
     );
 };
 
+const RemoveTAModal = ({ ta, onConfirm, onClose }) => {
+    if (!ta) return null;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-error-50 rounded-lg flex items-center justify-center">
+                            <Icon name="UserMinus" size={20} className="text-error" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Remove TA</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to remove <span className="font-semibold">{ta.name}</span> as TA?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={() => onConfirm(ta.id)}
+                            className="px-5 py-2 bg-error text-white rounded-lg hover:bg-error-700 transition-colors shadow-sm">
+                            Confirm Remove
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const WithdrawInviteModal = ({ invitation, onConfirm, onClose }) => {
+    if (!invitation) return null;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-error-50 rounded-lg flex items-center justify-center">
+                            <Icon name="Undo" size={20} className="text-error" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Withdraw Invitation</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to withdraw the invitation for <span className="font-semibold">{invitation.email}</span>?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={() => onConfirm(invitation.id)}
+                            className="px-5 py-2 bg-error text-white rounded-lg hover:bg-error-700 transition-colors shadow-sm">
+                            Withdraw
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ChangeStatusModal = ({ evaluation, newStatus, onConfirm, onClose }) => {
+    if (!evaluation || !newStatus) return null;
+    const currentStatus = evaluation.status;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center">
+                            <Icon name="RefreshCw" size={20} className="text-primary" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Change Status</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to change the status of <span className="font-semibold">{evaluation.name}</span> from <span className="capitalize">{currentStatus}</span> to <span className="capitalize font-semibold text-primary">{newStatus}</span>?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={() => onConfirm(evaluation.id, newStatus)}
+                            className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm">
+                            Confirm Change
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────────────
 const CourseDetail = () => {
     const { courseId } = useParams();
@@ -200,6 +309,19 @@ const CourseDetail = () => {
     const [inviteLoading, setInviteLoading] = useState(false);
     const [inviteError, setInviteError] = useState('');
     const [inviteSuccess, setInviteSuccess] = useState('');
+
+    // Remove TA confirmation
+    const [showRemoveTAModal, setShowRemoveTAModal] = useState(false);
+    const [taToRemove, setTaToRemove] = useState(null);
+
+    // Withdraw invitation confirmation
+    const [showWithdrawInviteModal, setShowWithdrawInviteModal] = useState(false);
+    const [inviteToWithdraw, setInviteToWithdraw] = useState(null);
+
+    // Status change confirmation
+    const [showChangeStatusModal, setShowChangeStatusModal] = useState(false);
+    const [evalToUpdate, setEvalToUpdate] = useState(null);
+    const [statusToSet, setStatusToSet] = useState('');
 
     // Fetch all data
     const fetchAll = useCallback(async (retries = 3) => {
@@ -275,8 +397,14 @@ const CourseDetail = () => {
     };
 
     const handleRemoveTA = async (taId) => {
-        await teamService.removeTA(courseId, taId);
-        setTAs(prev => prev.filter(t => t.id !== taId));
+        try {
+            await teamService.removeTA(courseId, taId);
+            setTAs(prev => prev.filter(t => t.id !== taId));
+            setShowRemoveTAModal(false);
+            setTaToRemove(null);
+        } catch (err) {
+            console.error('Failed to remove TA:', err);
+        }
     };
 
     const handleInviteTA = async (e) => {
@@ -299,13 +427,32 @@ const CourseDetail = () => {
     };
 
     const handleCancelInvite = async (invId) => {
-        await invitationService.cancelInvitation(invId);
-        setInvitations(prev => prev.filter(i => i.id !== invId));
+        try {
+            await invitationService.cancelInvitation(invId);
+            setInvitations(prev => prev.filter(i => i.id !== invId));
+            setShowWithdrawInviteModal(false);
+            setInviteToWithdraw(null);
+        } catch (err) {
+            console.error('Failed to cancel invitation:', err);
+        }
     };
 
-    const handleEvalStatusChange = async (evalId, status) => {
-        await evaluationService.updateStatus(evalId, status);
-        setEvaluations(prev => prev.map(e => e.id === evalId ? { ...e, status } : e));
+    const handleEvalStatusChange = (evaluation, status) => {
+        setEvalToUpdate(evaluation);
+        setStatusToSet(status);
+        setShowChangeStatusModal(true);
+    };
+
+    const confirmStatusChange = async (evalId, status) => {
+        try {
+            await evaluationService.updateStatus(evalId, status);
+            setEvaluations(prev => prev.map(e => e.id === evalId ? { ...e, status } : e));
+            setShowChangeStatusModal(false);
+            setEvalToUpdate(null);
+            setStatusToSet('');
+        } catch (err) {
+            console.error('Failed to update status:', err);
+        }
     };
 
     const loadAnalytics = async (ev) => {
@@ -367,6 +514,31 @@ const CourseDetail = () => {
                     currentUserId={user?.id}
                     onClose={() => setShowCreateEval(false)}
                     onCreated={ev => setEvaluations(prev => [ev, ...prev])}
+                />
+            )}
+
+            {showRemoveTAModal && (
+                <RemoveTAModal
+                    ta={taToRemove}
+                    onConfirm={handleRemoveTA}
+                    onClose={() => { setShowRemoveTAModal(false); setTaToRemove(null); }}
+                />
+            )}
+
+            {showWithdrawInviteModal && (
+                <WithdrawInviteModal
+                    invitation={inviteToWithdraw}
+                    onConfirm={handleCancelInvite}
+                    onClose={() => { setShowWithdrawInviteModal(false); setInviteToWithdraw(null); }}
+                />
+            )}
+
+            {showChangeStatusModal && (
+                <ChangeStatusModal
+                    evaluation={evalToUpdate}
+                    newStatus={statusToSet}
+                    onConfirm={confirmStatusChange}
+                    onClose={() => { setShowChangeStatusModal(false); setEvalToUpdate(null); setStatusToSet(''); }}
                 />
             )}
 
@@ -501,7 +673,7 @@ const CourseDetail = () => {
                                                         </button>
                                                         {ev.status !== 'published' && (
                                                             <select value={ev.status}
-                                                                onChange={e => handleEvalStatusChange(ev.id, e.target.value)}
+                                                                onChange={e => handleEvalStatusChange(ev, e.target.value)}
                                                                 className="text-sm border border-border rounded-lg px-2 py-1.5 bg-surface text-text-secondary focus:ring-primary">
                                                                 <option value="draft">Draft</option>
                                                                 <option value="active">Active</option>
@@ -712,7 +884,7 @@ const CourseDetail = () => {
                                                         <span className="ml-2 px-2 py-0.5 bg-success-50 text-success-700 text-xs font-medium rounded-full">Active</span>
                                                     </div>
                                                     {profile?.role === 'professor' && (
-                                                        <button onClick={() => handleRemoveTA(ta.id)}
+                                                        <button onClick={() => { setTaToRemove(ta); setShowRemoveTAModal(true); }}
                                                             className="text-error hover:text-error-700 text-sm transition-colors flex items-center gap-1">
                                                             <Icon name="UserMinus" size={14} /> Remove
                                                         </button>
@@ -745,7 +917,7 @@ const CourseDetail = () => {
                                                         </div>
                                                         <span className="ml-2 px-2 py-0.5 bg-warning-100 text-warning-700 text-xs font-medium rounded-full">Pending</span>
                                                     </div>
-                                                    <button onClick={() => handleCancelInvite(inv.id)}
+                                                    <button onClick={() => { setInviteToWithdraw(inv); setShowWithdrawInviteModal(true); }}
                                                         className="text-error hover:text-error-700 text-sm transition-colors flex items-center gap-1">
                                                         <Icon name="X" size={14} /> Cancel
                                                     </button>
