@@ -273,6 +273,42 @@ const ChangeStatusModal = ({ evaluation, newStatus, onConfirm, onClose }) => {
     );
 };
 
+const RemoveStudentModal = ({ student, onConfirm, onClose }) => {
+    if (!student) return null;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-error-50 rounded-lg flex items-center justify-center">
+                            <Icon name="UserMinus" size={20} className="text-error" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Remove Student</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to remove <span className="font-semibold">{student.name}</span> from this course?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={() => onConfirm(student.id)}
+                            className="px-5 py-2 bg-error text-white rounded-lg hover:bg-error-700 transition-colors shadow-sm">
+                            Remove Student
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────────────
 const CourseDetail = () => {
     const { courseId } = useParams();
@@ -322,6 +358,10 @@ const CourseDetail = () => {
     const [showChangeStatusModal, setShowChangeStatusModal] = useState(false);
     const [evalToUpdate, setEvalToUpdate] = useState(null);
     const [statusToSet, setStatusToSet] = useState('');
+
+    // Remove student confirmation
+    const [showRemoveStudentModal, setShowRemoveStudentModal] = useState(false);
+    const [studentToRemove, setStudentToRemove] = useState(null);
 
     // Fetch all data
     const fetchAll = useCallback(async (retries = 3) => {
@@ -373,9 +413,20 @@ const CourseDetail = () => {
         }
     };
 
-    const handleRemoveStudent = async (studentId) => {
-        await studentService.removeStudentFromCourse(courseId, studentId);
-        setStudents(prev => prev.filter(s => s.id !== studentId));
+    const handleRemoveStudent = (student) => {
+        setStudentToRemove(student);
+        setShowRemoveStudentModal(true);
+    };
+
+    const confirmRemoveStudent = async (studentId) => {
+        try {
+            await studentService.removeStudentFromCourse(courseId, studentId);
+            setStudents(prev => prev.filter(s => s.id !== studentId));
+            setShowRemoveStudentModal(false);
+            setStudentToRemove(null);
+        } catch (err) {
+            console.error('Failed to remove student:', err);
+        }
     };
 
     const handleTaSearch = async (q) => {
@@ -539,6 +590,14 @@ const CourseDetail = () => {
                     newStatus={statusToSet}
                     onConfirm={confirmStatusChange}
                     onClose={() => { setShowChangeStatusModal(false); setEvalToUpdate(null); setStatusToSet(''); }}
+                />
+            )}
+
+            {showRemoveStudentModal && (
+                <RemoveStudentModal
+                    student={studentToRemove}
+                    onConfirm={confirmRemoveStudent}
+                    onClose={() => { setShowRemoveStudentModal(false); setStudentToRemove(null); }}
                 />
             )}
 
@@ -737,7 +796,7 @@ const CourseDetail = () => {
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary font-mono">{s.roll_number}</td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">{s.email || '—'}</td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                            <button onClick={() => handleRemoveStudent(s.id)}
+                                                            <button onClick={() => handleRemoveStudent(s)}
                                                                 className="text-error hover:text-error-700 text-sm transition-colors">Remove</button>
                                                         </td>
                                                     </tr>
