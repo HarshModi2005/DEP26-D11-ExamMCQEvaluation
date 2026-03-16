@@ -35,12 +35,25 @@ export const invitationService = {
             .maybeSingle();
 
         if (existing) {
-            if (existing.status === 'accepted') {
-                throw new Error('This TA is already part of the course.');
-            }
             if (existing.status === 'pending') {
                 throw new Error('An invitation has already been sent to this email.');
             }
+            
+            // If already accepted or declined, we reset to pending to allow re-invitation.
+            // This fixes the issue where a removed TA couldn't be re-invited.
+            const { data: updated, error: updateErr } = await supabase
+                .from('ta_invitations')
+                .update({ 
+                    status: 'pending', 
+                    invited_by: invitedBy,
+                    created_at: new Date().toISOString() // Refresh the timestamp
+                })
+                .eq('id', existing.id)
+                .select()
+                .single();
+
+            if (updateErr) throw updateErr;
+            return updated;
         }
 
         // Create the invitation

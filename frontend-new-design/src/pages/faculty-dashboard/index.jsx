@@ -108,6 +108,80 @@ const CreateCourseModal = ({ onClose, onCreated, userId }) => {
     );
 };
 
+const AcceptInviteModal = ({ invitation, onConfirm, onClose, loading }) => {
+    if (!invitation) return null;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center">
+                            <Icon name="Check" size={20} className="text-primary" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Accept Invitation</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to accept the invitation to be a TA for <span className="font-semibold">{invitation.courses?.code} — {invitation.courses?.title}</span>?
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={onConfirm} disabled={loading}
+                            className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm flex items-center gap-2">
+                            {loading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                            Confirm Accept
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const DeclineInviteModal = ({ invitation, onConfirm, onClose, loading }) => {
+    if (!invitation) return null;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-error-50 rounded-lg flex items-center justify-center">
+                            <Icon name="X" size={20} className="text-error" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Decline Invitation</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to decline the invitation for <span className="font-semibold">{invitation.courses?.code} — {invitation.courses?.title}</span>? This action cannot be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={onConfirm} disabled={loading}
+                            className="px-5 py-2 bg-error text-white rounded-lg hover:bg-error-700 transition-colors shadow-sm flex items-center gap-2">
+                            {loading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                            Confirm Decline
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const FacultyDashboard = () => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
@@ -118,6 +192,10 @@ const FacultyDashboard = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [pendingInvites, setPendingInvites] = useState([]);
     const [acceptingId, setAcceptingId] = useState(null);
+    const [showAcceptModal, setShowAcceptModal] = useState(false);
+    const [showDeclineModal, setShowDeclineModal] = useState(false);
+    const [activeInvite, setActiveInvite] = useState(null);
+    const [actionLoading, setActionLoading] = useState(false);
 
     // Mock pending tasks for the Kanban board view
     const mockTasks = [
@@ -180,24 +258,37 @@ const FacultyDashboard = () => {
         }
     }, [user, profile]);
 
-    const handleAcceptInvite = async (inv) => {
-        setAcceptingId(inv.id);
+    const handleAcceptInvite = async () => {
+        if (!activeInvite) return;
+        setActionLoading(true);
         try {
-            await invitationService.acceptInvitation(inv.id, user.id);
-            setPendingInvites(prev => prev.filter(i => i.id !== inv.id));
+            await invitationService.acceptInvitation(activeInvite.id, user.id);
+            setPendingInvites(prev => prev.filter(i => i.id !== activeInvite.id));
             // Refresh courses
             const data = await courseService.getCoursesByTA(user.id);
             setCourses(data || []);
+            setShowAcceptModal(false);
+            setActiveInvite(null);
         } catch (err) {
             setError('Failed to accept invitation: ' + err.message);
         } finally {
-            setAcceptingId(null);
+            setActionLoading(false);
         }
     };
 
-    const handleDeclineInvite = async (invId) => {
-        await invitationService.declineInvitation(invId);
-        setPendingInvites(prev => prev.filter(i => i.id !== invId));
+    const handleDeclineInvite = async () => {
+        if (!activeInvite) return;
+        setActionLoading(true);
+        try {
+            await invitationService.declineInvitation(activeInvite.id);
+            setPendingInvites(prev => prev.filter(i => i.id !== activeInvite.id));
+            setShowDeclineModal(false);
+            setActiveInvite(null);
+        } catch (err) {
+            setError('Failed to decline invitation: ' + err.message);
+        } finally {
+            setActionLoading(false);
+        }
     };
 
     const filtered = courses.filter(c =>
@@ -214,6 +305,24 @@ const FacultyDashboard = () => {
                     onClose={() => setShowCreateModal(false)}
                     onCreated={c => setCourses(prev => [c, ...prev])}
                     userId={user.id}
+                />
+            )}
+
+            {showAcceptModal && (
+                <AcceptInviteModal
+                    invitation={activeInvite}
+                    onConfirm={handleAcceptInvite}
+                    onClose={() => { setShowAcceptModal(false); setActiveInvite(null); }}
+                    loading={actionLoading}
+                />
+            )}
+
+            {showDeclineModal && (
+                <DeclineInviteModal
+                    invitation={activeInvite}
+                    onConfirm={handleDeclineInvite}
+                    onClose={() => { setShowDeclineModal(false); setActiveInvite(null); }}
+                    loading={actionLoading}
                 />
             )}
 
@@ -259,18 +368,13 @@ const FacultyDashboard = () => {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <button onClick={() => handleDeclineInvite(inv.id)}
+                                            <button onClick={() => { setActiveInvite(inv); setShowDeclineModal(true); }}
                                                 className="px-3 py-1.5 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors text-sm">
                                                 Decline
                                             </button>
-                                            <button onClick={() => handleAcceptInvite(inv)}
-                                                disabled={acceptingId === inv.id}
-                                                className="px-4 py-1.5 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors text-sm disabled:opacity-50 flex items-center gap-1">
-                                                {acceptingId === inv.id ? (
-                                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                ) : (
-                                                    <Icon name="Check" size={14} />
-                                                )}
+                                            <button onClick={() => { setActiveInvite(inv); setShowAcceptModal(true); }}
+                                                className="px-4 py-1.5 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors text-sm flex items-center gap-1">
+                                                <Icon name="Check" size={14} />
                                                 Accept
                                             </button>
                                         </div>
@@ -391,8 +495,8 @@ const FacultyDashboard = () => {
                                                             {task.course}
                                                         </span>
                                                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.priority === 'High' ? 'text-error-700 bg-error-50' :
-                                                                task.priority === 'Medium' ? 'text-warning-700 bg-warning-50' :
-                                                                    'text-success-700 bg-success-50'
+                                                            task.priority === 'Medium' ? 'text-warning-700 bg-warning-50' :
+                                                                'text-success-700 bg-success-50'
                                                             }`}>
                                                             {task.priority}
                                                         </span>

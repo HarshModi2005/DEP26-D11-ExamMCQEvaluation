@@ -49,8 +49,10 @@ const Header = () => {
     return (
         <header className="fixed top-0 left-0 right-0 h-16 bg-surface border-b border-border z-100">
             <div className="flex items-center justify-between h-full px-6">
-                {/* Left Section - Brand */}
-                <div className="flex items-center space-x-3">
+                <div 
+                    className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => navigate('/faculty-dashboard')}
+                >
                     <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm">
                         <Icon name="GraduationCap" size={18} color="white" />
                     </div>
