@@ -12,13 +12,13 @@ class DriveService:
         'https://www.googleapis.com/auth/drive.readonly',
     ]
 
-    # File name patterns that indicate an answer key
+    # File name patterns that indicate an answer key (pre-compiled for performance)
     ANSWER_KEY_PATTERNS = [
-        r'answer[_\s-]*key',
-        r'answer[_\s-]*sheet[_\s-]*key',
-        r'correct[_\s-]*answers',
-        r'marking[_\s-]*scheme',
-        r'solution[_\s-]*key',
+        re.compile(r'answer[_\s-]*key', re.IGNORECASE),
+        re.compile(r'answer[_\s-]*sheet[_\s-]*key', re.IGNORECASE),
+        re.compile(r'correct[_\s-]*answers', re.IGNORECASE),
+        re.compile(r'marking[_\s-]*scheme', re.IGNORECASE),
+        re.compile(r'solution[_\s-]*key', re.IGNORECASE),
     ]
 
     def __init__(self, credentials_path: str = "credentials.json"):
@@ -137,11 +137,9 @@ class DriveService:
         answer_key_files = []
         student_sheet_files = []
 
-        compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.ANSWER_KEY_PATTERNS]
-
         for f in files:
             file_name = f.get("name", "")
-            is_answer_key = any(pattern.search(file_name) for pattern in compiled_patterns)
+            is_answer_key = any(pattern.search(file_name) for pattern in self.ANSWER_KEY_PATTERNS)
 
             if is_answer_key:
                 answer_key_files.append(f)

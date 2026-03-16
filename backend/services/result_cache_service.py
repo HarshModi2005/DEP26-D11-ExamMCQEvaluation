@@ -33,21 +33,68 @@ class ResultCacheService:
     """
     High-performance caching service for OCR and evaluation results.
     Reduces redundant processing by caching based on file content hashes.
+    
+    Writes are serialized via an internal asyncio.Queue to prevent
+    SQLite "database is locked" errors under high concurrency.
     """
     
     def __init__(self, cache_db_path: str = "result_cache.db", max_cache_size_mb: int = 500):
         self.cache_db_path = cache_db_path
         self.max_cache_size_bytes = max_cache_size_mb * 1024 * 1024
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self._write_queue: Optional[asyncio.Queue] = None
+        self._write_worker_task: Optional[asyncio.Task] = None
         self._init_cache_db()
         
     def __del__(self):
         if hasattr(self, 'executor'):
             self.executor.shutdown(wait=False)
 
+    # ── Write queue management ────────────────────────────────
+
+    async def _ensure_write_worker(self):
+        """Lazily start the serialized cache-write worker."""
+        if self._write_queue is None:
+            self._write_queue = asyncio.Queue()
+            self._write_worker_task = asyncio.create_task(self._cache_write_worker())
+
+    async def _cache_write_worker(self):
+        """Background worker that serializes all cache writes to SQLite."""
+        conn = sqlite3.connect(self.cache_db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            while True:
+                item = await self._write_queue.get()
+                if item is None:  # Shutdown sentinel
+                    self._write_queue.task_done()
+                    break
+                try:
+                    self._cache_result_in_conn(
+                        conn,
+                        item['file_hash'], item['file_name'],
+                        item['ocr_result'], item.get('evaluation_result'),
+                        item.get('answer_key_hash')
+                    )
+                except Exception as e:
+                    print(f"⚠️  Cache write worker error: {e}")
+                finally:
+                    self._write_queue.task_done()
+        finally:
+            conn.close()
+
+    async def shutdown(self):
+        """Gracefully stop the write worker."""
+        if self._write_queue is not None:
+            await self._write_queue.put(None)
+            if self._write_worker_task:
+                await self._write_worker_task
+
+    # ── Initialization ────────────────────────────────────────
+
     def _init_cache_db(self):
         """Initialize the cache database with optimized schema."""
         conn = sqlite3.connect(self.cache_db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
         c = conn.cursor()
         
         # Create cache table with indexes for performance
@@ -100,6 +147,7 @@ class ResultCacheService:
     async def get_cached_ocr_result(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve cached OCR result if available.
+        Computes the file hash internally.
         
         Args:
             file_path: Path to the image file
@@ -109,8 +157,18 @@ class ResultCacheService:
         """
         try:
             file_hash = await self.get_file_hash(file_path)
+            return await self.get_cached_ocr_result_by_hash(file_hash)
+        except Exception as e:
+            print(f"⚠️  Cache lookup failed for {file_path}: {e}")
+            return None
+
+    async def get_cached_ocr_result_by_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve cached OCR result using a pre-computed file hash.
+        Avoids redundant hashing when the caller already has the hash.
+        """
+        try:
             loop = asyncio.get_event_loop()
-            
             return await loop.run_in_executor(
                 self.executor,
                 self._get_cached_result_sync,
@@ -118,7 +176,7 @@ class ResultCacheService:
                 'ocr'
             )
         except Exception as e:
-            print(f"⚠️  Cache lookup failed for {file_path}: {e}")
+            print(f"⚠️  Cache lookup by hash failed: {e}")
             return None
 
     async def get_cached_evaluation_result(
@@ -219,7 +277,7 @@ class ResultCacheService:
 
     async def cache_ocr_result(self, file_path: str, ocr_result: Dict[str, Any]):
         """
-        Cache OCR result for future use.
+        Cache OCR result for future use. Computes hash internally.
         
         Args:
             file_path: Path to the processed image file
@@ -227,20 +285,26 @@ class ResultCacheService:
         """
         try:
             file_hash = await self.get_file_hash(file_path)
-            file_name = os.path.basename(file_path)
-            
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                self.executor,
-                self._cache_result_sync,
-                file_hash,
-                file_name,
-                ocr_result,
-                None,  # No evaluation result yet
-                None   # No answer key hash yet
-            )
+            await self.cache_ocr_result_with_hash(file_hash, os.path.basename(file_path), ocr_result)
         except Exception as e:
             print(f"⚠️  Failed to cache OCR result for {file_path}: {e}")
+
+    async def cache_ocr_result_with_hash(
+        self, file_hash: str, file_name: str, ocr_result: Dict[str, Any]
+    ):
+        """
+        Cache OCR result using a pre-computed file hash.
+        Avoids redundant hashing when the caller already has the hash.
+        Write is enqueued to the serialized write worker.
+        """
+        await self._ensure_write_worker()
+        await self._write_queue.put({
+            'file_hash': file_hash,
+            'file_name': file_name,
+            'ocr_result': ocr_result,
+            'evaluation_result': None,
+            'answer_key_hash': None,
+        })
 
     async def cache_evaluation_result(
         self, 
@@ -251,6 +315,7 @@ class ResultCacheService:
     ):
         """
         Cache both OCR and evaluation results.
+        Write is enqueued to the serialized write worker.
         
         Args:
             file_path: Path to the processed image file
@@ -263,31 +328,28 @@ class ResultCacheService:
             file_name = os.path.basename(file_path)
             answer_key_hash = self.get_answer_key_hash(answer_key)
             
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                self.executor,
-                self._cache_result_sync,
-                file_hash,
-                file_name,
-                ocr_result,
-                evaluation_result,
-                answer_key_hash
-            )
+            await self._ensure_write_worker()
+            await self._write_queue.put({
+                'file_hash': file_hash,
+                'file_name': file_name,
+                'ocr_result': ocr_result,
+                'evaluation_result': evaluation_result,
+                'answer_key_hash': answer_key_hash,
+            })
         except Exception as e:
             print(f"⚠️  Failed to cache evaluation result for {file_path}: {e}")
 
-    def _cache_result_sync(
+    def _cache_result_in_conn(
         self, 
+        conn: sqlite3.Connection,
         file_hash: str, 
         file_name: str,
         ocr_result: Dict[str, Any],
         evaluation_result: Optional[Dict[str, Any]],
         answer_key_hash: Optional[str]
     ):
-        """Synchronous cache write operation."""
-        conn = sqlite3.connect(self.cache_db_path)
+        """Write a cache entry using the provided (serialized) connection."""
         c = conn.cursor()
-        
         try:
             ocr_json = json.dumps(ocr_result)
             eval_json = json.dumps(evaluation_result) if evaluation_result else None
@@ -303,13 +365,25 @@ class ResultCacheService:
                 file_hash, file_name, ocr_json, eval_json, answer_key_hash,
                 current_time, current_time, result_size
             ))
-            
             conn.commit()
-            
         except Exception as e:
             conn.rollback()
             print(f"Cache write error: {e}")
             raise
+
+    def _cache_result_sync(
+        self, 
+        file_hash: str, 
+        file_name: str,
+        ocr_result: Dict[str, Any],
+        evaluation_result: Optional[Dict[str, Any]],
+        answer_key_hash: Optional[str]
+    ):
+        """Synchronous cache write — legacy fallback (opens own connection)."""
+        conn = sqlite3.connect(self.cache_db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            self._cache_result_in_conn(conn, file_hash, file_name, ocr_result, evaluation_result, answer_key_hash)
         finally:
             conn.close()
 

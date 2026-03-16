@@ -240,8 +240,9 @@ class MultiRegionOCRService:
             # Prepare payload
             payload = self._create_ocr_payload(image_path)
             
-            # Make request
-            async with session.post(endpoint.url, headers=headers, json=payload, timeout=30) as response:
+            # Make request with proper timeout type
+            async with session.post(endpoint.url, headers=headers, json=payload, 
+                                   timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 200:
                     result_data = await response.json()
                     parsed_result = self._parse_ocr_response(result_data)
@@ -261,10 +262,10 @@ class MultiRegionOCRService:
                     raise Exception(f"HTTP {response.status}: {error_text[:200]}")
         
         except Exception as e:
-            if endpoint:
+            if endpoint is not None:
                 endpoint.total_errors += 1
                 # Mark unhealthy if error rate is too high
-                error_rate = endpoint.total_errors / endpoint.total_requests
+                error_rate = endpoint.total_errors / max(endpoint.total_requests, 1)
                 if error_rate > 0.1:  # 10% error rate threshold
                     endpoint.is_healthy = False
                     logger.warning(f"Endpoint {endpoint.region}/{endpoint.model} marked unhealthy (error rate: {error_rate:.2%})")
@@ -278,7 +279,7 @@ class MultiRegionOCRService:
             }
         
         finally:
-            if endpoint:
+            if endpoint is not None:
                 endpoint.current_load -= 1
     
     async def _get_session(self, endpoint: OCREndpoint) -> aiohttp.ClientSession:

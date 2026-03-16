@@ -244,9 +244,6 @@ class EvaluationService:
         except:
             return False
 
-        else:
-            raise ValueError(f"Unsupported provider: {self.provider}")
-
     def evaluate_objective(self, student_answers: List[Dict], answer_key: List[Dict]):
         """
         Evaluates objective answers (MCQ).

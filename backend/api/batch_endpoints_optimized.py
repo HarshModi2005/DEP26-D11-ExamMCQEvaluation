@@ -135,15 +135,21 @@ async def process_folder_optimized(request: ProcessFolderRequest):
         raise
 
 
+# Lock for thread-safe stats increments
+_stats_lock = asyncio.Lock()
+
 def write_file_sync(path, data):
     with open(path, 'wb') as f:
         f.write(data)
 
 async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
+    """Background worker that batches DB writes.
+    Flushes when batch reaches 10 items, or after 5s idle, or on sentinel None.
+    """
     batch = []
     while True:
         try:
-            result = await asyncio.wait_for(queue.get(), timeout=2.0)
+            result = await asyncio.wait_for(queue.get(), timeout=5.0)
             if result is None:
                 if batch:
                     await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
@@ -152,10 +158,11 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
             batch.append(result)
             queue.task_done()
             
-            if len(batch) >= 20:
+            if len(batch) >= 10:
                 await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
                 batch = []
         except asyncio.TimeoutError:
+            # Only flush on timeout if we actually have data — avoids empty DB calls
             if batch:
                 await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
                 batch = []
@@ -184,11 +191,16 @@ async def _process_and_evaluate_single(
             params = {"key": drive_api_key} if drive_api_key else {}
             
             try:
-                # 20 minutes timeout for slow large images
-                async with session.get(url, headers=headers, params=params, timeout=1200) as response:
+                download_timeout = aiohttp.ClientTimeout(total=120)  # 2 min per file
+                async with session.get(url, headers=headers, params=params, timeout=download_timeout) as response:
                     if response.status == 200:
                         content = await response.read()
                         await asyncio.to_thread(write_file_sync, local_path, content)
+                    elif response.status == 401:
+                        # Token expired — fallback to sync download which handles its own auth
+                        success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
+                        if not success:
+                            return {"error": f"Drive auth expired and fallback failed", "file": sheet_file["name"]}
                     else:
                         # Fallback to sync download
                         success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
@@ -199,18 +211,22 @@ async def _process_and_evaluate_single(
                 if not success:
                     return {"error": f"Download error: {str(e)}", "file": sheet_file["name"]}
                     
-    _processing_stats[processing_id]["downloaded_files"] = _processing_stats[processing_id].get("downloaded_files", 0) + 1
+    async with _stats_lock:
+        _processing_stats[processing_id]["downloaded_files"] = _processing_stats[processing_id].get("downloaded_files", 0) + 1
     
-    # 2. OCR (with caching)
-    cached_result = await cache_service.get_cached_ocr_result(local_path)
+    # 2. OCR (with caching — compute hash once, reuse for lookup + write)
+    file_hash = await cache_service.get_file_hash(local_path)
+    cached_result = await cache_service.get_cached_ocr_result_by_hash(file_hash)
     
     if cached_result:
         ocr_result = cached_result
         ocr_result["index"] = index
         ocr_result["file_name"] = sheet_file["name"]
-        _processing_stats[processing_id]["cache_hits"] = _processing_stats[processing_id].get("cache_hits", 0) + 1
+        async with _stats_lock:
+            _processing_stats[processing_id]["cache_hits"] = _processing_stats[processing_id].get("cache_hits", 0) + 1
     else:
-        _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
+        async with _stats_lock:
+            _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
         
         async with evaluation_semaphore:
             ocr_result = await optimized_ocr._process_with_retry(local_path, index)
@@ -218,7 +234,7 @@ async def _process_and_evaluate_single(
         ocr_result["index"] = index
         ocr_result["file_name"] = sheet_file["name"]
         if "error" not in ocr_result:
-            await cache_service.cache_ocr_result(local_path, ocr_result)
+            await cache_service.cache_ocr_result_with_hash(file_hash, sheet_file["name"], ocr_result)
             
     # 3. Immediate Evaluation
     if "error" not in ocr_result:
@@ -228,7 +244,8 @@ async def _process_and_evaluate_single(
         student_result = eval_method(optimized_key, ocr_result, index)
         eval_time = time.time() - eval_start
         
-        _processing_stats[processing_id]["total_eval_time"] = _processing_stats[processing_id].get("total_eval_time", 0) + eval_time
+        async with _stats_lock:
+            _processing_stats[processing_id]["total_eval_time"] = _processing_stats[processing_id].get("total_eval_time", 0) + eval_time
         
         if isinstance(student_result, dict) and "error" in student_result:
              return {"error": student_result["error"], "file": sheet_file["name"]}

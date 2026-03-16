@@ -158,28 +158,22 @@ class OptimizedOCRService:
         # Pre-warm connections
         await self._prewarm_connections()
         
-        # Split into optimal chunks for parallel processing
-        chunk_size = self.optimal_batch_size
-        chunks = [image_paths[i:i+chunk_size] for i in range(0, len(image_paths), chunk_size)]
-        
-        logger.info(f"Split into {len(chunks)} chunks of ~{chunk_size} images each")
-        
-        # Process all chunks in parallel
+        # Process all images concurrently
         start_time = time.time()
         all_results = []
         
         # Create semaphore for global concurrency control
         semaphore = asyncio.Semaphore(optimal_concurrent)
         
-        # Process all images across all chunks concurrently
+        # Create one task per image — no need for intermediate chunks
         tasks = []
-        for chunk_idx, chunk in enumerate(chunks):
-            for img_idx, image_path in enumerate(chunk):
-                global_idx = chunk_idx * chunk_size + img_idx
-                task = asyncio.create_task(
-                    self._process_single_optimized(semaphore, image_path, global_idx)
-                )
-                tasks.append(task)
+        for i, image_path in enumerate(image_paths):
+            task = asyncio.create_task(
+                self._process_single_optimized(semaphore, image_path, i)
+            )
+            tasks.append(task)
+        
+        logger.info(f"Created {len(tasks)} concurrent OCR tasks")
         
         # Progress tracking
         completed = 0
@@ -236,8 +230,10 @@ class OptimizedOCRService:
                                   max_retries: int = 2) -> Dict:
         """Process with smart retry logic"""
         last_error = None
+        start_time = None
         
         for attempt in range(max_retries + 1):
+            endpoint = None  # Reset per attempt to avoid stale references
             try:
                 endpoint = self._get_best_endpoint_fast()
                 if not endpoint:
@@ -314,11 +310,11 @@ class OptimizedOCRService:
                     continue
             
             finally:
-                if endpoint:
+                if endpoint is not None:
                     endpoint.current_load -= 1
         
-        # All retries failed
-        if endpoint:
+        # All retries failed — increment error counter on the last endpoint tried
+        if endpoint is not None:
             endpoint.total_errors += 1
         
         return {
@@ -326,7 +322,7 @@ class OptimizedOCRService:
             "image_path": image_path,
             "endpoint": f"{endpoint.region}/{endpoint.model}" if endpoint else "none",
             "index": index,
-            "processing_time": time.time() - start_time if 'start_time' in locals() else 0
+            "processing_time": time.time() - start_time if start_time else 0
         }
     
     def _get_best_endpoint_fast(self) -> Optional[OptimizedEndpoint]:
