@@ -124,18 +124,16 @@ class OptimizedDatabaseService:
             self.executor.shutdown(wait=False)
     
     def _init_db(self):
-        """Initialize database with optimized schema and indexes."""
+        """Initialize database with backward compatible schema migration."""
         with self.pool.get_connection() as conn:
             c = conn.cursor()
             
-            # Create tables with optimized schema
+            # First, create tables with basic schema (backward compatible)
             c.execute('''
                 CREATE TABLE IF NOT EXISTS students (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
-                    roll_number TEXT NOT NULL,
-                    created_at REAL DEFAULT (julianday('now')),
-                    updated_at REAL DEFAULT (julianday('now'))
+                    roll_number TEXT NOT NULL
                 )
             ''')
             
@@ -147,8 +145,6 @@ class OptimizedDatabaseService:
                     file_id TEXT,
                     status TEXT NOT NULL,
                     extracted_data TEXT,
-                    created_at REAL DEFAULT (julianday('now')),
-                    updated_at REAL DEFAULT (julianday('now')),
                     FOREIGN KEY (student_id) REFERENCES students (id)
                 )
             ''')
@@ -159,21 +155,63 @@ class OptimizedDatabaseService:
                     score REAL NOT NULL,
                     feedback TEXT,
                     details TEXT,
-                    created_at REAL DEFAULT (julianday('now')),
-                    updated_at REAL DEFAULT (julianday('now')),
                     FOREIGN KEY (submission_id) REFERENCES submissions (id)
                 )
             ''')
             
-            # Create performance indexes
+            # Add timestamp columns if they don't exist (graceful migration)
+            try:
+                c.execute('ALTER TABLE students ADD COLUMN created_at REAL DEFAULT (julianday("now"))')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+                
+            try:
+                c.execute('ALTER TABLE students ADD COLUMN updated_at REAL DEFAULT (julianday("now"))')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+                
+            try:
+                c.execute('ALTER TABLE submissions ADD COLUMN created_at REAL DEFAULT (julianday("now"))')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+                
+            try:
+                c.execute('ALTER TABLE submissions ADD COLUMN updated_at REAL DEFAULT (julianday("now"))')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+                
+            try:
+                c.execute('ALTER TABLE results ADD COLUMN created_at REAL DEFAULT (julianday("now"))')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+                
+            try:
+                c.execute('ALTER TABLE results ADD COLUMN updated_at REAL DEFAULT (julianday("now"))')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            # Create basic performance indexes (always safe)
             c.execute('CREATE INDEX IF NOT EXISTS idx_students_roll ON students(roll_number)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_exam ON submissions(exam_id)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_results_score ON results(score)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON students(created_at)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at)')
+            
+            # Create timestamp indexes only if columns exist
+            c.execute("PRAGMA table_info(students)")
+            students_columns = [col[1] for col in c.fetchall()]
+            if 'created_at' in students_columns:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_students_created_at ON students(created_at)')
+                
+            c.execute("PRAGMA table_info(submissions)")
+            submissions_columns = [col[1] for col in c.fetchall()]
+            if 'created_at' in submissions_columns:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at)')
+                
+            c.execute("PRAGMA table_info(results)")
+            results_columns = [col[1] for col in c.fetchall()]
+            if 'created_at' in results_columns:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at)')
             
             conn.commit()
         
