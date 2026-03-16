@@ -63,7 +63,7 @@ class BatchEvaluationService:
         start_time = time.time()
         
         # Pre-process answer key for faster lookups
-        optimized_key = self._optimize_answer_key(answer_key)
+        optimized_key = self.optimize_answer_key(answer_key)
         
         if use_multiprocessing and len(student_ocr_results) > 10:
             # Use process pool for large batches
@@ -102,7 +102,7 @@ class BatchEvaluationService:
         
         return successful_results, stats
 
-    def _optimize_answer_key(self, answer_key: AnswerKey) -> Dict:
+    def optimize_answer_key(self, answer_key: AnswerKey) -> Dict:
         """
         Pre-process answer key for faster lookups during batch processing.
         """
@@ -127,7 +127,7 @@ class BatchEvaluationService:
         tasks = [
             loop.run_in_executor(
                 self.executor,
-                self._evaluate_single_student_optimized,
+                self.evaluate_single_student_optimized,
                 optimized_key,
                 ocr_result,
                 idx
@@ -185,7 +185,7 @@ class BatchEvaluationService:
         
         return processed_results
 
-    def _evaluate_single_student_optimized(self, optimized_key: Dict, student_ocr_result: Dict, student_index: int) -> StudentResult:
+    def evaluate_single_student_optimized(self, optimized_key: Dict, student_ocr_result: Dict, student_index: int) -> StudentResult:
         """
         Optimized single student evaluation using pre-processed answer key.
         Removes debug prints and uses efficient data structures.
@@ -375,7 +375,7 @@ class BatchEvaluationService:
 def _evaluate_student_worker(optimized_key: Dict, student_ocr_result: Dict, student_index: int):
     """Worker function for multiprocessing evaluation."""
     service = BatchEvaluationService()
-    return service._evaluate_single_student_optimized(optimized_key, student_ocr_result, student_index)
+    return service.evaluate_single_student_optimized(optimized_key, student_ocr_result, student_index)
 
 
 # Convenience function for backward compatibility
