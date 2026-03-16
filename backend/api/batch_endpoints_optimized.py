@@ -15,7 +15,6 @@ from services.batch_evaluation_service import BatchEvaluationService, batch_matc
 from services.result_cache_service import ResultCacheService, get_cached_or_process_ocr
 from services.optimized_database_service import OptimizedDatabaseService, batch_write_student_results
 import asyncio
-import aiohttp
 import tempfile
 import shutil
 import os
@@ -135,10 +134,6 @@ async def process_folder_optimized(request: ProcessFolderRequest):
         raise
 
 
-def write_file_sync(path, data):
-    with open(path, 'wb') as f:
-        f.write(data)
-
 async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
     batch = []
     while True:
@@ -160,48 +155,8 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
                 await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
                 batch = []
 
-async def _process_and_evaluate_single(
-    sheet_file: Dict, 
-    index: int, 
-    optimized_key: Dict, 
-    db_queue: asyncio.Queue, 
-    processing_id: str, 
-    download_semaphore: asyncio.Semaphore, 
-    evaluation_semaphore: asyncio.Semaphore, 
-    temp_dir: str, 
-    session: aiohttp.ClientSession, 
-    drive_token: str, 
-    drive_api_key: str
-) -> Dict:
-    local_path = os.path.join(temp_dir, f"{index}_{sheet_file['name']}")
-    
-    # 1. Download (Native aiohttp concurrency)
-    async with download_semaphore:
-        if not os.path.exists(local_path):
-            file_id = sheet_file["id"]
-            url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-            headers = {"Authorization": f"Bearer {drive_token}"} if drive_token else {}
-            params = {"key": drive_api_key} if drive_api_key else {}
-            
-            try:
-                # 20 minutes timeout for slow large images
-                async with session.get(url, headers=headers, params=params, timeout=1200) as response:
-                    if response.status == 200:
-                        content = await response.read()
-                        await asyncio.to_thread(write_file_sync, local_path, content)
-                    else:
-                        # Fallback to sync download
-                        success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-                        if not success:
-                            return {"error": f"Drive Download failed: {response.status}", "file": sheet_file["name"]}
-            except Exception as e:
-                success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-                if not success:
-                    return {"error": f"Download error: {str(e)}", "file": sheet_file["name"]}
-                    
-    _processing_stats[processing_id]["downloaded_files"] = _processing_stats[processing_id].get("downloaded_files", 0) + 1
-    
-    # 2. OCR (with caching)
+async def _process_and_evaluate_single(local_path, sheet_file, index, optimized_key, db_queue, processing_id, semaphore):
+    # 1. OCR (with caching)
     cached_result = await cache_service.get_cached_ocr_result(local_path)
     
     if cached_result:
@@ -212,28 +167,26 @@ async def _process_and_evaluate_single(
     else:
         _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
         
-        async with evaluation_semaphore:
+        async with semaphore:
             ocr_result = await optimized_ocr._process_with_retry(local_path, index)
             
         ocr_result["index"] = index
         ocr_result["file_name"] = sheet_file["name"]
         if "error" not in ocr_result:
             await cache_service.cache_ocr_result(local_path, ocr_result)
-            
-    # 3. Immediate Evaluation
+    # 2. Immediate Evaluation
     if "error" not in ocr_result:
         eval_start = time.time()
-        # Fallback to _evaluate_single_student_optimized in case public accessor wasn't merged
-        eval_method = getattr(batch_eval_service, "evaluate_single_student_optimized", getattr(batch_eval_service, "_evaluate_single_student_optimized"))
-        student_result = eval_method(optimized_key, ocr_result, index)
+        student_result = batch_eval_service.evaluate_single_student_optimized(
+            optimized_key, ocr_result, index
+        )
         eval_time = time.time() - eval_start
         
         _processing_stats[processing_id]["total_eval_time"] = _processing_stats[processing_id].get("total_eval_time", 0) + eval_time
         
         if isinstance(student_result, dict) and "error" in student_result:
              return {"error": student_result["error"], "file": sheet_file["name"]}
-             
-        # Stream to Database Worker
+        # 3. Stream to Database Worker
         await db_queue.put(student_result)
         return student_result
     return {"error": ocr_result.get("error"), "file": sheet_file["name"]}
@@ -244,66 +197,57 @@ async def _process_sheets_optimized(
     processing_id: str
 ) -> tuple[List, List]:
     """
-    Optimized processing pipeline using an end-to-end sequential streaming pattern
-    incorporating high-speed asynchronous aiohttp downloads.
+    Optimized processing pipeline using a sequential streaming pattern.
     """
     results = []
     errors = []
     
     # Pre-process answer key once
-    opt_method = getattr(batch_eval_service, "optimize_answer_key", getattr(batch_eval_service, "_optimize_answer_key"))
-    optimized_key = opt_method(answer_key)
+    optimized_key = batch_eval_service.optimize_answer_key(answer_key)
     
-    _processing_stats[processing_id]["status"] = "streaming_pipeline_active"
-    _processing_stats[processing_id]["downloaded_files"] = 0
+    # Step 1: Download files in parallel
+    _processing_stats[processing_id]["status"] = "downloading_files"
     temp_dir = tempfile.mkdtemp(prefix="sheets_opt_")
     
     try:
+        downloaded_files = await _download_files_with_progress(
+            student_sheets, temp_dir, processing_id
+        )
+        
+        _processing_stats[processing_id]["status"] = "processing_and_evaluating"
+        
         # Setup DB Writer Queue
         db_queue = asyncio.Queue()
         writer_task = asyncio.create_task(_db_writer_worker(db_queue, processing_id))
         
-        # Drive authentication for raw HTTP
-        drive_token = drive_service.get_access_token()
-        drive_api_key = drive_service.api_key
+        semaphore = asyncio.Semaphore(150)
         
-        # Semaphore throttling
-        download_semaphore = asyncio.Semaphore(100) # Concurrent downloads
-        evaluation_semaphore = asyncio.Semaphore(150) # Concurrent OCR/Evaluation
+        # Parallel OCR + Evaluation tasks
+        tasks = [
+            asyncio.create_task(
+                _process_and_evaluate_single(local_path, sheet_file, idx, optimized_key, db_queue, processing_id, semaphore)
+            )
+            for local_path, sheet_file, idx in downloaded_files
+        ]
         
-        # Create an aiohttp session for downloading
-        connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            # Parallel end-to-end tasks: Download -> OCR -> Evaluate -> DB writes
-            tasks = [
-                asyncio.create_task(
-                    _process_and_evaluate_single(
-                        sheet_file, idx, optimized_key, db_queue, processing_id, 
-                        download_semaphore, evaluation_semaphore, temp_dir, 
-                        session, drive_token, drive_api_key
-                    )
-                )
-                for idx, sheet_file in enumerate(student_sheets)
-            ]
+        success_count = 0
+        total_eval_time = 0
+        
+        # Yield as completed
+        for completed_task in asyncio.as_completed(tasks):
+            result = await completed_task
             
-            success_count = 0
-            
-            # Yield as completed
-            for completed_task in asyncio.as_completed(tasks):
-                result = await completed_task
+            if isinstance(result, dict) and "error" in result:
+                errors.append(result)
+            else:
+                results.append(result)
+                success_count += 1
                 
-                if isinstance(result, dict) and "error" in result:
-                    errors.append(result)
-                else:
-                    results.append(result)
-                    success_count += 1
-                    
-                _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+            _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
             
         # Stop DB writer
         await db_queue.put(None)
         await writer_task
-        
         # Update processing stats
         total_students = len(student_sheets)
         eval_time = _processing_stats[processing_id].get("total_eval_time", 0)
