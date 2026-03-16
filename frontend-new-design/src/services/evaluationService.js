@@ -18,6 +18,23 @@ export const evaluationService = {
     },
 
     /**
+     * Get all evaluations for multiple courses
+     */
+    async getEvaluationsByCourses(courseIds) {
+        if (!courseIds || courseIds.length === 0) return [];
+        const { data, error } = await supabase
+            .from('evaluations')
+            .select(`
+                *,
+                courses(code, title)
+            `)
+            .in('course_id', courseIds)
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data;
+    },
+
+    /**
      * Get a single evaluation by ID
      */
     async getEvaluationById(evaluationId) {
