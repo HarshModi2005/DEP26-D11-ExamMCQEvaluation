@@ -15,7 +15,6 @@ from services.batch_evaluation_service import BatchEvaluationService, batch_matc
 from services.result_cache_service import ResultCacheService, get_cached_or_process_ocr
 from services.optimized_database_service import OptimizedDatabaseService, batch_write_student_results
 import asyncio
-import aiohttp
 import tempfile
 import shutil
 import os
@@ -135,21 +134,11 @@ async def process_folder_optimized(request: ProcessFolderRequest):
         raise
 
 
-# Lock for thread-safe stats increments
-_stats_lock = asyncio.Lock()
-
-def write_file_sync(path, data):
-    with open(path, 'wb') as f:
-        f.write(data)
-
 async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
-    """Background worker that batches DB writes.
-    Flushes when batch reaches 10 items, or after 5s idle, or on sentinel None.
-    """
     batch = []
     while True:
         try:
-            result = await asyncio.wait_for(queue.get(), timeout=5.0)
+            result = await asyncio.wait_for(queue.get(), timeout=2.0)
             if result is None:
                 if batch:
                     await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
@@ -158,99 +147,48 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
             batch.append(result)
             queue.task_done()
             
-            if len(batch) >= 10:
+            if len(batch) >= 20:
                 await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
                 batch = []
         except asyncio.TimeoutError:
-            # Only flush on timeout if we actually have data — avoids empty DB calls
             if batch:
                 await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
                 batch = []
 
-async def _process_and_evaluate_single(
-    sheet_file: Dict, 
-    index: int, 
-    optimized_key: Dict, 
-    db_queue: asyncio.Queue, 
-    processing_id: str, 
-    download_semaphore: asyncio.Semaphore, 
-    evaluation_semaphore: asyncio.Semaphore, 
-    temp_dir: str, 
-    session: aiohttp.ClientSession, 
-    drive_token: str, 
-    drive_api_key: str
-) -> Dict:
-    local_path = os.path.join(temp_dir, f"{index}_{sheet_file['name']}")
-    
-    # 1. Download (Native aiohttp concurrency)
-    async with download_semaphore:
-        if not os.path.exists(local_path):
-            file_id = sheet_file["id"]
-            url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-            headers = {"Authorization": f"Bearer {drive_token}"} if drive_token else {}
-            params = {"key": drive_api_key} if drive_api_key else {}
-            
-            try:
-                download_timeout = aiohttp.ClientTimeout(total=120)  # 2 min per file
-                async with session.get(url, headers=headers, params=params, timeout=download_timeout) as response:
-                    if response.status == 200:
-                        content = await response.read()
-                        await asyncio.to_thread(write_file_sync, local_path, content)
-                    elif response.status == 401:
-                        # Token expired — fallback to sync download which handles its own auth
-                        success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-                        if not success:
-                            return {"error": f"Drive auth expired and fallback failed", "file": sheet_file["name"]}
-                    else:
-                        # Fallback to sync download
-                        success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-                        if not success:
-                            return {"error": f"Drive Download failed: {response.status}", "file": sheet_file["name"]}
-            except Exception as e:
-                success = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-                if not success:
-                    return {"error": f"Download error: {str(e)}", "file": sheet_file["name"]}
-                    
-    async with _stats_lock:
-        _processing_stats[processing_id]["downloaded_files"] = _processing_stats[processing_id].get("downloaded_files", 0) + 1
-    
-    # 2. OCR (with caching — compute hash once, reuse for lookup + write)
-    file_hash = await cache_service.get_file_hash(local_path)
-    cached_result = await cache_service.get_cached_ocr_result_by_hash(file_hash)
+async def _process_and_evaluate_single(local_path, sheet_file, index, optimized_key, db_queue, processing_id, semaphore):
+    # 1. OCR (with caching)
+    cached_result = await cache_service.get_cached_ocr_result(local_path)
     
     if cached_result:
         ocr_result = cached_result
         ocr_result["index"] = index
         ocr_result["file_name"] = sheet_file["name"]
-        async with _stats_lock:
-            _processing_stats[processing_id]["cache_hits"] = _processing_stats[processing_id].get("cache_hits", 0) + 1
+        _processing_stats[processing_id]["cache_hits"] = _processing_stats[processing_id].get("cache_hits", 0) + 1
     else:
-        async with _stats_lock:
-            _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
+        _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
         
-        async with evaluation_semaphore:
+        async with semaphore:
             ocr_result = await optimized_ocr._process_with_retry(local_path, index)
             
         ocr_result["index"] = index
         ocr_result["file_name"] = sheet_file["name"]
         if "error" not in ocr_result:
-            await cache_service.cache_ocr_result_with_hash(file_hash, sheet_file["name"], ocr_result)
+            await cache_service.cache_ocr_result(local_path, ocr_result)
             
-    # 3. Immediate Evaluation
+    # 2. Immediate Evaluation
     if "error" not in ocr_result:
         eval_start = time.time()
-        # Fallback to _evaluate_single_student_optimized in case public accessor wasn't merged
-        eval_method = getattr(batch_eval_service, "evaluate_single_student_optimized", getattr(batch_eval_service, "_evaluate_single_student_optimized"))
-        student_result = eval_method(optimized_key, ocr_result, index)
+        student_result = batch_eval_service.evaluate_single_student_optimized(
+            optimized_key, ocr_result, index
+        )
         eval_time = time.time() - eval_start
         
-        async with _stats_lock:
-            _processing_stats[processing_id]["total_eval_time"] = _processing_stats[processing_id].get("total_eval_time", 0) + eval_time
+        _processing_stats[processing_id]["total_eval_time"] = _processing_stats[processing_id].get("total_eval_time", 0) + eval_time
         
         if isinstance(student_result, dict) and "error" in student_result:
              return {"error": student_result["error"], "file": sheet_file["name"]}
              
-        # Stream to Database Worker
+        # 3. Stream to Database Worker
         await db_queue.put(student_result)
         return student_result
     return {"error": ocr_result.get("error"), "file": sheet_file["name"]}
@@ -261,61 +199,53 @@ async def _process_sheets_optimized(
     processing_id: str
 ) -> tuple[List, List]:
     """
-    Optimized processing pipeline using an end-to-end sequential streaming pattern
-    incorporating high-speed asynchronous aiohttp downloads.
+    Optimized processing pipeline using a sequential streaming pattern.
     """
     results = []
     errors = []
     
     # Pre-process answer key once
-    opt_method = getattr(batch_eval_service, "optimize_answer_key", getattr(batch_eval_service, "_optimize_answer_key"))
-    optimized_key = opt_method(answer_key)
+    optimized_key = batch_eval_service.optimize_answer_key(answer_key)
     
-    _processing_stats[processing_id]["status"] = "streaming_pipeline_active"
-    _processing_stats[processing_id]["downloaded_files"] = 0
+    # Step 1: Download files in parallel
+    _processing_stats[processing_id]["status"] = "downloading_files"
     temp_dir = tempfile.mkdtemp(prefix="sheets_opt_")
     
     try:
+        downloaded_files = await _download_files_with_progress(
+            student_sheets, temp_dir, processing_id
+        )
+        
+        _processing_stats[processing_id]["status"] = "processing_and_evaluating"
+        
         # Setup DB Writer Queue
         db_queue = asyncio.Queue()
         writer_task = asyncio.create_task(_db_writer_worker(db_queue, processing_id))
         
-        # Drive authentication for raw HTTP
-        drive_token = drive_service.get_access_token()
-        drive_api_key = drive_service.api_key
+        semaphore = asyncio.Semaphore(150)
         
-        # Semaphore throttling
-        download_semaphore = asyncio.Semaphore(100) # Concurrent downloads
-        evaluation_semaphore = asyncio.Semaphore(150) # Concurrent OCR/Evaluation
+        # Parallel OCR + Evaluation tasks
+        tasks = [
+            asyncio.create_task(
+                _process_and_evaluate_single(local_path, sheet_file, idx, optimized_key, db_queue, processing_id, semaphore)
+            )
+            for local_path, sheet_file, idx in downloaded_files
+        ]
         
-        # Create an aiohttp session for downloading
-        connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            # Parallel end-to-end tasks: Download -> OCR -> Evaluate -> DB writes
-            tasks = [
-                asyncio.create_task(
-                    _process_and_evaluate_single(
-                        sheet_file, idx, optimized_key, db_queue, processing_id, 
-                        download_semaphore, evaluation_semaphore, temp_dir, 
-                        session, drive_token, drive_api_key
-                    )
-                )
-                for idx, sheet_file in enumerate(student_sheets)
-            ]
+        success_count = 0
+        total_eval_time = 0
+        
+        # Yield as completed
+        for completed_task in asyncio.as_completed(tasks):
+            result = await completed_task
             
-            success_count = 0
-            
-            # Yield as completed
-            for completed_task in asyncio.as_completed(tasks):
-                result = await completed_task
+            if isinstance(result, dict) and "error" in result:
+                errors.append(result)
+            else:
+                results.append(result)
+                success_count += 1
                 
-                if isinstance(result, dict) and "error" in result:
-                    errors.append(result)
-                else:
-                    results.append(result)
-                    success_count += 1
-                    
-                _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+            _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
             
         # Stop DB writer
         await db_queue.put(None)
@@ -334,6 +264,114 @@ async def _process_sheets_optimized(
         shutil.rmtree(temp_dir, ignore_errors=True)
     
     return results, errors
+
+
+async def _download_files_with_progress(
+    student_sheets: List[Dict], 
+    temp_dir: str, 
+    processing_id: str
+) -> List[tuple]:
+    """Download files with progress tracking."""
+    async def _download_single(sheet_file, index):
+        local_path = os.path.join(temp_dir, f"{index}_{sheet_file['name']}")
+        success = await asyncio.to_thread(
+            drive_service.download_file, 
+            sheet_file["id"], 
+            local_path
+        )
+        return (local_path, sheet_file, success, index)
+    
+    # Download in batches to avoid overwhelming the API
+    batch_size = 20
+    downloaded_files = []
+    
+    for i in range(0, len(student_sheets), batch_size):
+        batch = student_sheets[i:i + batch_size]
+        batch_tasks = [
+            _download_single(sheet, i + j) 
+            for j, sheet in enumerate(batch)
+        ]
+        
+        batch_results = await asyncio.gather(*batch_tasks)
+        downloaded_files.extend([
+            (lp, sf, idx) for lp, sf, success, idx in batch_results if success
+        ])
+        
+        # Update progress
+        _processing_stats[processing_id]["downloaded_files"] = len(downloaded_files)
+    
+    return downloaded_files
+
+
+async def _process_ocr_with_caching(
+    downloaded_files: List[tuple], 
+    processing_id: str
+) -> List[Dict]:
+    """Process OCR with intelligent caching."""
+    ocr_results = []
+    cache_hits = 0
+    cache_misses = 0
+    
+    # Check cache for each file
+    cached_results = []
+    files_to_process = []
+    
+    for local_path, sheet_file, index in downloaded_files:
+        cached_result = await cache_service.get_cached_ocr_result(local_path)
+        if cached_result:
+            cached_result["index"] = index
+            cached_result["file_name"] = sheet_file["name"]
+            cached_results.append(cached_result)
+            cache_hits += 1
+        else:
+            files_to_process.append((local_path, sheet_file, index))
+            cache_misses += 1
+    
+    # Update cache stats
+    _processing_stats[processing_id].update({
+        "cache_hits": cache_hits,
+        "cache_misses": cache_misses,
+        "cache_hit_rate": cache_hits / (cache_hits + cache_misses) if (cache_hits + cache_misses) > 0 else 0
+    })
+    
+    # Process uncached files
+    if files_to_process:
+        image_paths = [lp for lp, _, _ in files_to_process]
+        
+        # Use multi-region OCR for large batches
+        if len(files_to_process) > 50:
+            print(f"🌍 Using multi-region OCR for {len(files_to_process)} files")
+            fresh_results = await multi_region_ocr.process_batch_multi_region(
+                image_paths,
+                target_time_minutes=4.0
+            )
+        else:
+            print(f"🚀 Using optimized OCR for {len(files_to_process)} files")
+            fresh_results = await optimized_ocr.process_batch_optimized(
+                image_paths,
+                target_time_minutes=5.0
+            )
+        
+        # Cache fresh results and add metadata
+        for i, result in enumerate(fresh_results):
+            if i < len(files_to_process):
+                local_path, sheet_file, index = files_to_process[i]
+                result["index"] = index
+                result["file_name"] = sheet_file["name"]
+                
+                # Cache the result if successful
+                if "error" not in result:
+                    await cache_service.cache_ocr_result(local_path, result)
+        
+        ocr_results.extend(fresh_results)
+    
+    # Combine cached and fresh results
+    ocr_results.extend(cached_results)
+    
+    # Sort by index to maintain order
+    ocr_results.sort(key=lambda x: x.get("index", 0))
+    
+    return ocr_results
 
 
 @router.get("/batch/processing-status/{processing_id}")

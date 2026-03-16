@@ -63,7 +63,7 @@ class BatchEvaluationService:
         start_time = time.time()
         
         # Pre-process answer key for faster lookups
-        optimized_key = self._optimize_answer_key(answer_key)
+        optimized_key = self.optimize_answer_key(answer_key)
         
         if use_multiprocessing and len(student_ocr_results) > 10:
             # Use process pool for large batches
@@ -102,7 +102,7 @@ class BatchEvaluationService:
         
         return successful_results, stats
 
-    def _optimize_answer_key(self, answer_key: AnswerKey) -> Dict:
+    def optimize_answer_key(self, answer_key: AnswerKey) -> Dict:
         """
         Pre-process answer key for faster lookups during batch processing.
         """
@@ -127,7 +127,7 @@ class BatchEvaluationService:
         tasks = [
             loop.run_in_executor(
                 self.executor,
-                self._evaluate_single_student_optimized,
+                self.evaluate_single_student_optimized,
                 optimized_key,
                 ocr_result,
                 idx
@@ -185,7 +185,7 @@ class BatchEvaluationService:
         
         return processed_results
 
-    def _evaluate_single_student_optimized(self, optimized_key: Dict, student_ocr_result: Dict, student_index: int) -> StudentResult:
+    def evaluate_single_student_optimized(self, optimized_key: Dict, student_ocr_result: Dict, student_index: int) -> StudentResult:
         """
         Optimized single student evaluation using pre-processed answer key.
         Removes debug prints and uses efficient data structures.
@@ -373,80 +373,9 @@ class BatchEvaluationService:
 
 # Top-level function for multiprocessing (must be picklable)
 def _evaluate_student_worker(optimized_key: Dict, student_ocr_result: Dict, student_index: int):
-    """Worker function for multiprocessing evaluation.
-    Uses lightweight evaluation logic directly — no heavyweight service construction needed.
-    """
-    try:
-        entry_number = str(student_ocr_result.get("entry_number", f"student_{student_index}")).strip()
-        name = str(student_ocr_result.get("name", "unknown")).strip()
-        raw_answers = student_ocr_result.get("answers", {})
-
-        comments_list = []
-        if student_ocr_result.get("comments"):
-            c = str(student_ocr_result["comments"]).strip()
-            if c and c.lower() not in ("none", "null", ""):
-                comments_list.append(c)
-
-        student_ans = {}
-        for k, v in raw_answers.items():
-            try:
-                q_num = int(k)
-                option = str(v).strip().upper()
-                if "OPTION" in option:
-                    option = option.replace("OPTION", "").strip()
-                student_ans[q_num] = option
-            except (ValueError, TypeError):
-                continue
-
-        total_score = 0.0
-        max_score = 0.0
-        correct_count = 0
-        incorrect_count = 0
-        unattempted_count = 0
-        negative_deduction = 0.0
-        details = []
-
-        answers_dict = optimized_key['answers']
-        negative_marking = optimized_key['negative_marking']
-
-        for q_num, key_data in answers_dict.items():
-            correct_option = key_data['correct_option']
-            marks = key_data['marks']
-            max_score += marks
-
-            if q_num in student_ans:
-                marked = student_ans[q_num]
-                if marked == "MULTIPLE":
-                    incorrect_count += 1
-                    negative_deduction += negative_marking
-                    total_score -= negative_marking
-                    details.append(QuestionResult(question_number=q_num, marked=marked, correct=correct_option, result="multiple", score=-negative_marking))
-                    comments_list.append(f"Q{q_num}: Multiple marks")
-                elif marked == correct_option:
-                    correct_count += 1
-                    total_score += marks
-                    details.append(QuestionResult(question_number=q_num, marked=marked, correct=correct_option, result="correct", score=marks))
-                else:
-                    incorrect_count += 1
-                    negative_deduction += negative_marking
-                    total_score -= negative_marking
-                    details.append(QuestionResult(question_number=q_num, marked=marked, correct=correct_option, result="incorrect", score=-negative_marking))
-            else:
-                unattempted_count += 1
-                details.append(QuestionResult(question_number=q_num, marked=None, correct=correct_option, result="unattempted", score=0.0))
-
-        details.sort(key=lambda d: d.question_number)
-
-        return StudentResult(
-            entry_number=entry_number, name=name,
-            total_score=max(total_score, 0), max_score=max_score,
-            correct_count=correct_count, incorrect_count=incorrect_count,
-            unattempted_count=unattempted_count, negative_deduction=negative_deduction,
-            details=details,
-            comments="; ".join(comments_list) if comments_list else ""
-        )
-    except Exception as e:
-        return {'error': str(e), 'entry_number': student_ocr_result.get('entry_number', f'student_{student_index}'), 'student_index': student_index}
+    """Worker function for multiprocessing evaluation."""
+    service = BatchEvaluationService()
+    return service.evaluate_single_student_optimized(optimized_key, student_ocr_result, student_index)
 
 
 # Convenience function for backward compatibility
