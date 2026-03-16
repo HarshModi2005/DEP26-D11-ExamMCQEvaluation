@@ -6,6 +6,7 @@ import Icon from '../../components/AppIcon';
 import { useAuth } from '../../context/AuthContext';
 import { courseService } from '../../services/courseService';
 import { invitationService } from '../../services/invitationService';
+import { evaluationService } from '../../services/evaluationService';
 
 const GRADIENT_COLORS = [
     'from-blue-500 to-blue-600',
@@ -196,16 +197,9 @@ const FacultyDashboard = () => {
     const [showDeclineModal, setShowDeclineModal] = useState(false);
     const [activeInvite, setActiveInvite] = useState(null);
     const [actionLoading, setActionLoading] = useState(false);
+    const [allEvaluations, setAllEvaluations] = useState([]);
 
-    // Mock pending tasks for the Kanban board view
-    const mockTasks = [
-        { id: 1, title: 'Grade Midsem Exam', course: 'CS306', status: 'To Do', priority: 'High', dueDate: 'Mar 10' },
-        { id: 2, title: 'Review A1 Submissions', course: 'CS306', status: 'In Progress', priority: 'Medium', dueDate: 'Mar 12' },
-        { id: 3, title: 'Prepare Quiz 2', course: 'CS101', status: 'To Do', priority: 'Low', dueDate: 'Mar 15' },
-        { id: 4, title: 'Finalize Grades', course: 'CS306', status: 'Review', priority: 'High', dueDate: 'Mar 08' },
-        { id: 5, title: 'Update Syllabus', course: 'CS101', status: 'In Progress', priority: 'Medium', dueDate: 'Mar 20' },
-    ];
-
+    // We now use allEvaluations instead of mockTasks
     useEffect(() => {
         console.log('[FacultyDashboard] useEffect triggered — user:', user?.email, 'profile:', profile?.name, profile?.role);
         if (!user || !profile) {
@@ -227,6 +221,15 @@ const FacultyDashboard = () => {
                 console.log('[FacultyDashboard] fetchCourses SUCCESS, courses loaded:', data?.length);
                 setCourses(data || []);
                 setError('');
+                if (data && data.length > 0) {
+                    const courseIds = data.map(c => c.id);
+                    try {
+                        const evals = await evaluationService.getEvaluationsByCourses(courseIds);
+                        setAllEvaluations(evals || []);
+                    } catch (evalErr) {
+                        console.error('Failed to load evaluations:', evalErr);
+                    }
+                }
             } catch (err) {
                 console.error('[FacultyDashboard] fetchCourses ERROR:', err.name, err.message, err);
                 if (err.name === 'AbortError' || err.message?.includes('Lock broken') || err.message?.includes('steal')) {
@@ -475,8 +478,8 @@ const FacultyDashboard = () => {
                         />
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {['To Do', 'In Progress', 'Review'].map(columnName => {
-                                const columnTasks = mockTasks.filter(t => t.status === columnName);
+                            {['Active', 'Grading', 'Published'].map(columnName => {
+                                const columnTasks = allEvaluations.filter(t => t.status === columnName.toLowerCase());
                                 return (
                                     <div key={columnName} className="bg-secondary-50/50 border border-border rounded-xl p-4 flex flex-col h-full min-h-[300px]">
                                         <div className="flex items-center justify-between mb-4">
@@ -489,28 +492,31 @@ const FacultyDashboard = () => {
                                         </div>
                                         <div className="space-y-3 flex-1">
                                             {columnTasks.map(task => (
-                                                <div key={task.id} className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow transition-shadow cursor-pointer hover:border-primary-300">
+                                                <div key={task.id} 
+                                                    className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow transition-shadow cursor-pointer hover:border-primary-300"
+                                                    onClick={() => navigate(`/course/${task.course_id}`)}>
                                                     <div className="flex justify-between items-start mb-2">
                                                         <span className="text-xs font-semibold text-text-secondary bg-secondary-100 px-2 py-0.5 rounded">
-                                                            {task.course}
+                                                            {task.courses?.code || 'Course'}
                                                         </span>
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.priority === 'High' ? 'text-error-700 bg-error-50' :
-                                                            task.priority === 'Medium' ? 'text-warning-700 bg-warning-50' :
-                                                                'text-success-700 bg-success-50'
-                                                            }`}>
-                                                            {task.priority}
+                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                                            task.status === 'active' ? 'text-primary-700 bg-primary-50' :
+                                                            task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
+                                                            'text-success-700 bg-success-50'
+                                                        }`}>
+                                                            {task.status}
                                                         </span>
                                                     </div>
-                                                    <h4 className="text-sm font-medium text-text-primary mb-3">{task.title}</h4>
+                                                    <h4 className="text-sm font-medium text-text-primary mb-3">{task.name}</h4>
                                                     <div className="flex items-center justify-between mt-auto pt-2 border-t border-border border-dashed text-xs text-text-secondary">
                                                         <div className="flex items-center gap-1.5">
                                                             <Icon name="Calendar" size={12} />
-                                                            <span>{task.dueDate}</span>
+                                                            <span>{new Date(task.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                                                         </div>
-                                                        {task.status === 'In Progress' && (
+                                                        {task.status === 'grading' && (
                                                             <div className="flex items-center gap-1 text-warning-600 font-medium">
-                                                                <Icon name="Clock" size={12} />
-                                                                <span>Working</span>
+                                                                <Icon name="Activity" size={12} />
+                                                                <span>In Progress</span>
                                                             </div>
                                                         )}
                                                     </div>
@@ -523,11 +529,6 @@ const FacultyDashboard = () => {
                                                 </div>
                                             )}
                                         </div>
-                                        {/* Add Task Button for each column */}
-                                        <button className="w-full mt-3 p-2.5 border-2 border-dashed border-secondary-300 rounded-lg text-secondary-500 hover:border-primary-300 hover:text-primary hover:bg-primary-50 transition-colors duration-200 flex items-center justify-center space-x-2">
-                                            <Icon name="Plus" size={14} />
-                                            <span className="text-xs font-medium">Add task</span>
-                                        </button>
                                     </div>
                                 );
                             })}
