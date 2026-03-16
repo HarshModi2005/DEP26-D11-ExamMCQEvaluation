@@ -313,25 +313,60 @@ class BatchEvaluationService:
         if not student_results:
             return
             
-        # Prepare batch data
+        # Check schema first to prepare appropriate data
+        conn = sqlite3.connect(self.db.db_path)
+        c = conn.cursor()
+        
+        # Check if timestamp columns exist
+        c.execute("PRAGMA table_info(students)")
+        students_columns = [col[1] for col in c.fetchall()]
+        students_has_timestamps = 'created_at' in students_columns
+        
+        c.execute("PRAGMA table_info(results)")
+        results_columns = [col[1] for col in c.fetchall()]
+        results_has_timestamps = 'created_at' in results_columns
+        
+        conn.close()
+        
+        # Prepare batch data based on schema
         student_data = []
         result_data = []
+        current_time = time.time()
         
         for result in student_results:
             # Prepare student data
-            student_data.append((
-                result.entry_number,
-                result.name,
-                result.entry_number  # roll_number same as entry_number
-            ))
+            if students_has_timestamps:
+                student_data.append((
+                    result.entry_number,
+                    result.name,
+                    result.entry_number,  # roll_number same as entry_number
+                    current_time,
+                    current_time
+                ))
+            else:
+                student_data.append((
+                    result.entry_number,
+                    result.name,
+                    result.entry_number  # roll_number same as entry_number
+                ))
             
             # Prepare result data (using entry_number as submission_id for simplicity)
-            result_data.append((
-                result.entry_number,  # submission_id
-                result.total_score,
-                f"{result.correct_count} correct, {result.incorrect_count} incorrect, {result.unattempted_count} unattempted",
-                json.dumps(result.model_dump())
-            ))
+            if results_has_timestamps:
+                result_data.append((
+                    result.entry_number,  # submission_id
+                    result.total_score,
+                    f"{result.correct_count} correct, {result.incorrect_count} incorrect, {result.unattempted_count} unattempted",
+                    json.dumps(result.model_dump()),
+                    current_time,
+                    current_time
+                ))
+            else:
+                result_data.append((
+                    result.entry_number,  # submission_id
+                    result.total_score,
+                    f"{result.correct_count} correct, {result.incorrect_count} incorrect, {result.unattempted_count} unattempted",
+                    json.dumps(result.model_dump())
+                ))
         
         # Execute batch operations in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
@@ -343,22 +378,47 @@ class BatchEvaluationService:
         )
 
     def _execute_batch_db_operations(self, student_data: List[Tuple], result_data: List[Tuple]):
-        """Execute batch database operations synchronously."""
+        """Execute batch database operations synchronously (backward compatible)."""
         conn = sqlite3.connect(self.db.db_path)
         try:
             c = conn.cursor()
             
-            # Batch insert students
-            c.executemany(
-                "INSERT OR REPLACE INTO students VALUES (?, ?, ?)",
-                student_data
-            )
+            # Check schema for backward compatibility
+            c.execute("PRAGMA table_info(students)")
+            students_columns = [col[1] for col in c.fetchall()]
+            students_has_timestamps = 'created_at' in students_columns
             
-            # Batch insert results
-            c.executemany(
-                "INSERT OR REPLACE INTO results VALUES (?, ?, ?, ?)",
-                result_data
-            )
+            c.execute("PRAGMA table_info(results)")
+            results_columns = [col[1] for col in c.fetchall()]
+            results_has_timestamps = 'created_at' in results_columns
+            
+            # Batch insert students with appropriate schema
+            if students_has_timestamps and len(student_data[0]) == 5:
+                c.executemany(
+                    "INSERT OR REPLACE INTO students (id, name, roll_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    student_data
+                )
+            else:
+                # Use basic schema or truncate data to 3 columns
+                basic_student_data = [(row[0], row[1], row[2]) for row in student_data]
+                c.executemany(
+                    "INSERT OR REPLACE INTO students (id, name, roll_number) VALUES (?, ?, ?)",
+                    basic_student_data
+                )
+            
+            # Batch insert results with appropriate schema
+            if results_has_timestamps and len(result_data[0]) == 6:
+                c.executemany(
+                    "INSERT OR REPLACE INTO results (submission_id, score, feedback, details, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    result_data
+                )
+            else:
+                # Use basic schema or truncate data to 4 columns
+                basic_result_data = [(row[0], row[1], row[2], row[3]) for row in result_data]
+                c.executemany(
+                    "INSERT OR REPLACE INTO results (submission_id, score, feedback, details) VALUES (?, ?, ?, ?)",
+                    basic_result_data
+                )
             
             conn.commit()
             print(f"✅ Batch wrote {len(student_data)} students and {len(result_data)} results to database")
