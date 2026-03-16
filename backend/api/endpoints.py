@@ -17,6 +17,9 @@ from services.optimized_ocr_service import OptimizedOCRService
 from services.evaluation_service import EvaluationService
 from services.answer_key_service import AnswerKeyService
 from services.sheets_service import SheetsService
+from services.batch_evaluation_service import BatchEvaluationService, batch_match_and_score
+from services.result_cache_service import ResultCacheService, get_cached_or_process_ocr, get_cached_or_evaluate
+from services.optimized_database_service import OptimizedDatabaseService, batch_write_student_results
 from database import Database
 import asyncio
 import uuid
@@ -28,6 +31,9 @@ from typing import Optional
 
 router = APIRouter()
 db = Database()
+optimized_db = OptimizedDatabaseService()    # High-performance database service
+cache_service = ResultCacheService()         # Result caching service
+batch_eval_service = BatchEvaluationService(optimized_db)  # Batch evaluation service
 drive_service = DriveService()
 ocr_service = OCRService()                   # kept for the legacy /process-file endpoint
 optimized_ocr = OptimizedOCRService()        # used for the main /process-drive-folder pipeline
@@ -50,13 +56,100 @@ _current_results: list[StudentResult] = []
 # ═══════════════════════════════════════
 
 @router.get("/status")
-def get_status():
+async def get_status():
+    # Get cache and database stats
+    cache_stats = await cache_service.get_cache_stats()
+    db_stats = await optimized_db.get_performance_analytics()
+    
     return {
         "status": "Service operational",
         "answer_key_loaded": _current_answer_key is not None,
         "answer_key_questions": _current_answer_key.total_questions if _current_answer_key else 0,
         "results_count": len(_current_results),
+        "cache_stats": cache_stats,
+        "database_stats": db_stats,
+        "optimization_features": {
+            "batch_evaluation": True,
+            "result_caching": True,
+            "connection_pooling": True,
+            "async_processing": True
+        }
     }
+
+
+@router.get("/performance")
+async def get_performance_metrics():
+    """Get detailed performance metrics for optimization monitoring."""
+    cache_stats = await cache_service.get_cache_stats()
+    db_stats = await optimized_db.get_performance_analytics()
+    
+    return {
+        "cache_performance": cache_stats,
+        "database_performance": db_stats,
+        "current_session": {
+            "answer_key_loaded": _current_answer_key is not None,
+            "results_in_memory": len(_current_results),
+            "total_questions": _current_answer_key.total_questions if _current_answer_key else 0
+        },
+        "optimization_recommendations": _get_optimization_recommendations(cache_stats, db_stats)
+    }
+
+
+def _get_optimization_recommendations(cache_stats: dict, db_stats: dict) -> list:
+    """Generate optimization recommendations based on current metrics."""
+    recommendations = []
+    
+    # Cache recommendations
+    cache_size_mb = cache_stats.get('total_size_mb', 0)
+    if cache_size_mb > 400:  # Near 500MB limit
+        recommendations.append({
+            "type": "cache",
+            "priority": "medium",
+            "message": f"Cache size is {cache_size_mb:.1f}MB, consider cleanup",
+            "action": "Run cache cleanup or increase cache limit"
+        })
+    
+    cache_entries = cache_stats.get('total_entries', 0)
+    if cache_entries < 10:
+        recommendations.append({
+            "type": "cache",
+            "priority": "low", 
+            "message": "Low cache utilization detected",
+            "action": "Cache will improve performance as more files are processed"
+        })
+    
+    # Database recommendations
+    db_size_mb = db_stats.get('database_size_mb', 0)
+    if db_size_mb > 100:
+        recommendations.append({
+            "type": "database",
+            "priority": "low",
+            "message": f"Database size is {db_size_mb:.1f}MB",
+            "action": "Consider running VACUUM during maintenance window"
+        })
+    
+    # Connection pool recommendations
+    pool_stats = db_stats.get('connection_pool', {})
+    hit_ratio = pool_stats.get('hit_ratio', 0)
+    if hit_ratio < 0.8:
+        recommendations.append({
+            "type": "database",
+            "priority": "medium",
+            "message": f"Connection pool hit ratio is {hit_ratio:.1%}",
+            "action": "Consider increasing pool size for better performance"
+        })
+    
+    # Performance recommendations
+    batch_ratio = db_stats.get('service_stats', {}).get('batch_ratio', 0)
+    if batch_ratio < 0.5:
+        recommendations.append({
+            "type": "performance",
+            "priority": "high",
+            "message": f"Only {batch_ratio:.1%} of operations are batched",
+            "action": "Use batch processing endpoints for better performance"
+        })
+    
+    return recommendations
 
 
 # NOTE: Authentication is handled entirely by Supabase on the frontend.
@@ -324,7 +417,11 @@ async def process_drive_folder(request: ProcessFolderRequest):
             target_time_minutes=5.0,
         )
 
-        # --- Score each result ---
+        # --- Optimized Batch Scoring ---
+        print(f"\n🧮 Running optimized batch evaluation on {len(ocr_results)} results...")
+        
+        # Filter successful OCR results
+        valid_ocr_results = []
         for ocr_result in ocr_results:
             idx = ocr_result.get("index", 0)
             image_path = image_paths[idx] if idx < len(image_paths) else None
@@ -333,25 +430,60 @@ async def process_drive_folder(request: ProcessFolderRequest):
 
             if "error" in ocr_result:
                 errors.append({"file": file_name, "error": ocr_result["error"]})
-                continue
-
+            else:
+                # Add file metadata to OCR result for better error tracking
+                ocr_result["_file_name"] = file_name
+                ocr_result["_image_path"] = image_path
+                valid_ocr_results.append(ocr_result)
+        
+        if valid_ocr_results:
             try:
-                student_result = EvaluationService.match_and_score(
-                    _current_answer_key, ocr_result
+                # Use batch evaluation service for optimized processing
+                batch_results, batch_stats = await batch_match_and_score(
+                    _current_answer_key, 
+                    valid_ocr_results,
+                    use_multiprocessing=len(valid_ocr_results) > 20
                 )
-                _current_results.append(student_result)
-
-                print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
-                      f"{student_result.total_score}/{student_result.max_score}")
-
-                db.add_student(Student(
-                    id=student_result.entry_number,
-                    name=student_result.name,
-                    roll_number=student_result.entry_number
-                ))
+                
+                _current_results.extend(batch_results)
+                
+                # Batch write to optimized database
+                if batch_results:
+                    await batch_write_student_results(
+                        batch_results, 
+                        optimized_db,
+                        exam_id="drive_folder_processing"
+                    )
+                
+                # Print summary
+                print(f"  ✅ Batch processed {len(batch_results)} students in {batch_stats.processing_time:.2f}s")
+                print(f"  📊 Average time per student: {batch_stats.avg_time_per_student:.3f}s")
+                
+                for result in batch_results:
+                    print(f"     {result.entry_number} — {result.name}: "
+                          f"{result.total_score}/{result.max_score}")
+                
             except Exception as e:
-                errors.append({"file": file_name, "error": str(e)})
-                print(f"  ❌ Scoring error for {file_name}: {e}")
+                # Fallback to individual processing if batch fails
+                print(f"⚠️  Batch processing failed, falling back to individual processing: {e}")
+                
+                for ocr_result in valid_ocr_results:
+                    try:
+                        student_result = EvaluationService.match_and_score(
+                            _current_answer_key, ocr_result
+                        )
+                        _current_results.append(student_result)
+                        
+                        db.add_student(Student(
+                            id=student_result.entry_number,
+                            name=student_result.name,
+                            roll_number=student_result.entry_number
+                        ))
+                        
+                    except Exception as individual_error:
+                        file_name = ocr_result.get("_file_name", "unknown")
+                        errors.append({"file": file_name, "error": str(individual_error)})
+                        print(f"  ❌ Individual scoring error for {file_name}: {individual_error}")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -510,6 +642,36 @@ def clear_results():
     _current_answer_key = None
     _current_results = []
     return {"message": "Session cleared"}
+
+
+@router.post("/cache/cleanup")
+async def cleanup_cache(max_age_days: int = 30, force: bool = False):
+    """Clean up old cache entries to free space."""
+    await cache_service.cleanup_cache(max_age_days, force)
+    stats = await cache_service.get_cache_stats()
+    return {
+        "message": "Cache cleanup completed",
+        "cache_stats": stats
+    }
+
+
+@router.post("/database/optimize")
+async def optimize_database():
+    """Run database optimization (VACUUM and ANALYZE)."""
+    success = await optimized_db.vacuum_database()
+    await optimized_db.create_indexes_if_missing()
+    
+    if success:
+        stats = await optimized_db.get_performance_analytics()
+        return {
+            "message": "Database optimization completed",
+            "database_stats": stats
+        }
+    else:
+        return {
+            "message": "Database optimization failed",
+            "error": "See logs for details"
+        }
 
 
 # ═══════════════════════════════════════
