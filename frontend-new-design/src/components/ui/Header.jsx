@@ -3,8 +3,31 @@ import { useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import { useAuth } from '../../context/AuthContext';
 
+const LogoutModal = ({ onConfirm, onClose }) => {
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm border border-border">
+                <div className="p-8 text-center">
+                    <h2 className="text-2xl font-semibold text-text-primary mb-6">Want to Log out??</h2>
+                    <div className="flex flex-col gap-3">
+                        <button onClick={onConfirm}
+                            className="w-full py-3 bg-error text-white rounded-xl hover:bg-error-700 transition-colors font-semibold text-lg shadow-sm">
+                            Log out
+                        </button>
+                        <button onClick={onClose}
+                            className="w-full py-3 border border-border text-text-secondary rounded-xl hover:bg-secondary-50 transition-colors font-medium">
+                            cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const Header = () => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
     const { profile, user, logout } = useAuth();
     const navigate = useNavigate();
 
@@ -13,7 +36,12 @@ const Header = () => {
     const initials = displayName
         .split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
-    const handleLogout = async () => {
+    const handleLogout = () => {
+        setIsUserMenuOpen(false);
+        setShowLogoutModal(true);
+    };
+
+    const confirmLogout = async () => {
         await logout();
         navigate('/login-register');
     };
@@ -93,6 +121,13 @@ const Header = () => {
             {/* Click outside handler */}
             {isUserMenuOpen && (
                 <div className="fixed inset-0 z-90" onClick={() => setIsUserMenuOpen(false)} />
+            )}
+
+            {showLogoutModal && (
+                <LogoutModal
+                    onConfirm={confirmLogout}
+                    onClose={() => setShowLogoutModal(false)}
+                />
             )}
         </header>
     );
