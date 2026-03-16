@@ -134,73 +134,131 @@ async def process_folder_optimized(request: ProcessFolderRequest):
         raise
 
 
+async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
+    batch = []
+    while True:
+        try:
+            result = await asyncio.wait_for(queue.get(), timeout=2.0)
+            if result is None:
+                if batch:
+                    await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
+                queue.task_done()
+                break
+            batch.append(result)
+            queue.task_done()
+            
+            if len(batch) >= 20:
+                await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
+                batch = []
+        except asyncio.TimeoutError:
+            if batch:
+                await batch_write_student_results(batch, optimized_db, exam_id=f"optimized_batch_{processing_id}")
+                batch = []
+
+async def _process_and_evaluate_single(local_path, sheet_file, index, optimized_key, db_queue, processing_id, semaphore):
+    # 1. OCR (with caching)
+    cached_result = await cache_service.get_cached_ocr_result(local_path)
+    
+    if cached_result:
+        ocr_result = cached_result
+        ocr_result["index"] = index
+        ocr_result["file_name"] = sheet_file["name"]
+        _processing_stats[processing_id]["cache_hits"] = _processing_stats[processing_id].get("cache_hits", 0) + 1
+    else:
+        _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
+        
+        async with semaphore:
+            ocr_result = await optimized_ocr._process_with_retry(local_path, index)
+            
+        ocr_result["index"] = index
+        ocr_result["file_name"] = sheet_file["name"]
+        if "error" not in ocr_result:
+            await cache_service.cache_ocr_result(local_path, ocr_result)
+            
+    # 2. Immediate Evaluation
+    if "error" not in ocr_result:
+        eval_start = time.time()
+        student_result = batch_eval_service.evaluate_single_student_optimized(
+            optimized_key, ocr_result, index
+        )
+        eval_time = time.time() - eval_start
+        
+        _processing_stats[processing_id]["total_eval_time"] = _processing_stats[processing_id].get("total_eval_time", 0) + eval_time
+        
+        if isinstance(student_result, dict) and "error" in student_result:
+             return {"error": student_result["error"], "file": sheet_file["name"]}
+             
+        # 3. Stream to Database Worker
+        await db_queue.put(student_result)
+        return student_result
+    return {"error": ocr_result.get("error"), "file": sheet_file["name"]}
+
 async def _process_sheets_optimized(
     student_sheets: List[Dict], 
     answer_key,
     processing_id: str
 ) -> tuple[List, List]:
     """
-    Optimized processing pipeline with caching and batch operations.
+    Optimized processing pipeline using a sequential streaming pattern.
     """
     results = []
     errors = []
+    
+    # Pre-process answer key once
+    optimized_key = batch_eval_service.optimize_answer_key(answer_key)
     
     # Step 1: Download files in parallel
     _processing_stats[processing_id]["status"] = "downloading_files"
     temp_dir = tempfile.mkdtemp(prefix="sheets_opt_")
     
     try:
-        # Parallel download with progress tracking
         downloaded_files = await _download_files_with_progress(
             student_sheets, temp_dir, processing_id
         )
         
-        # Step 2: OCR processing with intelligent caching
-        _processing_stats[processing_id]["status"] = "ocr_processing"
-        ocr_results = await _process_ocr_with_caching(
-            downloaded_files, processing_id
-        )
+        _processing_stats[processing_id]["status"] = "processing_and_evaluating"
         
-        # Step 3: Batch evaluation
-        _processing_stats[processing_id]["status"] = "batch_evaluation"
-        valid_ocr_results = []
+        # Setup DB Writer Queue
+        db_queue = asyncio.Queue()
+        writer_task = asyncio.create_task(_db_writer_worker(db_queue, processing_id))
         
-        for ocr_result in ocr_results:
-            if "error" in ocr_result:
-                errors.append({
-                    "file": ocr_result.get("file_name", "unknown"),
-                    "error": ocr_result["error"]
-                })
-            else:
-                valid_ocr_results.append(ocr_result)
+        semaphore = asyncio.Semaphore(150)
         
-        if valid_ocr_results:
-            # Use optimized batch evaluation
-            batch_results, batch_stats = await batch_match_and_score(
-                answer_key,
-                valid_ocr_results,
-                use_multiprocessing=len(valid_ocr_results) > 15
+        # Parallel OCR + Evaluation tasks
+        tasks = [
+            asyncio.create_task(
+                _process_and_evaluate_single(local_path, sheet_file, idx, optimized_key, db_queue, processing_id, semaphore)
             )
-            
-            results.extend(batch_results)
-            
-            # Batch database write
-            if batch_results:
-                _processing_stats[processing_id]["status"] = "database_write"
-                await batch_write_student_results(
-                    batch_results,
-                    optimized_db,
-                    exam_id=f"optimized_batch_{processing_id}"
-                )
-            
-            # Update processing stats
-            _processing_stats[processing_id].update({
-                "batch_evaluation_time": batch_stats.processing_time,
-                "avg_evaluation_time": batch_stats.avg_time_per_student,
-                "evaluation_success_rate": batch_stats.successful_evaluations / batch_stats.total_students
-            })
+            for local_path, sheet_file, idx in downloaded_files
+        ]
         
-        _processing_stats[processing_id]["processed_files"] = len(results)
+        success_count = 0
+        total_eval_time = 0
+        
+        # Yield as completed
+        for completed_task in asyncio.as_completed(tasks):
+            result = await completed_task
+            
+            if isinstance(result, dict) and "error" in result:
+                errors.append(result)
+            else:
+                results.append(result)
+                success_count += 1
+                
+            _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+            
+        # Stop DB writer
+        await db_queue.put(None)
+        await writer_task
+        
+        # Update processing stats
+        total_students = len(student_sheets)
+        eval_time = _processing_stats[processing_id].get("total_eval_time", 0)
+        _processing_stats[processing_id].update({
+            "batch_evaluation_time": eval_time,
+            "avg_evaluation_time": eval_time / success_count if success_count else 0,
+            "evaluation_success_rate": success_count / total_students if total_students else 0
+        })
         
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
