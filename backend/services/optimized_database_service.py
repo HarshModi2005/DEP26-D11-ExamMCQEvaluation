@@ -124,18 +124,16 @@ class OptimizedDatabaseService:
             self.executor.shutdown(wait=False)
     
     def _init_db(self):
-        """Initialize database with optimized schema and indexes."""
+        """Initialize database with backward-compatible optimized schema and indexes."""
         with self.pool.get_connection() as conn:
             c = conn.cursor()
             
-            # Create tables with optimized schema
+            # First, create tables with basic schema (backward compatible)
             c.execute('''
                 CREATE TABLE IF NOT EXISTS students (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
-                    roll_number TEXT NOT NULL,
-                    created_at REAL DEFAULT (julianday('now')),
-                    updated_at REAL DEFAULT (julianday('now'))
+                    roll_number TEXT NOT NULL
                 )
             ''')
             
@@ -146,10 +144,7 @@ class OptimizedDatabaseService:
                     exam_id TEXT NOT NULL,
                     file_id TEXT,
                     status TEXT NOT NULL,
-                    extracted_data TEXT,
-                    created_at REAL DEFAULT (julianday('now')),
-                    updated_at REAL DEFAULT (julianday('now')),
-                    FOREIGN KEY (student_id) REFERENCES students (id)
+                    extracted_data TEXT
                 )
             ''')
             
@@ -158,26 +153,55 @@ class OptimizedDatabaseService:
                     submission_id TEXT PRIMARY KEY,
                     score REAL NOT NULL,
                     feedback TEXT,
-                    details TEXT,
-                    created_at REAL DEFAULT (julianday('now')),
-                    updated_at REAL DEFAULT (julianday('now')),
-                    FOREIGN KEY (submission_id) REFERENCES submissions (id)
+                    details TEXT
                 )
             ''')
             
-            # Create performance indexes
+            # Try to add timestamp columns if they don't exist (migration)
+            try:
+                c.execute('ALTER TABLE students ADD COLUMN created_at REAL DEFAULT (julianday(\'now\'))')
+                c.execute('ALTER TABLE students ADD COLUMN updated_at REAL DEFAULT (julianday(\'now\'))')
+            except sqlite3.OperationalError:
+                pass  # Columns already exist
+            
+            try:
+                c.execute('ALTER TABLE submissions ADD COLUMN created_at REAL DEFAULT (julianday(\'now\'))')
+                c.execute('ALTER TABLE submissions ADD COLUMN updated_at REAL DEFAULT (julianday(\'now\'))')
+            except sqlite3.OperationalError:
+                pass  # Columns already exist
+                
+            try:
+                c.execute('ALTER TABLE results ADD COLUMN created_at REAL DEFAULT (julianday(\'now\'))')
+                c.execute('ALTER TABLE results ADD COLUMN updated_at REAL DEFAULT (julianday(\'now\'))')
+            except sqlite3.OperationalError:
+                pass  # Columns already exist
+            
+            # Create performance indexes (only if columns exist)
             c.execute('CREATE INDEX IF NOT EXISTS idx_students_roll ON students(roll_number)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_exam ON submissions(exam_id)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_results_score ON results(score)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON students(created_at)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at)')
+            
+            # Check if timestamp columns exist before creating indexes
+            c.execute("PRAGMA table_info(students)")
+            students_columns = [col[1] for col in c.fetchall()]
+            if 'created_at' in students_columns:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_students_created_at ON students(created_at)')
+            
+            c.execute("PRAGMA table_info(submissions)")
+            submissions_columns = [col[1] for col in c.fetchall()]
+            if 'created_at' in submissions_columns:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at)')
+            
+            c.execute("PRAGMA table_info(results)")
+            results_columns = [col[1] for col in c.fetchall()]
+            if 'created_at' in results_columns:
+                c.execute('CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at)')
             
             conn.commit()
         
-        print(f"✅ Optimized database initialized at {self.db_path}")
+        print(f"✅ Optimized database initialized at {self.db_path} (backward compatible)")
     
     async def batch_add_students(self, students: List[Student]) -> int:
         """
@@ -213,23 +237,38 @@ class OptimizedDatabaseService:
         return result
     
     def _batch_add_students_sync(self, students: List[Student]) -> int:
-        """Synchronous batch student insertion."""
+        """Synchronous batch student insertion (backward compatible)."""
         with self.pool.get_connection() as conn:
             c = conn.cursor()
             
             try:
-                # Prepare batch data
-                student_data = [
-                    (s.id, s.name, s.roll_number, time.time(), time.time())
-                    for s in students
-                ]
+                # Check if timestamp columns exist
+                c.execute("PRAGMA table_info(students)")
+                columns = [col[1] for col in c.fetchall()]
+                has_timestamps = 'created_at' in columns and 'updated_at' in columns
                 
-                # Batch insert with conflict resolution
-                c.executemany('''
-                    INSERT OR REPLACE INTO students 
-                    (id, name, roll_number, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', student_data)
+                if has_timestamps:
+                    # Use new schema with timestamps
+                    student_data = [
+                        (s.id, s.name, s.roll_number, time.time(), time.time())
+                        for s in students
+                    ]
+                    c.executemany('''
+                        INSERT OR REPLACE INTO students 
+                        (id, name, roll_number, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', student_data)
+                else:
+                    # Use old schema without timestamps
+                    student_data = [
+                        (s.id, s.name, s.roll_number)
+                        for s in students
+                    ]
+                    c.executemany('''
+                        INSERT OR REPLACE INTO students 
+                        (id, name, roll_number)
+                        VALUES (?, ?, ?)
+                    ''', student_data)
                 
                 conn.commit()
                 return len(students)
@@ -279,73 +318,115 @@ class OptimizedDatabaseService:
         return result
     
     def _batch_add_results_sync(self, student_results: List[StudentResult], exam_id: str) -> int:
-        """Synchronous batch result insertion."""
+        """Synchronous batch result insertion (backward compatible)."""
         with self.pool.get_connection() as conn:
             c = conn.cursor()
             
             try:
                 current_time = time.time()
                 
-                # Prepare student data
+                # Check schema for each table
+                c.execute("PRAGMA table_info(students)")
+                students_columns = [col[1] for col in c.fetchall()]
+                students_has_timestamps = 'created_at' in students_columns
+                
+                c.execute("PRAGMA table_info(submissions)")
+                submissions_columns = [col[1] for col in c.fetchall()]
+                submissions_has_timestamps = 'created_at' in submissions_columns
+                
+                c.execute("PRAGMA table_info(results)")
+                results_columns = [col[1] for col in c.fetchall()]
+                results_has_timestamps = 'created_at' in results_columns
+                
+                # Prepare data based on schema
                 student_data = []
                 submission_data = []
                 result_data = []
                 
                 for result in student_results:
                     # Student data
-                    student_data.append((
-                        result.entry_number,
-                        result.name,
-                        result.entry_number,
-                        current_time,
-                        current_time
-                    ))
+                    if students_has_timestamps:
+                        student_data.append((
+                            result.entry_number, result.name, result.entry_number,
+                            current_time, current_time
+                        ))
+                    else:
+                        student_data.append((
+                            result.entry_number, result.name, result.entry_number
+                        ))
                     
-                    # Submission data (using entry_number as submission_id)
+                    # Submission data
                     submission_id = f"{exam_id}_{result.entry_number}"
-                    submission_data.append((
-                        submission_id,
-                        result.entry_number,
-                        exam_id,
-                        None,  # file_id
-                        "evaluated",
-                        json.dumps({
-                            "entry_number": result.entry_number,
-                            "name": result.name,
-                            "answers": {d.question_number: d.marked for d in result.details if d.marked}
-                        }),
-                        current_time,
-                        current_time
-                    ))
+                    extracted_data = json.dumps({
+                        "entry_number": result.entry_number,
+                        "name": result.name,
+                        "answers": {d.question_number: d.marked for d in result.details if d.marked}
+                    })
+                    
+                    if submissions_has_timestamps:
+                        submission_data.append((
+                            submission_id, result.entry_number, exam_id, None, "evaluated",
+                            extracted_data, current_time, current_time
+                        ))
+                    else:
+                        submission_data.append((
+                            submission_id, result.entry_number, exam_id, None, "evaluated",
+                            extracted_data
+                        ))
                     
                     # Result data
-                    result_data.append((
-                        submission_id,
-                        result.total_score,
-                        f"{result.correct_count} correct, {result.incorrect_count} incorrect, {result.unattempted_count} unattempted",
-                        json.dumps(result.model_dump()),
-                        current_time,
-                        current_time
-                    ))
+                    feedback = f"{result.correct_count} correct, {result.incorrect_count} incorrect, {result.unattempted_count} unattempted"
+                    details = json.dumps(result.model_dump())
+                    
+                    if results_has_timestamps:
+                        result_data.append((
+                            submission_id, result.total_score, feedback, details,
+                            current_time, current_time
+                        ))
+                    else:
+                        result_data.append((
+                            submission_id, result.total_score, feedback, details
+                        ))
                 
-                # Execute batch operations
-                c.executemany('''
-                    INSERT OR REPLACE INTO students 
-                    (id, name, roll_number, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', student_data)
+                # Execute batch operations with appropriate SQL
+                if students_has_timestamps:
+                    c.executemany('''
+                        INSERT OR REPLACE INTO students 
+                        (id, name, roll_number, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', student_data)
+                else:
+                    c.executemany('''
+                        INSERT OR REPLACE INTO students 
+                        (id, name, roll_number)
+                        VALUES (?, ?, ?)
+                    ''', student_data)
                 
-                c.executemany('''
-                    INSERT OR REPLACE INTO submissions 
-                    (id, student_id, exam_id, file_id, status, extracted_data, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', submission_data)
+                if submissions_has_timestamps:
+                    c.executemany('''
+                        INSERT OR REPLACE INTO submissions 
+                        (id, student_id, exam_id, file_id, status, extracted_data, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', submission_data)
+                else:
+                    c.executemany('''
+                        INSERT OR REPLACE INTO submissions 
+                        (id, student_id, exam_id, file_id, status, extracted_data)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', submission_data)
                 
-                c.executemany('''
-                    INSERT OR REPLACE INTO results 
-                    (submission_id, score, feedback, details, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', result_data)
+                if results_has_timestamps:
+                    c.executemany('''
+                        INSERT OR REPLACE INTO results 
+                        (submission_id, score, feedback, details, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', result_data)
+                else:
+                    c.executemany('''
+                        INSERT OR REPLACE INTO results 
+                        (submission_id, score, feedback, details)
+                        VALUES (?, ?, ?, ?)
+                    ''', result_data)
                 
                 conn.commit()
                 return len(student_results)
