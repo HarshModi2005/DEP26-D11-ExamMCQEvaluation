@@ -55,6 +55,18 @@ class DriveService:
         else:
             return None
 
+    def get_access_token(self) -> str:
+        """Get the current valid access token for HTTP requests."""
+        if self.creds:
+            import google.auth.transport.requests
+            request = google.auth.transport.requests.Request()
+            try:
+                self.creds.refresh(request)
+                return self.creds.token
+            except Exception as e:
+                print(f"Error refreshing Drive token: {e}")
+        return None
+
     # ──────────────────────────────────────
     #  Listing Files
     # ──────────────────────────────────────
@@ -88,7 +100,7 @@ class DriveService:
             while True:
                 results = service.files().list(
                     q=query,
-                    pageSize=100,
+                    pageSize=1000,
                     pageToken=page_token,
                     fields="nextPageToken, files(id, name, mimeType, webContentLink, size)",
                     supportsAllDrives=True,
