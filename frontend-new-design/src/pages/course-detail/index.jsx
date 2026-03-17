@@ -309,6 +309,42 @@ const RemoveStudentModal = ({ student, onConfirm, onClose }) => {
     );
 };
 
+const DeleteEvalModal = ({ evaluation, onConfirm, onClose }) => {
+    if (!evaluation) return null;
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-error-50 rounded-lg flex items-center justify-center">
+                            <Icon name="Trash2" size={20} className="text-error" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Delete Evaluation</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        Are you sure you want to delete <span className="font-semibold">{evaluation.name}</span>? This action cannot be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-4 py-2 border border-border text-text-secondary rounded-lg hover:bg-secondary-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button onClick={() => onConfirm(evaluation.id)}
+                            className="px-5 py-2 bg-error text-white rounded-lg hover:bg-error-700 transition-colors shadow-sm">
+                            Confirm Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────────────
 const CourseDetail = () => {
     const { courseId } = useParams();
@@ -362,6 +398,10 @@ const CourseDetail = () => {
     // Remove student confirmation
     const [showRemoveStudentModal, setShowRemoveStudentModal] = useState(false);
     const [studentToRemove, setStudentToRemove] = useState(null);
+
+    // Delete evaluation confirmation
+    const [showDeleteEvalModal, setShowDeleteEvalModal] = useState(false);
+    const [evalToDelete, setEvalToDelete] = useState(null);
 
     // Fetch all data
     const fetchAll = useCallback(async (retries = 3) => {
@@ -506,6 +546,22 @@ const CourseDetail = () => {
         }
     };
 
+    const handleDeleteEvalClick = (evaluation) => {
+        setEvalToDelete(evaluation);
+        setShowDeleteEvalModal(true);
+    };
+
+    const confirmDeleteEvaluation = async (evalId) => {
+        try {
+            await evaluationService.deleteEvaluation(evalId);
+            setEvaluations(prev => prev.filter(e => e.id !== evalId));
+            setShowDeleteEvalModal(false);
+            setEvalToDelete(null);
+        } catch (err) {
+            console.error('Failed to delete evaluation:', err);
+        }
+    };
+
     const loadAnalytics = async (ev) => {
         setSelectedEvalForAnalytics(ev);
         setAnalyticsLoading(true);
@@ -598,6 +654,14 @@ const CourseDetail = () => {
                     student={studentToRemove}
                     onConfirm={confirmRemoveStudent}
                     onClose={() => { setShowRemoveStudentModal(false); setStudentToRemove(null); }}
+                />
+            )}
+
+            {showDeleteEvalModal && (
+                <DeleteEvalModal
+                    evaluation={evalToDelete}
+                    onConfirm={confirmDeleteEvaluation}
+                    onClose={() => { setShowDeleteEvalModal(false); setEvalToDelete(null); }}
                 />
             )}
 
@@ -739,6 +803,15 @@ const CourseDetail = () => {
                                                                 <option value="grading">Grading</option>
                                                                 <option value="published">Published</option>
                                                             </select>
+                                                        )}
+                                                        {ev.status === 'published' && (profile?.role === 'professor' || profile?.id === course?.instructor_id) && (
+                                                            <button
+                                                                onClick={() => handleDeleteEvalClick(ev)}
+                                                                className="p-1.5 text-error-600 hover:bg-error-50 rounded-lg transition-colors border border-transparent hover:border-error-200"
+                                                                title="Delete Evaluation"
+                                                            >
+                                                                <Icon name="Trash2" size={16} />
+                                                            </button>
                                                         )}
                                                     </div>
                                                 </div>

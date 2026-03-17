@@ -143,4 +143,18 @@ export const evaluationService = {
             if (error) throw error;
         }
     },
+
+    /**
+     * Delete an evaluation
+     */
+    async deleteEvaluation(evaluationId) {
+        // evaluation_duties should be deleted by cascade, but if not we can delete them first
+        await supabase.from('evaluation_duties').delete().eq('evaluation_id', evaluationId);
+        
+        const { error } = await supabase
+            .from('evaluations')
+            .delete()
+            .eq('id', evaluationId);
+        if (error) throw error;
+    },
 };
