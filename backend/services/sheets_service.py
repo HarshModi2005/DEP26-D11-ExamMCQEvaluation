@@ -441,6 +441,210 @@ class SheetsService:
 
         return summary
 
+    def create_student_response_sheet(
+        self, 
+        sheet_url: str, 
+        results: List[Dict], 
+        answer_key: Dict,
+        response_sheet_name: str = "Student Responses"
+    ) -> Dict:
+        """
+        Create a separate sheet tab with detailed student responses (per-question answers).
+        
+        Args:
+            sheet_url: Google Sheet URL
+            results: List of StudentResult dictionaries with details
+            answer_key: Answer key dictionary for question mapping
+            response_sheet_name: Name for the new response sheet tab
+            
+        Returns:
+            Summary of the export operation
+        """
+        if not self.service:
+            raise RuntimeError("Sheets service not initialized. Check credentials.")
+
+        spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
+
+        # Get all questions from answer key
+        questions = sorted([int(q) for q in answer_key.get('answers', {}).keys()])
+        if not questions:
+            raise ValueError("No questions found in answer key")
+
+        # Prepare headers
+        headers = ['Entry Number', 'Name', 'Total Score']
+        for q in questions:
+            headers.extend([f'Q{q} Marked', f'Q{q} Correct', f'Q{q} Result'])
+        headers.append('Comments')
+
+        # Prepare data rows
+        data_rows = []
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+                
+            row = [
+                result.get('entry_number', ''),
+                result.get('name', ''),
+                str(result.get('total_score', 0))
+            ]
+            
+            # Get per-question details
+            details_map = {}
+            for detail in result.get('details', []):
+                if isinstance(detail, dict):
+                    q_num = detail.get('question_number')
+                    if q_num:
+                        details_map[int(q_num)] = detail
+            
+            # Add per-question data
+            for q in questions:
+                detail = details_map.get(q, {})
+                marked = detail.get('marked', '') or ''
+                correct = detail.get('correct', '') or ''
+                result_status = detail.get('result', '') or ''
+                
+                # Format result status with emoji
+                status_emoji = {
+                    'correct': '✓',
+                    'incorrect': '✗',
+                    'unattempted': '—',
+                    'multiple': '⚠️'
+                }.get(result_status, '')
+                
+                row.extend([
+                    marked,
+                    correct,
+                    f"{status_emoji} {result_status}" if status_emoji else result_status
+                ])
+            
+            row.append(result.get('comments', ''))
+            data_rows.append(row)
+
+        # Create or update the response sheet
+        try:
+            # Check if sheet exists
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
+            ).execute()
+            
+            existing_sheets = {sheet['properties']['title']: sheet['properties']['sheetId'] 
+                             for sheet in spreadsheet.get('sheets', [])}
+            
+            if response_sheet_name in existing_sheets:
+                # Clear existing data
+                sheet_id = existing_sheets[response_sheet_name]
+                self.service.spreadsheets().values().clear(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{response_sheet_name}'"
+                ).execute()
+            else:
+                # Create new sheet
+                requests = [{
+                    'addSheet': {
+                        'properties': {
+                            'title': response_sheet_name
+                        }
+                    }
+                }]
+                self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={'requests': requests}
+                ).execute()
+
+            # Write data
+            all_data = [headers] + data_rows
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{response_sheet_name}'!A1",
+                valueInputOption='USER_ENTERED',
+                body={'values': all_data}
+            ).execute()
+
+            # Format the sheet
+            self._format_response_sheet(spreadsheet_id, response_sheet_name, len(headers), len(data_rows) + 1)
+
+            return {
+                "message": f"Student response sheet '{response_sheet_name}' created successfully",
+                "sheet_name": response_sheet_name,
+                "students_exported": len(data_rows),
+                "questions_exported": len(questions),
+                "spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+            }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to create student response sheet: {str(e)}")
+
+    def _format_response_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_rows: int):
+        """Apply formatting to the student response sheet."""
+        try:
+            # Get sheet ID
+            spreadsheet = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                return
+
+            requests = []
+            
+            # Format header row
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 0,
+                        'endRowIndex': 1,
+                        'startColumnIndex': 0,
+                        'endColumnIndex': num_cols
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9},
+                            'textFormat': {'bold': True},
+                            'horizontalAlignment': 'CENTER'
+                        }
+                    },
+                    'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+            })
+            
+            # Freeze header row
+            requests.append({
+                'updateSheetProperties': {
+                    'properties': {
+                        'sheetId': sheet_id,
+                        'gridProperties': {
+                            'frozenRowCount': 1
+                        }
+                    },
+                    'fields': 'gridProperties.frozenRowCount'
+                }
+            })
+            
+            # Auto-resize columns
+            requests.append({
+                'autoResizeDimensions': {
+                    'dimensions': {
+                        'sheetId': sheet_id,
+                        'dimension': 'COLUMNS',
+                        'startIndex': 0,
+                        'endIndex': num_cols
+                    }
+                }
+            })
+
+            # Apply formatting
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+        except Exception as e:
+            print(f"Warning: Failed to format response sheet: {e}")
+
     # ──────────────────────────────────────
     #  Helpers
     # ──────────────────────────────────────

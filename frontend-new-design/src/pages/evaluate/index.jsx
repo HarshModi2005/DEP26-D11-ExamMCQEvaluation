@@ -20,11 +20,33 @@ const StatusBadge = ({ status }) => {
 
 // ── Answer Key Panel ──────────────────────
 const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
-    const [mode, setMode] = useState('view'); // 'view' | 'manual' | 'upload'
+    const [mode, setMode] = useState('view'); // 'view' | 'manual' | 'upload' | 'template'
     const [driveUrl, setDriveUrl] = useState(evaluation?.drive_folder_url || '');
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState('');
-    const [manualJson, setManualJson] = useState('{\n  "answers": { "1": "A", "2": "B" },\n  "marks_per_question": 1,\n  "negative_marking": 0\n}');
+    const [manualJson, setManualJson] = useState(`{
+  "answers": {
+    "1": {
+      "question_type": "SMCQ",
+      "correct_answer": "A",
+      "positive_marks": 3,
+      "negative_marks": 1
+    },
+    "2": {
+      "question_type": "MMCQ",
+      "correct_answer": "AC",
+      "positive_marks": 4,
+      "negative_marks": 0
+    },
+    "3": {
+      "question_type": "NCQ",
+      "correct_answer": "2.5",
+      "positive_marks": 4,
+      "negative_marks": 1
+    }
+  },
+  "negative_marking": 0
+}`);
     const [uploadFile, setUploadFile] = useState(null);
     const hasKey = !!evaluation?.answer_key_data;
 
@@ -62,6 +84,23 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
         finally { setLoading(false); }
     };
 
+    const downloadTemplate = async (format, numQuestions) => {
+        setLoading(true); setErr('');
+        try {
+            const response = await backendService.downloadTemplate(format, numQuestions);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `answer_key_template_${numQuestions}q.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (e) { setErr(e.message); }
+        finally { setLoading(false); }
+    };
+
     return (
         <div className="bg-surface border border-border rounded-xl overflow-hidden">
             <div className="p-4 border-b border-border flex items-center justify-between">
@@ -78,10 +117,10 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
 
             {/* Mode selector */}
             <div className="flex border-b border-border">
-                {[['view', 'eye', 'From Drive'], ['upload', 'Upload', 'Upload File'], ['manual', 'Code', 'Manual JSON']].map(([m, icon, label]) => (
+                {[['view', 'FolderOpen', 'From Drive'], ['upload', 'Upload', 'Upload File'], ['manual', 'Code', 'Manual JSON'], ['template', 'Download', 'Download Template']].map(([m, icon, label]) => (
                     <button key={m} onClick={() => setMode(m)}
                         className={`flex-1 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${mode === m ? 'bg-primary-50 text-primary border-b-2 border-primary' : 'text-text-secondary hover:bg-secondary-50'}`}>
-                        <Icon name={m === 'view' ? 'FolderOpen' : m === 'upload' ? 'Upload' : 'Code'} size={14} />
+                        <Icon name={icon} size={14} />
                         {label}
                     </button>
                 ))}
@@ -137,16 +176,75 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                     </div>
                 )}
 
+                {/* Download Template */}
+                {mode === 'template' && (
+                    <div className="space-y-3">
+                        <p className="text-xs text-text-secondary">Download a blank answer key template to fill out.</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-xs font-medium text-text-secondary mb-1">Format</label>
+                                <select className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500" id="template-format">
+                                    <option value="csv">CSV</option>
+                                    <option value="xlsx">Excel (XLSX)</option>
+                                    <option value="json">JSON</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-text-secondary mb-1">Questions</label>
+                                <input type="number" min="1" max="200" defaultValue="50" 
+                                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500" 
+                                    id="template-questions" />
+                            </div>
+                        </div>
+                        <button onClick={() => {
+                            const format = document.getElementById('template-format').value;
+                            const numQuestions = parseInt(document.getElementById('template-questions').value);
+                            downloadTemplate(format, numQuestions);
+                        }} disabled={loading}
+                            className="w-full py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Download" size={14} />}
+                            {loading ? 'Downloading...' : 'Download Template'}
+                        </button>
+                    </div>
+                )}
+
                 {/* Current Key Preview */}
                 {hasKey && evaluation.answer_key_data?.answers && (
                     <div className="mt-2 p-3 bg-success-50 border border-success-100 rounded-lg">
                         <p className="text-xs font-semibold text-success-700 mb-2 flex items-center gap-1"><Icon name="CheckCircle" size={12} />Loaded Answer Key</p>
+                        
+                        {/* Question Type Summary */}
+                        {(() => {
+                            const typeCounts = {};
+                            Object.values(evaluation.answer_key_data.answers).forEach(a => {
+                                const type = (typeof a === 'object' ? a.question_type : 'SMCQ') || 'SMCQ';
+                                typeCounts[type] = (typeCounts[type] || 0) + 1;
+                            });
+                            return Object.keys(typeCounts).length > 1 && (
+                                <div className="mb-2 flex flex-wrap gap-2">
+                                    {Object.entries(typeCounts).map(([type, count]) => (
+                                        <span key={type} className="px-2 py-1 bg-white border border-success-200 rounded text-xs font-medium">
+                                            {type}: {count}
+                                        </span>
+                                    ))}
+                                </div>
+                            );
+                        })()}
+                        
                         <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                            {Object.entries(evaluation.answer_key_data.answers).slice(0, 20).map(([q, a]) => (
-                                <span key={q} className="px-1.5 py-0.5 bg-white border border-success-200 rounded text-xs font-mono">
-                                    Q{q}:{typeof a === 'object' ? a.correct_option : a}
-                                </span>
-                            ))}
+                            {Object.entries(evaluation.answer_key_data.answers).slice(0, 20).map(([q, a]) => {
+                                const answer = typeof a === 'object' ? (a.correct_answer || a.correct_option) : a;
+                                const type = typeof a === 'object' ? a.question_type : 'SMCQ';
+                                const typeColor = type === 'MMCQ' ? 'border-blue-200 bg-blue-50' : 
+                                                type === 'NCQ' ? 'border-orange-200 bg-orange-50' : 
+                                                'border-success-200 bg-white';
+                                return (
+                                    <span key={q} className={`px-1.5 py-0.5 border rounded text-xs font-mono ${typeColor}`}>
+                                        Q{q}:{answer}
+                                        {type !== 'SMCQ' && <span className="ml-1 text-xs opacity-70">({type})</span>}
+                                    </span>
+                                );
+                            })}
                             {Object.keys(evaluation.answer_key_data.answers).length > 20 && (
                                 <span className="text-xs text-success-600">+{Object.keys(evaluation.answer_key_data.answers).length - 20} more</span>
                             )}
@@ -259,6 +357,10 @@ const EvaluatePage = () => {
     const [error, setError] = useState('');
     const [exportMsg, setExportMsg] = useState('');
     const [driveFolderUrl, setDriveFolderUrl] = useState('');
+    const [zipFile, setZipFile] = useState(null);
+    const [processingMode, setProcessingMode] = useState('drive'); // 'drive' | 'zip'
+    const [forceReprocess, setForceReprocess] = useState(false);
+    const [cacheStatus, setCacheStatus] = useState(null);
 
     const fetchData = useCallback(async () => {
         setPageLoading(true);
@@ -275,7 +377,19 @@ const EvaluatePage = () => {
         }
     }, [evaluationId]);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useEffect(() => { 
+        fetchData();
+        loadCacheStatus();
+    }, [fetchData]);
+
+    const loadCacheStatus = async () => {
+        try {
+            const status = await backendService.getCacheStatus();
+            setCacheStatus(status);
+        } catch (err) {
+            console.warn('Failed to load cache status:', err);
+        }
+    };
 
     const handleKeyLoaded = (keyData) => {
         setEvaluation(prev => ({ ...prev, answer_key_data: keyData }));
@@ -283,32 +397,58 @@ const EvaluatePage = () => {
     };
 
     const handleRunPipeline = async () => {
-        const url = driveFolderUrl || evaluation?.drive_folder_url;
-        if (!url) { setError('Please enter the Google Drive folder URL containing student answer sheets.'); return; }
+        if (processingMode === 'drive') {
+            const url = driveFolderUrl || evaluation?.drive_folder_url;
+            if (!url) { setError('Please enter the Google Drive folder URL containing student answer sheets.'); return; }
+        } else if (processingMode === 'zip') {
+            if (!zipFile) { setError('Please select a ZIP file containing student answer sheets.'); return; }
+        }
+        
         if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
 
         setPipelineLoading(true);
         setError('');
         setPipelineProgress(10);
-        setPipelineLog(prev => [...prev, '🚀 Starting OCR pipeline...', `📁 Drive folder: ${url}`]);
+        
+        const modeText = processingMode === 'zip' ? 'ZIP file' : 'Drive folder';
+        const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
+        
+        setPipelineLog(prev => [...prev, 
+            `🚀 Starting OCR pipeline (${modeText})...`, 
+            `📁 Source: ${sourceText}`,
+            forceReprocess ? '🔄 Force reprocess enabled (bypassing cache)' : '🎯 Using cache for already processed files'
+        ]);
 
         try {
-            // Save drive folder URL if changed
-            if (url !== evaluation.drive_folder_url) {
-                await evaluationService.updateDriveFolderUrl(evaluationId, url);
-                setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+            let pipelineResult;
+            
+            if (processingMode === 'drive') {
+                const url = driveFolderUrl || evaluation?.drive_folder_url;
+                // Save drive folder URL if changed
+                if (url !== evaluation.drive_folder_url) {
+                    await evaluationService.updateDriveFolderUrl(evaluationId, url);
+                    setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+                }
+
+                setPipelineProgress(30);
+                setPipelineLog(prev => [...prev, '🔍 Scanning Drive folder...']);
+                pipelineResult = await backendService.processDriveFolder(url, forceReprocess);
+            } else {
+                setPipelineProgress(30);
+                setPipelineLog(prev => [...prev, '📦 Processing ZIP file...']);
+                pipelineResult = await backendService.processZipFile(zipFile, forceReprocess, true);
             }
-
-            setPipelineProgress(30);
-            setPipelineLog(prev => [...prev, '🔍 Scanning Drive folder...']);
-
-            const pipelineResult = await backendService.processDriveFolder(url);
+            
             setPipelineProgress(80);
 
             const processedResults = pipelineResult.results || [];
+            const stats = pipelineResult.processing_stats || {};
+            
             setPipelineLog(prev => [
                 ...prev,
                 `✅ Processed ${processedResults.length} student sheets`,
+                ...(stats.cache_hits > 0 ? [`🎯 Cache hits: ${stats.cache_hits}`] : []),
+                ...(stats.newly_processed > 0 ? [`🔄 Newly processed: ${stats.newly_processed}`] : []),
                 ...(pipelineResult.errors?.length > 0
                     ? [`⚠️ ${pipelineResult.errors.length} errors: ${pipelineResult.errors.map(e => e.file).join(', ')}`]
                     : []),
@@ -336,6 +476,7 @@ const EvaluatePage = () => {
             setPipelineLog(prev => [...prev, `❌ Error: ${err.message}`]);
         } finally {
             setPipelineLoading(false);
+            loadCacheStatus(); // Refresh cache status after processing
         }
     };
 
@@ -354,6 +495,24 @@ const EvaluatePage = () => {
             setExportMsg(`✅ Exported to Google Sheet. Updated: ${res.updated}, Not found: ${res.not_found?.length || 0}`);
         } catch (err) {
             setExportMsg('❌ Export failed: ' + err.message);
+        } finally {
+            setExportLoading(false);
+        }
+    };
+
+    const handleExportResponses = async () => {
+        const course = evaluation?.courses;
+        if (!course?.master_sheet_url) {
+            setExportMsg('❌ No master Google Sheet URL set for this course. Set it in Course Settings.');
+            return;
+        }
+        setExportLoading(true);
+        setExportMsg('');
+        try {
+            const res = await backendService.exportStudentResponses(course.master_sheet_url);
+            setExportMsg(`✅ Student response sheet created: "${res.sheet_name}". ${res.students_exported} students, ${res.questions_exported} questions exported.`);
+        } catch (err) {
+            setExportMsg('❌ Response export failed: ' + err.message);
         } finally {
             setExportLoading(false);
         }
@@ -418,13 +577,22 @@ const EvaluatePage = () => {
                         </div>
                         <div className="flex items-center gap-3">
                             {results.length > 0 && (
-                                <button onClick={handleExportToSheet} disabled={exportLoading}
-                                    className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
-                                    {exportLoading
-                                        ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
-                                        : <Icon name="FileSpreadsheet" size={16} />}
-                                    Export to Google Sheet
-                                </button>
+                                <>
+                                    <button onClick={handleExportToSheet} disabled={exportLoading}
+                                        className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {exportLoading
+                                            ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="FileSpreadsheet" size={16} />}
+                                        Export Marks
+                                    </button>
+                                    <button onClick={handleExportResponses} disabled={exportLoading}
+                                        className="px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {exportLoading
+                                            ? <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="FileText" size={16} />}
+                                        Export Responses
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>
@@ -459,13 +627,80 @@ const EvaluatePage = () => {
                                     <h3 className="font-semibold text-text-primary">OCR Pipeline</h3>
                                 </div>
                                 <div className="p-4 space-y-4">
+                                    {/* Processing Mode Selector */}
                                     <div>
-                                        <label className="block text-xs font-medium text-text-secondary mb-1">
-                                            Google Drive Folder (Student Answer Sheets)
-                                        </label>
-                                        <input type="url" value={driveFolderUrl} onChange={e => setDriveFolderUrl(e.target.value)}
-                                            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
-                                            placeholder="https://drive.google.com/drive/folders/..." />
+                                        <label className="block text-xs font-medium text-text-secondary mb-2">Processing Mode</label>
+                                        <div className="flex border border-border rounded-lg overflow-hidden">
+                                            <button 
+                                                onClick={() => setProcessingMode('drive')}
+                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                                                    processingMode === 'drive' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
+                                                }`}>
+                                                <Icon name="FolderOpen" size={14} />
+                                                Google Drive
+                                            </button>
+                                            <button 
+                                                onClick={() => setProcessingMode('zip')}
+                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                                                    processingMode === 'zip' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
+                                                }`}>
+                                                <Icon name="Archive" size={14} />
+                                                ZIP Upload
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Drive Mode */}
+                                    {processingMode === 'drive' && (
+                                        <div>
+                                            <label className="block text-xs font-medium text-text-secondary mb-1">
+                                                Google Drive Folder (Student Answer Sheets)
+                                            </label>
+                                            <input type="url" value={driveFolderUrl} onChange={e => setDriveFolderUrl(e.target.value)}
+                                                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                                                placeholder="https://drive.google.com/drive/folders/..." />
+                                        </div>
+                                    )}
+
+                                    {/* ZIP Mode */}
+                                    {processingMode === 'zip' && (
+                                        <div>
+                                            <label className="block text-xs font-medium text-text-secondary mb-1">
+                                                ZIP File (Answer Key + Student Sheets)
+                                            </label>
+                                            <label className="block w-full border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-primary-300 transition-colors">
+                                                <Icon name="Archive" size={20} className="mx-auto mb-2 text-secondary-400" />
+                                                <p className="text-sm text-text-secondary">{zipFile ? zipFile.name : 'Click to select ZIP file'}</p>
+                                                <input type="file" className="sr-only" accept=".zip"
+                                                    onChange={e => setZipFile(e.target.files[0])} />
+                                            </label>
+                                        </div>
+                                    )}
+
+                                    {/* Processing Options */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="flex items-center gap-2 text-sm">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={forceReprocess} 
+                                                    onChange={e => setForceReprocess(e.target.checked)}
+                                                    className="rounded border-border text-primary focus:ring-primary-500" 
+                                                />
+                                                Force reprocess (bypass cache)
+                                            </label>
+                                            {cacheStatus && (
+                                                <span className="text-xs text-text-secondary">
+                                                    Cache: {cacheStatus.cache_stats?.total_entries || 0} files
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {forceReprocess && (
+                                            <div className="p-2 bg-warning-50 border border-warning-200 rounded text-xs text-warning-700">
+                                                ⚠️ This will reprocess all files, ignoring cached results. Use only if you suspect cache issues.
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Checklist */}
@@ -474,10 +709,18 @@ const EvaluatePage = () => {
                                             <Icon name={evaluation?.answer_key_data ? 'CheckCircle' : 'Circle'} size={16} />
                                             Answer key loaded
                                         </div>
-                                        <div className={`flex items-center gap-2 text-sm ${driveFolderUrl ? 'text-success-600' : 'text-secondary-400'}`}>
-                                            <Icon name={driveFolderUrl ? 'CheckCircle' : 'Circle'} size={16} />
-                                            Drive folder URL set
-                                        </div>
+                                        {processingMode === 'drive' && (
+                                            <div className={`flex items-center gap-2 text-sm ${driveFolderUrl ? 'text-success-600' : 'text-secondary-400'}`}>
+                                                <Icon name={driveFolderUrl ? 'CheckCircle' : 'Circle'} size={16} />
+                                                Drive folder URL set
+                                            </div>
+                                        )}
+                                        {processingMode === 'zip' && (
+                                            <div className={`flex items-center gap-2 text-sm ${zipFile ? 'text-success-600' : 'text-secondary-400'}`}>
+                                                <Icon name={zipFile ? 'CheckCircle' : 'Circle'} size={16} />
+                                                ZIP file selected
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Progress bar */}
@@ -536,6 +779,27 @@ const EvaluatePage = () => {
                                                         <p className="text-xs text-text-secondary">{label}</p>
                                                     </div>
                                                 ))}
+                                            </div>
+                                        );
+                                    })()}
+                                    
+                                    {/* Answer Key Type Summary */}
+                                    {evaluation?.answer_key_data?.answers && (() => {
+                                        const typeCounts = {};
+                                        Object.values(evaluation.answer_key_data.answers).forEach(a => {
+                                            const type = (typeof a === 'object' ? a.question_type : 'SMCQ') || 'SMCQ';
+                                            typeCounts[type] = (typeCounts[type] || 0) + 1;
+                                        });
+                                        return Object.keys(typeCounts).length > 1 && (
+                                            <div className="pt-2 border-t border-border">
+                                                <p className="text-xs text-text-secondary mb-2">Question Types:</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {Object.entries(typeCounts).map(([type, count]) => (
+                                                        <span key={type} className="px-2 py-1 bg-primary-50 text-primary-700 rounded text-xs font-medium">
+                                                            {type}: {count}
+                                                        </span>
+                                                    ))}
+                                                </div>
                                             </div>
                                         );
                                     })()}

@@ -62,9 +62,12 @@ class EvaluationService:
 
         # Iterate strictly over answer key questions
         for q_num, key_entry in answer_key.answers.items():
-            correct_option = key_entry.correct_option.strip().upper()
-            marks = key_entry.marks
-            max_score += marks
+            correct_answer = key_entry.correct_answer.strip().upper()
+            question_type = key_entry.question_type
+            positive_marks = key_entry.positive_marks
+            negative_marks = key_entry.negative_marks or answer_key.negative_marking
+            
+            max_score += positive_marks
 
             if q_num in student_ans:
                 marked = student_ans[q_num]
@@ -72,47 +75,45 @@ class EvaluationService:
                 if marked == "MULTIPLE":
                     # Multiple options marked -> Incorrect
                     incorrect_count += 1
-                    neg = answer_key.negative_marking
-                    negative_deduction += neg
-                    total_score -= neg
+                    negative_deduction += negative_marks
+                    total_score -= negative_marks
                     details.append(QuestionResult(
                         question_number=q_num,
                         marked=marked,
-                        correct=correct_option,
+                        correct=correct_answer,
                         result="multiple",
-                        score=-neg
+                        score=-negative_marks
                     ))
                     comments_list.append(f"Q{q_num}: Multiple marks")
                 
-                elif marked == correct_option:
+                elif EvaluationService._is_answer_correct(marked, correct_answer, question_type):
                     correct_count += 1
-                    total_score += marks
+                    total_score += positive_marks
                     details.append(QuestionResult(
                         question_number=q_num,
                         marked=marked,
-                        correct=correct_option,
+                        correct=correct_answer,
                         result="correct",
-                        score=marks
+                        score=positive_marks
                     ))
                 
                 else:
                     incorrect_count += 1
-                    neg = answer_key.negative_marking
-                    negative_deduction += neg
-                    total_score -= neg
+                    negative_deduction += negative_marks
+                    total_score -= negative_marks
                     details.append(QuestionResult(
                         question_number=q_num,
                         marked=marked,
-                        correct=correct_option,
+                        correct=correct_answer,
                         result="incorrect",
-                        score=-neg
+                        score=-negative_marks
                     ))
             else:
                 unattempted_count += 1
                 details.append(QuestionResult(
                     question_number=q_num,
                     marked=None,
-                    correct=correct_option,
+                    correct=correct_answer,
                     result="unattempted",
                     score=0.0
                 ))
@@ -132,6 +133,48 @@ class EvaluationService:
             details=details,
             comments="; ".join(comments_list) if comments_list else ""
         )
+
+    @staticmethod
+    def _is_answer_correct(student_answer: str, correct_answer: str, question_type: str) -> bool:
+        """
+        Check if student answer matches correct answer based on question type.
+        
+        Args:
+            student_answer: What the student marked
+            correct_answer: The correct answer from answer key
+            question_type: SMCQ, MMCQ, or NCQ
+        """
+        if not student_answer or not correct_answer:
+            return False
+            
+        student_answer = student_answer.strip().upper()
+        correct_answer = correct_answer.strip().upper()
+        
+        if question_type == "SMCQ":
+            # Single Multiple Choice Question - exact match
+            return student_answer == correct_answer
+            
+        elif question_type == "MMCQ":
+            # Multiple Multiple Choice Question - all correct options must be selected
+            # Sort both to handle different ordering (e.g., "AC" vs "CA")
+            student_sorted = ''.join(sorted(student_answer))
+            correct_sorted = ''.join(sorted(correct_answer))
+            return student_sorted == correct_sorted
+            
+        elif question_type == "NCQ":
+            # Numerical Choice Question - handle floating point comparison
+            try:
+                student_val = float(student_answer)
+                correct_val = float(correct_answer)
+                # Allow small floating point tolerance
+                return abs(student_val - correct_val) < 1e-6
+            except ValueError:
+                # If can't convert to float, fall back to string comparison
+                return student_answer == correct_answer
+                
+        else:
+            # Unknown question type, default to exact match
+            return student_answer == correct_answer
 
     def __init__(self, api_key: str = None, provider: str = None):
         """

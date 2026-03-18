@@ -6,6 +6,7 @@ Auth is handled entirely by Supabase on the frontend.
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi.responses import Response
 from models import (
     Student, Submission, EvaluationResult,
     AnswerKey, StudentResult, PipelineSummary, SheetUpdateSummary,
@@ -27,7 +28,8 @@ import os
 import json
 import tempfile
 import shutil
-from typing import Optional
+import zipfile
+from typing import Optional, List
 
 router = APIRouter()
 db = Database()
@@ -324,12 +326,220 @@ def set_answer_key_manual(answers: dict):
     }
 
 
+@router.post("/process-zip")
+async def process_zip_upload(
+    file: UploadFile = File(...), 
+    force_reprocess: bool = False,
+    extract_answer_key: bool = True
+):
+    """
+    Upload and process a ZIP file containing answer key and student answer sheets.
+    
+    Args:
+        file: ZIP file containing answer key and student sheets
+        force_reprocess: If True, bypass cache and reprocess all files
+        extract_answer_key: If True, auto-extract answer key from ZIP
+    
+    Returns:
+        Pipeline summary with results and processing stats
+    """
+    global _current_answer_key, _current_results
+
+    if not file.filename.lower().endswith('.zip'):
+        raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+
+    temp_dir = tempfile.mkdtemp(prefix="zip_upload_")
+    extract_dir = os.path.join(temp_dir, "extracted")
+    
+    try:
+        # Save uploaded ZIP
+        zip_path = os.path.join(temp_dir, file.filename)
+        with open(zip_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        # Extract ZIP
+        os.makedirs(extract_dir, exist_ok=True)
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+
+        # Get all extracted files
+        all_files = []
+        for root, dirs, files in os.walk(extract_dir):
+            for filename in files:
+                if not filename.startswith('.') and not filename.startswith('__'):  # Skip hidden/system files
+                    file_path = os.path.join(root, filename)
+                    # Create file info dict similar to Drive API format
+                    all_files.append({
+                        "id": file_path,  # Use local path as ID
+                        "name": filename,
+                        "mimeType": _guess_mime_type(filename),
+                        "local_path": file_path
+                    })
+
+        if not all_files:
+            raise HTTPException(status_code=404, detail="No valid files found in ZIP archive")
+
+        # Separate answer key from student sheets
+        answer_key_files, student_sheets = drive_service.separate_files(all_files)
+
+        # Step 1: Extract answer key if requested.
+        # If the ZIP doesn't contain an answer key, we can still proceed as long as one is already loaded.
+        if extract_answer_key and (_current_answer_key is None or force_reprocess):
+            if not answer_key_files:
+                if _current_answer_key is not None and not force_reprocess:
+                    print("ℹ️  No answer key found in ZIP — using currently loaded answer key.")
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "No answer key file found in ZIP. Either:\n"
+                            "- include a file with 'answer_key' in the name, OR\n"
+                            "- load an answer key first (Drive/manual/upload), OR\n"
+                            "- call /api/process-zip with extract_answer_key=false to skip ZIP key extraction."
+                        )
+                    )
+
+            ak_file = answer_key_files[0]
+            if len(answer_key_files) > 1:
+                print(f"⚠️  Multiple answer key files found, using: {ak_file['name']}")
+
+            try:
+                local_path = ak_file["local_path"]
+                mime_type = ak_file.get("mimeType", "")
+                _current_answer_key = answer_key_service.extract_answer_key(local_path, mime_type)
+                print(f"✅ Answer key extracted from ZIP: {_current_answer_key.total_questions} questions")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to extract answer key: {str(e)}")
+
+        if not _current_answer_key:
+            raise HTTPException(
+                status_code=400,
+                detail="No answer key loaded. Set extract_answer_key=true or upload answer key separately."
+            )
+
+        if not student_sheets:
+            raise HTTPException(
+                status_code=404,
+                detail="No student answer sheets found in ZIP (only answer key found)."
+            )
+
+        # Step 2: Process student sheets with caching support
+        _current_results = []
+        errors = []
+        cache_hits = 0
+        processed_count = 0
+
+        print(f"\n🚀 Processing {len(student_sheets)} student sheets from ZIP...")
+        print(f"   Force reprocess: {force_reprocess}")
+
+        # Process each student sheet
+        for idx, sheet_file in enumerate(student_sheets):
+            file_name = sheet_file["name"]
+            local_path = sheet_file["local_path"]
+            
+            print(f"\n📄 Processing [{idx+1}/{len(student_sheets)}]: {file_name}")
+
+            try:
+                # Check cache first (unless force_reprocess)
+                if not force_reprocess:
+                    cached_result = await cache_service.get_cached_evaluation_result(
+                        local_path, _current_answer_key.model_dump()
+                    )
+                    if cached_result:
+                        # Reconstruct StudentResult from cached data
+                        from models import StudentResult
+                        student_result = StudentResult(**cached_result)
+                        _current_results.append(student_result)
+                        cache_hits += 1
+                        print(f"  🎯 Cache hit: {student_result.entry_number} — {student_result.name}")
+                        continue
+
+                # OCR Extract
+                extracted = await get_cached_or_process_ocr(
+                    local_path,
+                    lambda path: asyncio.to_thread(ocr_service.extract_objective_sheet, path),
+                    cache_service if not force_reprocess else None
+                )
+
+                if "error" in extracted:
+                    errors.append({"file": file_name, "error": extracted["error"]})
+                    continue
+
+                # Score
+                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                _current_results.append(student_result)
+                processed_count += 1
+
+                # Cache the result
+                if not force_reprocess:
+                    await cache_service.cache_evaluation_result(
+                        local_path, extracted, student_result.model_dump(), _current_answer_key.model_dump()
+                    )
+
+                print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
+                      f"{student_result.total_score}/{student_result.max_score}")
+
+                # Also save to DB
+                db.add_student(Student(
+                    id=student_result.entry_number,
+                    name=student_result.name,
+                    roll_number=student_result.entry_number
+                ))
+
+            except Exception as e:
+                errors.append({"file": file_name, "error": str(e)})
+                print(f"  ❌ Error: {e}")
+
+        # Batch write results to optimized database
+        if _current_results:
+            await batch_write_student_results(
+                _current_results,
+                optimized_db,
+                exam_id="zip_upload_processing"
+            )
+
+        return PipelineSummary(
+            total_students_processed=len(_current_results),
+            answer_key_source=_current_answer_key.metadata.get("source_file", "zip_upload"),
+            results=_current_results,
+            errors=errors,
+            processing_stats={
+                "cache_hits": cache_hits,
+                "newly_processed": processed_count,
+                "force_reprocess": force_reprocess,
+                "zip_filename": file.filename
+            }
+        ).model_dump()
+
+    finally:
+        # Cleanup temp directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _guess_mime_type(filename: str) -> str:
+    """Guess MIME type from file extension."""
+    ext = os.path.splitext(filename)[1].lower()
+    mime_map = {
+        '.pdf': 'application/pdf',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.csv': 'text/csv',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.xls': 'application/vnd.ms-excel',
+        '.txt': 'text/plain',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    }
+    return mime_map.get(ext, 'application/octet-stream')
+
+
 # ═══════════════════════════════════════
 #  PHASE 2B — PROCESS STUDENT SHEETS
 # ═══════════════════════════════════════
 
 @router.post("/process-drive-folder")
-async def process_drive_folder(request: ProcessFolderRequest):
+async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: bool = False):
     """
     Main endpoint: Process all student answer sheets in a Drive folder.
 
@@ -340,6 +550,10 @@ async def process_drive_folder(request: ProcessFolderRequest):
     5. OCR-processes the entire batch concurrently via OptimizedOCRService
     6. Scores each result against the answer key
     7. Returns all results
+    
+    Args:
+        request: Drive folder processing request
+        force_reprocess: If True, bypass cache and reprocess all files
     """
     global _current_answer_key, _current_results
 
@@ -586,6 +800,241 @@ def preview_sheet(sheet_url: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/export-student-responses")
+def export_student_responses(request: ExportToSheetsRequest):
+    """
+    Create a detailed student response sheet with per-question answers.
+    
+    Creates a new tab in the Google Sheet with:
+    - Student info (entry number, name, total score)
+    - Per-question data (marked answer, correct answer, result status)
+    - Comments and observations
+    """
+    if not _current_answer_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No answer key loaded. Cannot create response sheet without answer key."
+        )
+
+    # Get results data
+    results_dicts = []
+    
+    if _current_results:
+        results_dicts = [r.model_dump() for r in _current_results]
+    else:
+        # Pull from database and reconstruct
+        db_results = db.get_all_results()
+        if db_results:
+            for row in db_results:
+                details_raw = row.get("details")
+                if details_raw:
+                    try:
+                        details = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                        results_dicts.append(details)
+                    except (json.JSONDecodeError, AttributeError):
+                        continue
+
+    if not results_dicts:
+        raise HTTPException(
+            status_code=400,
+            detail="No results to export. Process some answer sheets first."
+        )
+
+    try:
+        summary = sheets_service.create_student_response_sheet(
+            request.sheet_url, 
+            results_dicts,
+            _current_answer_key.model_dump(),
+            response_sheet_name="Student Responses"
+        )
+        return summary
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Response sheet export failed: {str(e)}")
+
+
+@router.get("/download-answer-sheet-template")
+def download_answer_sheet_template(format: str = "csv", num_questions: int = 50):
+    """
+    Download a blank answer sheet template.
+    
+    Args:
+        format: Template format ("csv", "xlsx", or "json")
+        num_questions: Number of questions to include in template
+    
+    Returns:
+        Template file for download
+    """
+    if format not in ["csv", "xlsx", "json"]:
+        raise HTTPException(status_code=400, detail="Format must be 'csv', 'xlsx', or 'json'")
+    
+    if num_questions < 1 or num_questions > 200:
+        raise HTTPException(status_code=400, detail="Number of questions must be between 1 and 200")
+
+    try:
+        if format == "csv":
+            content = _generate_csv_template(num_questions)
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=answer_key_template_{num_questions}q.csv"}
+            )
+        elif format == "xlsx":
+            content = _generate_xlsx_template(num_questions)
+            return Response(
+                content=content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f"attachment; filename=answer_key_template_{num_questions}q.xlsx"}
+            )
+        elif format == "json":
+            content = _generate_json_template(num_questions)
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename=answer_key_template_{num_questions}q.json"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate template: {str(e)}")
+
+
+def _generate_csv_template(num_questions: int) -> str:
+    """Generate comprehensive CSV answer key template."""
+    import io
+    import csv
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header for comprehensive format
+    writer.writerow(["Question Number", "Type", "Positive Marks", "Negative Marks", "Correct Answer"])
+    
+    # Sample data with different question types
+    for i in range(1, num_questions + 1):
+        if i <= num_questions * 0.7:  # 70% SMCQ
+            writer.writerow([i, "SMCQ", 3, 1, "A"])
+        elif i <= num_questions * 0.9:  # 20% MMCQ
+            writer.writerow([i, "MMCQ", 4, 0, "AC"])
+        else:  # 10% NCQ
+            writer.writerow([i, "NCQ", 4, 1, "2.5"])
+    
+    return output.getvalue()
+
+
+def _generate_xlsx_template(num_questions: int) -> bytes:
+    """Generate comprehensive XLSX answer key template."""
+    try:
+        import openpyxl
+        from io import BytesIO
+        
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Answer Key"
+        
+        # Headers for comprehensive format
+        headers = ["Question Number", "Type", "Positive Marks", "Negative Marks", "Correct Answer"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = openpyxl.styles.Font(bold=True)
+            cell.fill = openpyxl.styles.PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+        
+        # Sample data with different question types
+        for i in range(1, num_questions + 1):
+            row = i + 1
+            ws.cell(row=row, column=1, value=i)  # Question Number
+            
+            if i <= num_questions * 0.7:  # 70% SMCQ
+                ws.cell(row=row, column=2, value="SMCQ")
+                ws.cell(row=row, column=3, value=3)  # Positive marks
+                ws.cell(row=row, column=4, value=1)  # Negative marks
+                ws.cell(row=row, column=5, value="A")  # Correct answer
+            elif i <= num_questions * 0.9:  # 20% MMCQ
+                ws.cell(row=row, column=2, value="MMCQ")
+                ws.cell(row=row, column=3, value=4)
+                ws.cell(row=row, column=4, value=0)
+                ws.cell(row=row, column=5, value="AC")
+            else:  # 10% NCQ
+                ws.cell(row=row, column=2, value="NCQ")
+                ws.cell(row=row, column=3, value=4)
+                ws.cell(row=row, column=4, value=1)
+                ws.cell(row=row, column=5, value="2.5")
+        
+        # Auto-size columns
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to bytes
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.read()
+        
+    except ImportError:
+        # Fallback if openpyxl not available
+        raise HTTPException(status_code=500, detail="XLSX support not available. Please use CSV format.")
+
+
+def _generate_json_template(num_questions: int) -> str:
+    """Generate comprehensive JSON answer key template."""
+    answers = {}
+    
+    # Generate sample answers with different question types
+    for i in range(1, num_questions + 1):
+        if i <= num_questions * 0.7:  # 70% SMCQ
+            answers[str(i)] = {
+                "question_type": "SMCQ",
+                "correct_answer": "A",
+                "positive_marks": 3,
+                "negative_marks": 1
+            }
+        elif i <= num_questions * 0.9:  # 20% MMCQ
+            answers[str(i)] = {
+                "question_type": "MMCQ",
+                "correct_answer": "AC",
+                "positive_marks": 4,
+                "negative_marks": 0
+            }
+        else:  # 10% NCQ
+            answers[str(i)] = {
+                "question_type": "NCQ",
+                "correct_answer": "2.5",
+                "positive_marks": 4,
+                "negative_marks": 1
+            }
+    
+    template = {
+        "answers": answers,
+        "negative_marking": 0,
+        "_instructions": {
+            "format": "Comprehensive answer key format supporting SMCQ, MMCQ, and NCQ",
+            "question_types": {
+                "SMCQ": "Single Multiple Choice Question (A, B, C, D)",
+                "MMCQ": "Multiple Multiple Choice Question (AC, BCD, etc.)",
+                "NCQ": "Numerical Choice Question (2.5, 7.0, etc.)"
+            },
+            "fields": {
+                "question_type": "Type of question (SMCQ/MMCQ/NCQ)",
+                "correct_answer": "Correct answer based on question type",
+                "positive_marks": "Marks awarded for correct answer",
+                "negative_marks": "Marks deducted for wrong answer (0 for no penalty)"
+            }
+        }
+    }
+    return json.dumps(template, indent=2)
+
+
 # ═══════════════════════════════════════
 #  FULL PIPELINE (ONE-CLICK)
 # ═══════════════════════════════════════
@@ -672,6 +1121,94 @@ async def optimize_database():
             "message": "Database optimization failed",
             "error": "See logs for details"
         }
+
+
+@router.get("/cache/status")
+async def get_cache_status():
+    """Get detailed cache status and statistics."""
+    cache_stats = await cache_service.get_cache_stats()
+    
+    # Get cache recommendations
+    recommendations = []
+    cache_size_mb = cache_stats.get('total_size_mb', 0)
+    cache_entries = cache_stats.get('total_entries', 0)
+    
+    if cache_size_mb > 400:
+        recommendations.append({
+            "type": "warning",
+            "message": f"Cache size is {cache_size_mb:.1f}MB (near 500MB limit)",
+            "action": "Consider running cache cleanup"
+        })
+    
+    if cache_entries > 1000:
+        recommendations.append({
+            "type": "info", 
+            "message": f"Cache has {cache_entries} entries",
+            "action": "Good cache utilization for performance"
+        })
+    elif cache_entries < 10:
+        recommendations.append({
+            "type": "info",
+            "message": "Low cache utilization",
+            "action": "Cache will improve performance as more files are processed"
+        })
+    
+    return {
+        "cache_stats": cache_stats,
+        "recommendations": recommendations,
+        "cache_enabled": True,
+        "max_size_mb": 500
+    }
+
+
+@router.post("/cache/clear")
+async def clear_cache(confirm: bool = False):
+    """Clear all cached results."""
+    if not confirm:
+        raise HTTPException(
+            status_code=400, 
+            detail="Set confirm=true to clear cache. This will remove all cached OCR and evaluation results."
+        )
+    
+    try:
+        # Clear cache by removing all entries
+        await cache_service.cleanup_cache(max_age_days=0, force_cleanup=True)
+        
+        stats = await cache_service.get_cache_stats()
+        return {
+            "message": "Cache cleared successfully",
+            "remaining_entries": stats.get('total_entries', 0),
+            "remaining_size_mb": stats.get('total_size_mb', 0)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
+
+
+@router.get("/processing/status")
+async def get_processing_status():
+    """Get current processing status and session info."""
+    cache_stats = await cache_service.get_cache_stats()
+    
+    return {
+        "session": {
+            "answer_key_loaded": _current_answer_key is not None,
+            "answer_key_questions": _current_answer_key.total_questions if _current_answer_key else 0,
+            "results_count": len(_current_results),
+            "answer_key_source": _current_answer_key.metadata.get("source_file", "unknown") if _current_answer_key else None
+        },
+        "cache": {
+            "total_entries": cache_stats.get('total_entries', 0),
+            "total_size_mb": cache_stats.get('total_size_mb', 0),
+            "recent_access_24h": cache_stats.get('recent_access_24h', 0)
+        },
+        "capabilities": {
+            "zip_upload": True,
+            "drive_processing": True,
+            "resume_support": True,
+            "student_response_export": True,
+            "template_download": True
+        }
+    }
 
 
 # ═══════════════════════════════════════

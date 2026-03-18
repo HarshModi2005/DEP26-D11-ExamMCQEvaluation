@@ -259,7 +259,7 @@ class OCRService:
 
     def _get_objective_prompt(self):
         return """
-You are analyzing an OBJECTIVE answer sheet (MCQ/OMR style).
+You are analyzing an OBJECTIVE answer sheet (MCQ/OMR style) that may contain different question types.
 
 Extract ONLY the following fields and return as valid JSON (no markdown):
 
@@ -269,7 +269,8 @@ Extract ONLY the following fields and return as valid JSON (no markdown):
     "answers": {
         "1": "A",
         "2": "C",
-        "3": "B",
+        "3": "AC",
+        "4": "2.5",
         ...
     },
     "comments": "Any observations about the sheet: e.g. 'Damage on corner', 'Q5 ambiguous', 'Name unclear', 'Erasures detected'. If clean, return null."
@@ -278,10 +279,18 @@ Extract ONLY the following fields and return as valid JSON (no markdown):
 Rules:
 - "entry_number": Look for roll number, entry number, enrollment number, registration number, student ID, etc.
 - "name": The student's name as written on the sheet.
-- "answers": A dictionary mapping question number (as string) to the marked option (single uppercase letter A/B/C/D).
+- "answers": A dictionary mapping question number (as string) to the marked answer.
+  
+Answer formats by question type:
+- Single MCQ (SMCQ): Single letter like "A", "B", "C", "D"
+- Multiple MCQ (MMCQ): Multiple letters like "AC", "BCD", "AB" (no spaces)
+- Numerical (NCQ): Numbers like "2.5", "7.0", "15"
+
+General rules:
 - If a question appears unanswered or blank, DO NOT include it in answers.
-- If multiple options are marked for a question, set the value to "MULTIPLE".
-- Options must be single uppercase letters: A, B, C, or D.
+- If multiple options are marked for a single-choice question, set the value to "MULTIPLE".
+- For multiple-choice questions, combine all marked letters (e.g., if A and C are marked, use "AC").
+- For numerical answers, include decimal points if present (e.g., "2.5" not "2").
 - Question numbers must be integers represented as strings.
 - If entry_number or name is not found, set to null.
 

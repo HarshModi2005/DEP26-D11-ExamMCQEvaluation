@@ -164,6 +164,10 @@ class OptimizedDatabaseService:
                     FOREIGN KEY (submission_id) REFERENCES submissions (id)
                 )
             ''')
+
+            # If the DB already existed with an older schema, CREATE TABLE IF NOT EXISTS
+            # will not add new columns. Ensure required columns exist before indexing.
+            self._ensure_schema(conn)
             
             # Create performance indexes
             c.execute('CREATE INDEX IF NOT EXISTS idx_students_roll ON students(roll_number)')
@@ -178,6 +182,44 @@ class OptimizedDatabaseService:
             conn.commit()
         
         print(f"✅ Optimized database initialized at {self.db_path}")
+
+    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
+        """
+        Migrate existing DBs created by `backend/database.py` (older schema).
+        Adds missing timestamp columns so index creation doesn't crash.
+        """
+        c = conn.cursor()
+
+        def cols(table: str) -> set[str]:
+            c.execute(f"PRAGMA table_info({table})")
+            return {row[1] for row in c.fetchall()}
+
+        # students: add created_at/updated_at if missing
+        student_cols = cols("students")
+        if "created_at" not in student_cols:
+            c.execute("ALTER TABLE students ADD COLUMN created_at REAL")
+            c.execute("UPDATE students SET created_at = COALESCE(created_at, julianday('now'))")
+        if "updated_at" not in student_cols:
+            c.execute("ALTER TABLE students ADD COLUMN updated_at REAL")
+            c.execute("UPDATE students SET updated_at = COALESCE(updated_at, julianday('now'))")
+
+        # submissions: add created_at/updated_at if missing
+        submission_cols = cols("submissions")
+        if "created_at" not in submission_cols:
+            c.execute("ALTER TABLE submissions ADD COLUMN created_at REAL")
+            c.execute("UPDATE submissions SET created_at = COALESCE(created_at, julianday('now'))")
+        if "updated_at" not in submission_cols:
+            c.execute("ALTER TABLE submissions ADD COLUMN updated_at REAL")
+            c.execute("UPDATE submissions SET updated_at = COALESCE(updated_at, julianday('now'))")
+
+        # results: add created_at/updated_at if missing
+        results_cols = cols("results")
+        if "created_at" not in results_cols:
+            c.execute("ALTER TABLE results ADD COLUMN created_at REAL")
+            c.execute("UPDATE results SET created_at = COALESCE(created_at, julianday('now'))")
+        if "updated_at" not in results_cols:
+            c.execute("ALTER TABLE results ADD COLUMN updated_at REAL")
+            c.execute("UPDATE results SET updated_at = COALESCE(updated_at, julianday('now'))")
     
     async def batch_add_students(self, students: List[Student]) -> int:
         """

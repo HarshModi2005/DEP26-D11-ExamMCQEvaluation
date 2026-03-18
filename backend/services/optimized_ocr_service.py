@@ -417,10 +417,10 @@ class OptimizedOCRService:
             return {"Content-Type": "application/json"}
     
     def _get_minimal_prompt(self) -> str:
-        """Minimal prompt for faster processing"""
+        """Minimal prompt for faster processing with comprehensive answer support"""
         return """Extract from this answer sheet and return JSON:
-{"entry_number": "roll number", "name": "student name", "answers": {"1": "A", "2": "B", ...}}
-Rules: answers as dict, question numbers as strings, options as single letters A/B/C/D, blank questions omitted."""
+{"entry_number": "roll number", "name": "student name", "answers": {"1": "A", "2": "AC", "3": "2.5", ...}}
+Rules: answers as dict, question numbers as strings, answers can be single letters (A/B/C/D), multiple letters (AC/BCD), or numbers (2.5/7.0), blank questions omitted."""
     
     def _parse_ocr_response(self, result: Dict) -> Dict:
         """Fast OCR response parsing"""

@@ -64,11 +64,36 @@ export const backendService = {
     /**
      * Process all student answer sheets in a Drive folder
      */
-    async processDriveFolder(driveFolderUrl) {
-        return api('/process-drive-folder', {
+    async processDriveFolder(driveFolderUrl, forceReprocess = false) {
+        const url = forceReprocess ? '/process-drive-folder?force_reprocess=true' : '/process-drive-folder';
+        return api(url, {
             method: 'POST',
             body: JSON.stringify({ folder_url: driveFolderUrl }),
         });
+    },
+
+    /**
+     * Upload and process a ZIP file containing answer sheets
+     */
+    async processZipFile(file, forceReprocess = false, extractAnswerKey = true) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const params = new URLSearchParams();
+        if (forceReprocess) params.append('force_reprocess', 'true');
+        if (!extractAnswerKey) params.append('extract_answer_key', 'false');
+        
+        const url = `/process-zip${params.toString() ? '?' + params.toString() : ''}`;
+        
+        const res = await fetch(`${BACKEND_URL}/api${url}`, {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'ZIP processing failed');
+        }
+        return res.json();
     },
 
     /**
@@ -106,5 +131,49 @@ export const backendService = {
      */
     async getStatus() {
         return api('/status');
+    },
+
+    /**
+     * Export detailed student responses to a separate sheet
+     */
+    async exportStudentResponses(sheetUrl) {
+        return api('/export-student-responses', {
+            method: 'POST',
+            body: JSON.stringify({ sheet_url: sheetUrl }),
+        });
+    },
+
+    /**
+     * Download answer sheet template
+     */
+    async downloadTemplate(format = 'csv', numQuestions = 50) {
+        const url = `/download-answer-sheet-template?format=${format}&num_questions=${numQuestions}`;
+        const res = await fetch(`${BACKEND_URL}/api${url}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'Template download failed');
+        }
+        return res;
+    },
+
+    /**
+     * Get cache status and statistics
+     */
+    async getCacheStatus() {
+        return api('/cache/status');
+    },
+
+    /**
+     * Clear cache
+     */
+    async clearCache() {
+        return api('/cache/clear?confirm=true', { method: 'POST' });
+    },
+
+    /**
+     * Get processing status
+     */
+    async getProcessingStatus() {
+        return api('/processing/status');
     },
 };

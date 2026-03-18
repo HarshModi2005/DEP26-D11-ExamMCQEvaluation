@@ -30,15 +30,36 @@ class EvaluationResult(BaseModel):
 # ── Answer Key Models ──
 
 class AnswerKeyEntry(BaseModel):
-    correct_option: str
-    marks: float = 1.0
+    question_type: str  # "SMCQ", "MMCQ", "NCQ"
+    correct_answer: str  # "A", "AC", "BCD", "2.5", "7.0", etc.
+    positive_marks: float = 1.0
+    negative_marks: float = 0.0
+    
+    # Legacy compatibility
+    @property
+    def correct_option(self) -> str:
+        """Legacy compatibility property"""
+        return self.correct_answer
+    
+    @property
+    def marks(self) -> float:
+        """Legacy compatibility property"""
+        return self.positive_marks
 
 
 class AnswerKey(BaseModel):
     total_questions: int
     answers: Dict[int, AnswerKeyEntry]  # {1: AnswerKeyEntry(...), ...}
-    negative_marking: float = 0.0  # marks deducted per wrong answer
+    negative_marking: float = 0.0  # Default negative marking (can be overridden per question)
     metadata: Dict = {}  # source file, timestamp, etc.
+    
+    def get_question_types_summary(self) -> Dict[str, int]:
+        """Get count of each question type"""
+        types = {}
+        for entry in self.answers.values():
+            q_type = entry.question_type
+            types[q_type] = types.get(q_type, 0) + 1
+        return types
 
 
 # ── Student Result Models ──

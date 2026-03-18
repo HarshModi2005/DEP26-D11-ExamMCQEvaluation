@@ -159,11 +159,9 @@ class AnswerKeyService:
 
     def _parse_csv(self, file_path: str) -> Dict:
         """
-        Parse CSV with expected columns: question_number, correct_option, marks (optional)
-        
-        Also handles simpler formats:
-        - Two columns: question_number, correct_option
-        - Single column with "Q1: A" style entries
+        Parse CSV with comprehensive format support:
+        - question_number, type, positive_marks, negative_marks, correct_answer
+        - Legacy formats also supported
         """
         answers = {}
 
@@ -185,29 +183,55 @@ class AnswerKeyService:
             if has_header:
                 headers = [h.strip().lower() for h in next(reader)]
 
-            # Detect column indices
-            q_col, opt_col, marks_col = self._detect_csv_columns(headers)
+            # Detect column indices for comprehensive format
+            col_indices = self._detect_comprehensive_csv_columns(headers)
 
             for row in reader:
                 if not row or all(cell.strip() == '' for cell in row):
                     continue
 
                 try:
-                    if q_col is not None and opt_col is not None:
-                        q_num = self._parse_question_number(row[q_col].strip())
-                        option = row[opt_col].strip().upper()
-                        marks = 1.0
-                        if marks_col is not None and marks_col < len(row):
+                    if col_indices['question_number'] is not None:
+                        q_num = self._parse_question_number(row[col_indices['question_number']].strip())
+                        
+                        # Get question type
+                        q_type = "SMCQ"  # default
+                        if col_indices['type'] is not None and col_indices['type'] < len(row):
+                            q_type = row[col_indices['type']].strip().upper()
+                        
+                        # Get correct answer
+                        correct_answer = ""
+                        if col_indices['correct_answer'] is not None and col_indices['correct_answer'] < len(row):
+                            correct_answer = row[col_indices['correct_answer']].strip().upper()
+                        
+                        # Get positive marks
+                        positive_marks = 1.0
+                        if col_indices['positive_marks'] is not None and col_indices['positive_marks'] < len(row):
                             try:
-                                marks = float(row[marks_col].strip())
+                                positive_marks = float(row[col_indices['positive_marks']].strip())
                             except (ValueError, IndexError):
-                                marks = 1.0
-                        answers[q_num] = {"correct_option": option, "marks": marks}
+                                positive_marks = 1.0
+                        
+                        # Get negative marks
+                        negative_marks = 0.0
+                        if col_indices['negative_marks'] is not None and col_indices['negative_marks'] < len(row):
+                            try:
+                                negative_marks = float(row[col_indices['negative_marks']].strip())
+                            except (ValueError, IndexError):
+                                negative_marks = 0.0
+                        
+                        answers[q_num] = {
+                            "question_type": q_type,
+                            "correct_answer": correct_answer,
+                            "positive_marks": positive_marks,
+                            "negative_marks": negative_marks
+                        }
                     else:
-                        # Try to parse "Q1: A" style from first column
-                        parsed = self._parse_inline_answer(row[0])
+                        # Try legacy parsing
+                        parsed = self._parse_legacy_csv_row(row, headers)
                         if parsed:
-                            answers[parsed[0]] = {"correct_option": parsed[1], "marks": 1.0}
+                            answers[parsed[0]] = parsed[1]
+                            
                 except (ValueError, IndexError) as e:
                     print(f"  ⚠️  Skipping row {row}: {e}")
                     continue
@@ -389,6 +413,55 @@ class AnswerKeyService:
     #  Helpers
     # ──────────────────────────────────────────
 
+    def _detect_comprehensive_csv_columns(self, headers: list) -> dict:
+        """
+        Detect columns for comprehensive answer key format.
+        Expected columns: Question Number, Type, Positive Marks, Negative Marks, Correct Answer
+        """
+        if not headers:
+            return {
+                'question_number': 0,
+                'type': None,
+                'positive_marks': None,
+                'negative_marks': None,
+                'correct_answer': None
+            }
+        
+        col_indices = {
+            'question_number': None,
+            'type': None,
+            'positive_marks': None,
+            'negative_marks': None,
+            'correct_answer': None
+        }
+        
+        # Column name mappings
+        question_aliases = ['question number', 'question_number', 'question', 'q', 'qno', 'q_no']
+        type_aliases = ['type', 'question type', 'question_type', 'qtype', 'q_type']
+        positive_aliases = ['positive marks', 'positive_marks', 'marks', 'positive', 'pos_marks', 'score']
+        negative_aliases = ['negative marks', 'negative_marks', 'negative', 'neg_marks', 'penalty']
+        answer_aliases = ['correct answer', 'correct_answer', 'answer', 'correct', 'solution', 'key']
+        
+        for i, header in enumerate(headers):
+            h = header.lower().strip()
+            
+            if h in question_aliases and col_indices['question_number'] is None:
+                col_indices['question_number'] = i
+            elif h in type_aliases and col_indices['type'] is None:
+                col_indices['type'] = i
+            elif h in positive_aliases and col_indices['positive_marks'] is None:
+                col_indices['positive_marks'] = i
+            elif h in negative_aliases and col_indices['negative_marks'] is None:
+                col_indices['negative_marks'] = i
+            elif h in answer_aliases and col_indices['correct_answer'] is None:
+                col_indices['correct_answer'] = i
+        
+        # If question_number not found, assume first column
+        if col_indices['question_number'] is None:
+            col_indices['question_number'] = 0
+            
+        return col_indices
+
     def _detect_csv_columns(self, headers: list) -> tuple:
         """Detect question_number, option, and marks columns from headers."""
         if not headers:
@@ -461,29 +534,91 @@ class AnswerKeyService:
                 return (q_num, option)
         return None
 
+    def _parse_legacy_csv_row(self, row: list, headers: list) -> tuple:
+        """Parse legacy CSV format for backward compatibility."""
+        try:
+            # Try to detect legacy format
+            q_col, opt_col, marks_col = self._detect_csv_columns(headers)
+            
+            if q_col is not None and opt_col is not None:
+                q_num = self._parse_question_number(row[q_col].strip())
+                option = row[opt_col].strip().upper()
+                marks = 1.0
+                if marks_col is not None and marks_col < len(row):
+                    try:
+                        marks = float(row[marks_col].strip())
+                    except (ValueError, IndexError):
+                        marks = 1.0
+                
+                return q_num, {
+                    "question_type": "SMCQ",
+                    "correct_answer": option,
+                    "positive_marks": marks,
+                    "negative_marks": 0.0
+                }
+            else:
+                # Try to parse "Q1: A" style from first column
+                parsed = self._parse_inline_answer(row[0])
+                if parsed:
+                    return parsed[0], {
+                        "question_type": "SMCQ",
+                        "correct_answer": parsed[1],
+                        "positive_marks": 1.0,
+                        "negative_marks": 0.0
+                    }
+        except (ValueError, IndexError):
+            pass
+        return None
+
     def _normalize(self, raw: Dict, source_file: str = "") -> AnswerKey:
-        """Convert raw parsed dict to AnswerKey model."""
+        """Convert raw parsed dict to AnswerKey model with comprehensive format support."""
         raw_answers = raw.get("answers", {})
         answers = {}
 
         for key, value in raw_answers.items():
             q_num = int(key)
+            
             if isinstance(value, dict):
-                option = str(value.get("correct_option", "")).strip().upper()
-                marks = float(value.get("marks", 1.0))
+                # Check for comprehensive format first
+                if "question_type" in value and "correct_answer" in value:
+                    # New comprehensive format
+                    question_type = value.get("question_type", "SMCQ").strip().upper()
+                    correct_answer = value.get("correct_answer", "").strip().upper()
+                    positive_marks = float(value.get("positive_marks", 1.0))
+                    negative_marks = float(value.get("negative_marks", 0.0))
+                    
+                    answers[q_num] = AnswerKeyEntry(
+                        question_type=question_type,
+                        correct_answer=correct_answer,
+                        positive_marks=positive_marks,
+                        negative_marks=negative_marks
+                    )
+                else:
+                    # Legacy format: {"correct_option": "A", "marks": 1.0}
+                    option = str(value.get("correct_option", "")).strip().upper()
+                    marks = float(value.get("marks", 1.0))
+                    answers[q_num] = AnswerKeyEntry(
+                        question_type="SMCQ",
+                        correct_answer=option,
+                        positive_marks=marks,
+                        negative_marks=0.0
+                    )
             elif isinstance(value, str):
+                # Simple format: just the answer
                 option = value.strip().upper()
-                marks = 1.0
+                answers[q_num] = AnswerKeyEntry(
+                    question_type="SMCQ",
+                    correct_answer=option,
+                    positive_marks=1.0,
+                    negative_marks=0.0
+                )
             else:
                 continue
 
-            # Validate option is a single letter A-D (or allow broader)
-            if option and len(option) == 1 and option.isalpha():
-                answers[q_num] = AnswerKeyEntry(correct_option=option, marks=marks)
-            elif option:
-                # Allow non-standard options but warn
-                print(f"  ⚠️  Q{q_num}: unusual option '{option}' — keeping as-is")
-                answers[q_num] = AnswerKeyEntry(correct_option=option, marks=marks)
+            # Validate and log unusual answers
+            entry = answers[q_num]
+            if entry.correct_answer and not self._is_valid_answer(entry.correct_answer, entry.question_type):
+                print(f"  ⚠️  Q{q_num} ({entry.question_type}): unusual answer '{entry.correct_answer}' — keeping as-is")
 
         if not answers:
             raise ValueError("No valid answers found after normalization")
@@ -496,8 +631,31 @@ class AnswerKeyService:
                 "source_file": source_file,
                 "raw_question_count": len(raw_answers),
                 "parsed_question_count": len(answers),
+                "format": "comprehensive"
             }
         )
+
+    def _is_valid_answer(self, answer: str, question_type: str) -> bool:
+        """Validate answer format based on question type."""
+        if not answer:
+            return False
+            
+        if question_type == "SMCQ":
+            # Single letter A-D
+            return len(answer) == 1 and answer.isalpha()
+        elif question_type == "MMCQ":
+            # Multiple letters like AC, BCD
+            return all(c.isalpha() for c in answer) and len(answer) > 1
+        elif question_type == "NCQ":
+            # Numerical answer like 2.5, 7.0
+            try:
+                float(answer)
+                return True
+            except ValueError:
+                return False
+        else:
+            # Unknown type, allow anything
+            return True
 
     def _get_answer_key_ocr_prompt(self) -> str:
         return """
