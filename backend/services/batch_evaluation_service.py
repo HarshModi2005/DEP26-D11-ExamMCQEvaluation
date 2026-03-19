@@ -350,13 +350,13 @@ class BatchEvaluationService:
             
             # Batch insert students
             c.executemany(
-                "INSERT OR REPLACE INTO students VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO students (id, name, roll_number) VALUES (?, ?, ?)",
                 student_data
             )
             
             # Batch insert results
             c.executemany(
-                "INSERT OR REPLACE INTO results VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO results (submission_id, score, feedback, details) VALUES (?, ?, ?, ?)",
                 result_data
             )
             

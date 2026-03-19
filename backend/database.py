@@ -24,8 +24,12 @@ class Database:
     def add_student(self, student: Student):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO students VALUES (?, ?, ?)",
-                  (student.id, student.name, student.roll_number))
+        # Explicit column list keeps compatibility with migrated schemas
+        # (e.g. when created_at/updated_at columns exist).
+        c.execute(
+            "INSERT OR REPLACE INTO students (id, name, roll_number) VALUES (?, ?, ?)",
+            (student.id, student.name, student.roll_number),
+        )
         conn.commit()
         conn.close()
 
@@ -33,8 +37,20 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         data_json = json.dumps(extracted_data) if extracted_data else None
-        c.execute("INSERT OR REPLACE INTO submissions VALUES (?, ?, ?, ?, ?, ?)",
-                  (submission.id, submission.student_id, submission.exam_id, submission.file_id, submission.status, data_json))
+        # Explicit column list keeps compatibility with migrated schemas
+        # (e.g. when created_at/updated_at columns exist).
+        c.execute(
+            "INSERT OR REPLACE INTO submissions (id, student_id, exam_id, file_id, status, extracted_data) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                submission.id,
+                submission.student_id,
+                submission.exam_id,
+                submission.file_id,
+                submission.status,
+                data_json,
+            ),
+        )
         conn.commit()
         conn.close()
 
@@ -42,8 +58,12 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         details_json = json.dumps(details) if details else None
-        c.execute("INSERT OR REPLACE INTO results VALUES (?, ?, ?, ?)",
-                  (result.submission_id, result.score, result.feedback, details_json))
+        # Explicit column list keeps compatibility with migrated schemas
+        # (e.g. when created_at/updated_at columns exist).
+        c.execute(
+            "INSERT OR REPLACE INTO results (submission_id, score, feedback, details) VALUES (?, ?, ?, ?)",
+            (result.submission_id, result.score, result.feedback, details_json),
+        )
         conn.commit()
         conn.close()
 

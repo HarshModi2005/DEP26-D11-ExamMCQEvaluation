@@ -165,6 +165,37 @@ class OptimizedDatabaseService:
                 )
             ''')
 
+            # Pipeline run tracking (for resume/benchmarking)
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS pipeline_runs (
+                    run_id TEXT PRIMARY KEY,
+                    source_type TEXT NOT NULL,        -- 'drive' | 'zip' | 'manual'
+                    source_ref TEXT,                  -- drive folder url/id, zip filename, etc.
+                    status TEXT NOT NULL,             -- 'running' | 'completed' | 'failed'
+                    total_files INTEGER DEFAULT 0,
+                    processed_files INTEGER DEFAULT 0,
+                    cache_hits INTEGER DEFAULT 0,
+                    errors TEXT,                      -- JSON
+                    started_at REAL DEFAULT (julianday('now')),
+                    updated_at REAL DEFAULT (julianday('now'))
+                )
+            ''')
+
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS pipeline_run_items (
+                    run_id TEXT NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_hash TEXT,
+                    status TEXT NOT NULL,             -- 'processed' | 'cached' | 'error'
+                    entry_number TEXT,
+                    ocr_json TEXT,                    -- raw OCR output (entry_number, name, answers, comments)
+                    result_json TEXT,                 -- JSON StudentResult (score, details, etc.)
+                    error TEXT,                       -- error string (optional)
+                    created_at REAL DEFAULT (julianday('now')),
+                    PRIMARY KEY (run_id, file_name)
+                )
+            ''')
+
             # If the DB already existed with an older schema, CREATE TABLE IF NOT EXISTS
             # will not add new columns. Ensure required columns exist before indexing.
             self._ensure_schema(conn)
@@ -178,6 +209,8 @@ class OptimizedDatabaseService:
             c.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON students(created_at)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_pipeline_runs_updated ON pipeline_runs(updated_at)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_pipeline_items_status ON pipeline_run_items(status)')
             
             conn.commit()
         
@@ -220,6 +253,14 @@ class OptimizedDatabaseService:
         if "updated_at" not in results_cols:
             c.execute("ALTER TABLE results ADD COLUMN updated_at REAL")
             c.execute("UPDATE results SET updated_at = COALESCE(updated_at, julianday('now'))")
+
+        # pipeline_run_items: add ocr_json if missing (for OCR response persistence)
+        try:
+            items_cols = cols("pipeline_run_items")
+            if "ocr_json" not in items_cols:
+                c.execute("ALTER TABLE pipeline_run_items ADD COLUMN ocr_json TEXT")
+        except Exception:
+            pass  # table may not exist yet
     
     async def batch_add_students(self, students: List[Student]) -> int:
         """
@@ -253,6 +294,161 @@ class OptimizedDatabaseService:
         )
         
         return result
+
+    # ──────────────────────────────────────
+    #  Pipeline run persistence (resume)
+    # ──────────────────────────────────────
+
+    async def create_pipeline_run(self, run_id: str, source_type: str, source_ref: str, total_files: int) -> None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self.executor,
+            self._create_pipeline_run_sync,
+            run_id,
+            source_type,
+            source_ref,
+            total_files,
+        )
+
+    def _create_pipeline_run_sync(self, run_id: str, source_type: str, source_ref: str, total_files: int) -> None:
+        with self.pool.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT OR REPLACE INTO pipeline_runs "
+                "(run_id, source_type, source_ref, status, total_files, processed_files, cache_hits, errors, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, julianday('now'))",
+                (run_id, source_type, source_ref, "running", int(total_files), 0, 0, "[]"),
+            )
+            conn.commit()
+
+    async def update_pipeline_run_progress(
+        self,
+        run_id: str,
+        processed_files: int,
+        cache_hits: int,
+        errors: List[Dict[str, Any]],
+        status: Optional[str] = None,
+    ) -> None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self.executor,
+            self._update_pipeline_run_progress_sync,
+            run_id,
+            processed_files,
+            cache_hits,
+            json.dumps(errors),
+            status,
+        )
+
+    def _update_pipeline_run_progress_sync(
+        self,
+        run_id: str,
+        processed_files: int,
+        cache_hits: int,
+        errors_json: str,
+        status: Optional[str],
+    ) -> None:
+        with self.pool.get_connection() as conn:
+            c = conn.cursor()
+            if status:
+                c.execute(
+                    "UPDATE pipeline_runs SET processed_files=?, cache_hits=?, errors=?, status=?, updated_at=julianday('now') WHERE run_id=?",
+                    (int(processed_files), int(cache_hits), errors_json, status, run_id),
+                )
+            else:
+                c.execute(
+                    "UPDATE pipeline_runs SET processed_files=?, cache_hits=?, errors=?, updated_at=julianday('now') WHERE run_id=?",
+                    (int(processed_files), int(cache_hits), errors_json, run_id),
+                )
+            conn.commit()
+
+    async def upsert_pipeline_run_item(
+        self,
+        run_id: str,
+        file_name: str,
+        status: str,
+        file_hash: Optional[str] = None,
+        entry_number: Optional[str] = None,
+        ocr_json: Optional[Dict[str, Any]] = None,
+        result_json: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self.executor,
+            self._upsert_pipeline_run_item_sync,
+            run_id,
+            file_name,
+            file_hash,
+            status,
+            entry_number,
+            json.dumps(ocr_json) if ocr_json is not None else None,
+            json.dumps(result_json) if result_json is not None else None,
+            error,
+        )
+
+    def _upsert_pipeline_run_item_sync(
+        self,
+        run_id: str,
+        file_name: str,
+        file_hash: Optional[str],
+        status: str,
+        entry_number: Optional[str],
+        ocr_json: Optional[str],
+        result_json: Optional[str],
+        error: Optional[str],
+    ) -> None:
+        with self.pool.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT OR REPLACE INTO pipeline_run_items "
+                "(run_id, file_name, file_hash, status, entry_number, ocr_json, result_json, error, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, julianday('now'))",
+                (run_id, file_name, file_hash, status, entry_number, ocr_json, result_json, error),
+            )
+            conn.commit()
+
+    async def find_incomplete_run(self, source_type: str, source_ref: str) -> Optional[Dict[str, Any]]:
+        """Find the most recent incomplete run for this source (for resume)."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor, self._find_incomplete_run_sync, source_type, source_ref
+        )
+
+    def _find_incomplete_run_sync(self, source_type: str, source_ref: str) -> Optional[Dict[str, Any]]:
+        with self.pool.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT * FROM pipeline_runs WHERE source_type=? AND source_ref=? AND status IN ('running','failed') "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (source_type, source_ref),
+            )
+            row = c.fetchone()
+            return dict(row) if row else None
+
+    async def get_pipeline_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self._get_pipeline_run_sync, run_id)
+
+    def _get_pipeline_run_sync(self, run_id: str) -> Optional[Dict[str, Any]]:
+        with self.pool.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("SELECT * FROM pipeline_runs WHERE run_id=?", (run_id,))
+            row = c.fetchone()
+            return dict(row) if row else None
+
+    async def list_pipeline_run_items(self, run_id: str) -> List[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self._list_pipeline_run_items_sync, run_id)
+
+    def _list_pipeline_run_items_sync(self, run_id: str) -> List[Dict[str, Any]]:
+        with self.pool.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("SELECT * FROM pipeline_run_items WHERE run_id=? ORDER BY created_at ASC", (run_id,))
+            return [dict(r) for r in c.fetchall()]
     
     def _batch_add_students_sync(self, students: List[Student]) -> int:
         """Synchronous batch student insertion."""

@@ -1,0 +1,72 @@
+{
+  "total_questions": 10,
+  "answers": {
+    "1": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 3.0,
+      "negative_marks": 0.0
+    },
+    "2": {
+      "question_type": "SMCQ",
+      "correct_answer": "C",
+      "positive_marks": 3.0,
+      "negative_marks": 0.0
+    },
+    "3": {
+      "question_type": "SMCQ",
+      "correct_answer": "AC",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
+    },
+    "4": {
+      "question_type": "SMCQ",
+      "correct_answer": "A",
+      "positive_marks": 3.0,
+      "negative_marks": 0.0
+    },
+    "5": {
+      "question_type": "SMCQ",
+      "correct_answer": "2.5",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
+    },
+    "6": {
+      "question_type": "SMCQ",
+      "correct_answer": "BCD",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
+    },
+    "7": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 3.0,
+      "negative_marks": 0.0
+    },
+    "8": {
+      "question_type": "SMCQ",
+      "correct_answer": "7.0",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
+    },
+    "9": {
+      "question_type": "SMCQ",
+      "correct_answer": "ABD",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
+    },
+    "10": {
+      "question_type": "SMCQ",
+      "correct_answer": "3.5",
+      "positive_marks": 4.0,
+      "negative_marks": 0.0
+    }
+  },
+  "negative_marking": 0.0,
+  "metadata": {
+    "source_file": "answer_key.xlsx",
+    "raw_question_count": 10,
+    "parsed_question_count": 10,
+    "format": "comprehensive"
+  }
+}

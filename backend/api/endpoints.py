@@ -383,6 +383,15 @@ async def process_zip_upload(
         # Separate answer key from student sheets
         answer_key_files, student_sheets = drive_service.separate_files(all_files)
 
+        # Create a persisted run record (so we can resume/query after restarts)
+        run_id = str(uuid.uuid4())
+        await optimized_db.create_pipeline_run(
+            run_id=run_id,
+            source_type="zip",
+            source_ref=file.filename,
+            total_files=len(student_sheets),
+        )
+
         # Step 1: Extract answer key if requested.
         # If the ZIP doesn't contain an answer key, we can still proceed as long as one is already loaded.
         if extract_answer_key and (_current_answer_key is None or force_reprocess):
@@ -424,80 +433,105 @@ async def process_zip_upload(
                 detail="No student answer sheets found in ZIP (only answer key found)."
             )
 
-        # Step 2: Process student sheets with caching support
+        # Check for incomplete run (resume) — same zip filename = same run
+        existing_run = await optimized_db.find_incomplete_run("zip", file.filename)
+        if existing_run and not force_reprocess:
+            run_id = existing_run["run_id"]
+            print(f"🔄 Resuming run {run_id} — {existing_run.get('processed_files', 0)} already done")
+        else:
+            run_id = str(uuid.uuid4())
+            await optimized_db.create_pipeline_run(
+                run_id=run_id,
+                source_type="zip",
+                source_ref=file.filename,
+                total_files=len(student_sheets),
+            )
+
+        # Load already-processed files from DB (for resume)
+        already_done = {}
+        if existing_run and not force_reprocess:
+            items = await optimized_db.list_pipeline_run_items(run_id)
+            for it in items:
+                if it.get("status") in ("processed", "cached") and it.get("result_json"):
+                    try:
+                        rj = it["result_json"]
+                        if isinstance(rj, str):
+                            rj = json.loads(rj)
+                        already_done[it["file_name"]] = rj
+                    except Exception:
+                        pass
+
         _current_results = []
         errors = []
-        cache_hits = 0
+        resumed_count = len(already_done)
         processed_count = 0
 
         print(f"\n🚀 Processing {len(student_sheets)} student sheets from ZIP...")
-        print(f"   Force reprocess: {force_reprocess}")
+        if resumed_count:
+            print(f"   Resuming: {resumed_count} already saved in DB")
 
-        # Process each student sheet
         for idx, sheet_file in enumerate(student_sheets):
             file_name = sheet_file["name"]
             local_path = sheet_file["local_path"]
-            
+
+            if file_name in already_done:
+                from models import StudentResult
+                _current_results.append(StudentResult(**already_done[file_name]))
+                continue
+
             print(f"\n📄 Processing [{idx+1}/{len(student_sheets)}]: {file_name}")
 
             try:
-                # Check cache first (unless force_reprocess)
-                if not force_reprocess:
-                    cached_result = await cache_service.get_cached_evaluation_result(
-                        local_path, _current_answer_key.model_dump()
-                    )
-                    if cached_result:
-                        # Reconstruct StudentResult from cached data
-                        from models import StudentResult
-                        student_result = StudentResult(**cached_result)
-                        _current_results.append(student_result)
-                        cache_hits += 1
-                        print(f"  🎯 Cache hit: {student_result.entry_number} — {student_result.name}")
-                        continue
-
-                # OCR Extract
-                extracted = await get_cached_or_process_ocr(
-                    local_path,
-                    lambda path: asyncio.to_thread(ocr_service.extract_objective_sheet, path),
-                    cache_service if not force_reprocess else None
+                extracted = await asyncio.to_thread(
+                    ocr_service.extract_objective_sheet, local_path
                 )
-
                 if "error" in extracted:
                     errors.append({"file": file_name, "error": extracted["error"]})
+                    await optimized_db.upsert_pipeline_run_item(
+                        run_id=run_id, file_name=file_name, status="error", error=extracted.get("error")
+                    )
                     continue
 
-                # Score
                 student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
                 _current_results.append(student_result)
                 processed_count += 1
 
-                # Cache the result
-                if not force_reprocess:
-                    await cache_service.cache_evaluation_result(
-                        local_path, extracted, student_result.model_dump(), _current_answer_key.model_dump()
-                    )
+                # Save to DB immediately (benchmarking: persist as we go)
+                await batch_write_student_results(
+                    [student_result], optimized_db, exam_id=f"zip_{run_id[:8]}"
+                )
+                await optimized_db.upsert_pipeline_run_item(
+                    run_id=run_id,
+                    file_name=file_name,
+                    status="processed",
+                    entry_number=student_result.entry_number,
+                    ocr_json=extracted,
+                    result_json=student_result.model_dump(),
+                )
+                await optimized_db.update_pipeline_run_progress(
+                    run_id=run_id,
+                    processed_files=len(_current_results),
+                    cache_hits=resumed_count,
+                    errors=errors,
+                )
 
                 print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
-                      f"{student_result.total_score}/{student_result.max_score}")
-
-                # Also save to DB
-                db.add_student(Student(
-                    id=student_result.entry_number,
-                    name=student_result.name,
-                    roll_number=student_result.entry_number
-                ))
+                      f"{student_result.total_score}/{student_result.max_score} (saved)")
 
             except Exception as e:
                 errors.append({"file": file_name, "error": str(e)})
+                await optimized_db.upsert_pipeline_run_item(
+                    run_id=run_id, file_name=file_name, status="error", error=str(e)
+                )
                 print(f"  ❌ Error: {e}")
 
-        # Batch write results to optimized database
-        if _current_results:
-            await batch_write_student_results(
-                _current_results,
-                optimized_db,
-                exam_id="zip_upload_processing"
-            )
+        await optimized_db.update_pipeline_run_progress(
+            run_id=run_id,
+            processed_files=len(_current_results),
+            cache_hits=resumed_count,
+            errors=errors,
+            status="completed",
+        )
 
         return PipelineSummary(
             total_students_processed=len(_current_results),
@@ -505,10 +539,11 @@ async def process_zip_upload(
             results=_current_results,
             errors=errors,
             processing_stats={
-                "cache_hits": cache_hits,
+                "run_id": run_id,
+                "resumed": resumed_count,
                 "newly_processed": processed_count,
                 "force_reprocess": force_reprocess,
-                "zip_filename": file.filename
+                "zip_filename": file.filename,
             }
         ).model_dump()
 
@@ -593,13 +628,41 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
             detail="No student answer sheets found in the folder (only the answer key was found)."
         )
 
-    # Step 2: Download all sheets in parallel
+    # Check for incomplete run (resume) — same folder URL = same run
+    existing_run = await optimized_db.find_incomplete_run("drive", request.folder_url)
+    if existing_run and not force_reprocess:
+        run_id = existing_run["run_id"]
+        print(f"🔄 Resuming run {run_id} — {existing_run.get('processed_files', 0)} already done")
+    else:
+        run_id = str(uuid.uuid4())
+        await optimized_db.create_pipeline_run(
+            run_id=run_id,
+            source_type="drive",
+            source_ref=request.folder_url,
+            total_files=len(student_sheets),
+        )
+
+    # Load already-processed files from DB (for resume)
+    already_done = {}  # file_name -> StudentResult dict
+    if existing_run and not force_reprocess:
+        items = await optimized_db.list_pipeline_run_items(run_id)
+        for it in items:
+            if it.get("status") in ("processed", "cached") and it.get("result_json"):
+                try:
+                    rj = it["result_json"]
+                    if isinstance(rj, str):
+                        rj = json.loads(rj)
+                    already_done[it["file_name"]] = rj
+                except Exception:
+                    pass
+
     _current_results = []
     errors = []
     temp_dir = tempfile.mkdtemp(prefix="sheets_")
+    resumed_count = len(already_done)
 
     try:
-        # --- Parallel download ---
+        # Download all sheets
         async def _download(sheet_file):
             local_path = os.path.join(temp_dir, sheet_file["name"])
             ok = await asyncio.to_thread(
@@ -608,106 +671,93 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
             return local_path, sheet_file, ok
 
         download_results = await asyncio.gather(*[_download(sf) for sf in student_sheets])
+        successful_downloads = [(lp, sf) for lp, sf, ok in download_results if ok]
+        failed_downloads = [sf for _, sf, ok in download_results if not ok]
 
-        successful_downloads = [
-            (lp, sf) for lp, sf, ok in download_results if ok
-        ]
-        failed_downloads = [
-            sf for _, sf, ok in download_results if not ok
-        ]
         for sf in failed_downloads:
             errors.append({"file": sf["name"], "error": "Download failed"})
+            await optimized_db.upsert_pipeline_run_item(
+                run_id=run_id, file_name=sf["name"], status="error", error="Download failed"
+            )
 
         if not successful_downloads:
             raise HTTPException(status_code=500, detail="All downloads failed.")
 
-        # --- Parallel OCR via OptimizedOCRService ---
-        image_paths = [lp for lp, _ in successful_downloads]
-        file_map = {lp: sf for lp, sf in successful_downloads}
+        # Process each file: skip if already done, else OCR → score → save immediately
+        for idx, (local_path, sheet_file) in enumerate(successful_downloads):
+            file_name = sheet_file["name"]
+            if file_name in already_done:
+                from models import StudentResult
+                _current_results.append(StudentResult(**already_done[file_name]))
+                continue
 
-        print(f"\n🚀 Running parallel OCR on {len(image_paths)} sheets...")
-        ocr_results = await optimized_ocr.process_batch_optimized(
-            image_paths,
-            target_time_minutes=5.0,
-        )
-
-        # --- Optimized Batch Scoring ---
-        print(f"\n🧮 Running optimized batch evaluation on {len(ocr_results)} results...")
-        
-        # Filter successful OCR results
-        valid_ocr_results = []
-        for ocr_result in ocr_results:
-            idx = ocr_result.get("index", 0)
-            image_path = image_paths[idx] if idx < len(image_paths) else None
-            sheet_file = file_map.get(image_path, {})
-            file_name = sheet_file.get("name", f"image_{idx}")
-
-            if "error" in ocr_result:
-                errors.append({"file": file_name, "error": ocr_result["error"]})
-            else:
-                # Add file metadata to OCR result for better error tracking
-                ocr_result["_file_name"] = file_name
-                ocr_result["_image_path"] = image_path
-                valid_ocr_results.append(ocr_result)
-        
-        if valid_ocr_results:
+            print(f"\n📄 Processing [{idx+1}/{len(successful_downloads)}]: {file_name}")
             try:
-                # Use batch evaluation service for optimized processing
-                batch_results, batch_stats = await batch_match_and_score(
-                    _current_answer_key, 
-                    valid_ocr_results,
-                    use_multiprocessing=len(valid_ocr_results) > 20
+                extracted = await asyncio.to_thread(
+                    ocr_service.extract_objective_sheet, local_path
                 )
-                
-                _current_results.extend(batch_results)
-                
-                # Batch write to optimized database
-                if batch_results:
-                    await batch_write_student_results(
-                        batch_results, 
-                        optimized_db,
-                        exam_id="drive_folder_processing"
+                if "error" in extracted:
+                    errors.append({"file": file_name, "error": extracted["error"]})
+                    await optimized_db.upsert_pipeline_run_item(
+                        run_id=run_id, file_name=file_name, status="error", error=extracted.get("error")
                     )
-                
-                # Print summary
-                print(f"  ✅ Batch processed {len(batch_results)} students in {batch_stats.processing_time:.2f}s")
-                print(f"  📊 Average time per student: {batch_stats.avg_time_per_student:.3f}s")
-                
-                for result in batch_results:
-                    print(f"     {result.entry_number} — {result.name}: "
-                          f"{result.total_score}/{result.max_score}")
-                
+                    continue
+
+                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                _current_results.append(student_result)
+
+                # Save to DB immediately (benchmarking: persist as we go)
+                await batch_write_student_results(
+                    [student_result], optimized_db, exam_id=f"drive_{run_id[:8]}"
+                )
+                await optimized_db.upsert_pipeline_run_item(
+                    run_id=run_id,
+                    file_name=file_name,
+                    status="processed",
+                    entry_number=student_result.entry_number,
+                    ocr_json=extracted,
+                    result_json=student_result.model_dump(),
+                )
+                await optimized_db.update_pipeline_run_progress(
+                    run_id=run_id,
+                    processed_files=len(_current_results),
+                    cache_hits=resumed_count,
+                    errors=errors,
+                )
+
+                print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
+                      f"{student_result.total_score}/{student_result.max_score} (saved)")
+
             except Exception as e:
-                # Fallback to individual processing if batch fails
-                print(f"⚠️  Batch processing failed, falling back to individual processing: {e}")
-                
-                for ocr_result in valid_ocr_results:
-                    try:
-                        student_result = EvaluationService.match_and_score(
-                            _current_answer_key, ocr_result
-                        )
-                        _current_results.append(student_result)
-                        
-                        db.add_student(Student(
-                            id=student_result.entry_number,
-                            name=student_result.name,
-                            roll_number=student_result.entry_number
-                        ))
-                        
-                    except Exception as individual_error:
-                        file_name = ocr_result.get("_file_name", "unknown")
-                        errors.append({"file": file_name, "error": str(individual_error)})
-                        print(f"  ❌ Individual scoring error for {file_name}: {individual_error}")
+                errors.append({"file": file_name, "error": str(e)})
+                await optimized_db.upsert_pipeline_run_item(
+                    run_id=run_id, file_name=file_name, status="error", error=str(e)
+                )
+                print(f"  ❌ Error: {e}")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+    await optimized_db.update_pipeline_run_progress(
+        run_id=run_id,
+        processed_files=len(_current_results),
+        cache_hits=resumed_count,
+        errors=errors,
+        status="completed",
+    )
 
     return PipelineSummary(
         total_students_processed=len(_current_results),
         answer_key_source=_current_answer_key.metadata.get("source_file", "loaded"),
         results=_current_results,
         errors=errors,
-    ).model_dump()
+    ).model_dump() | {
+        "processing_stats": {
+            "run_id": run_id,
+            "resumed": resumed_count,
+            "newly_processed": len(_current_results) - resumed_count,
+        }
+    }
 
 
 # ═══════════════════════════════════════
@@ -1209,6 +1259,35 @@ async def get_processing_status():
             "template_download": True
         }
     }
+
+
+@router.get("/pipeline-runs/{run_id}")
+async def get_pipeline_run(run_id: str):
+    """Fetch persisted pipeline run summary (survives restarts)."""
+    run = await optimized_db.get_pipeline_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    # Parse errors JSON for convenience
+    try:
+        run["errors"] = json.loads(run.get("errors") or "[]")
+    except Exception:
+        pass
+    return run
+
+
+@router.get("/pipeline-runs/{run_id}/items")
+async def get_pipeline_run_items(run_id: str):
+    """Fetch per-file pipeline items for a run (processed/cached/error)."""
+    items = await optimized_db.list_pipeline_run_items(run_id)
+    for it in items:
+        for key in ("result_json", "ocr_json"):
+            val = it.get(key)
+            if val and isinstance(val, str):
+                try:
+                    it[key] = json.loads(val)
+                except Exception:
+                    pass
+    return {"run_id": run_id, "items": items}
 
 
 # ═══════════════════════════════════════
