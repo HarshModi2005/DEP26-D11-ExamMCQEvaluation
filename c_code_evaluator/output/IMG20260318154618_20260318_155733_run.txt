@@ -1,9 +1,0 @@
-run_ok=False
-exit_code=None
-timed_out=True
-
-=== program stdout ===
-
-
-=== program stderr ===
-
