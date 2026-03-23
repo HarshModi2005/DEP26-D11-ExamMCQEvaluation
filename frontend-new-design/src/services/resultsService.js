@@ -10,21 +10,21 @@ export const resultsService = {
 
         // 1. Get unique roll numbers from results
         const uniqueRollNos = [...new Set(results.map(r => r.entry_number).filter(Boolean))];
-        
+
         // 2. Fetch existing students
         const { data: existingStudents, error: fetchErr } = await supabase
             .from('students')
             .select('id, roll_number')
             .in('roll_number', uniqueRollNos);
-            
+
         if (fetchErr) throw fetchErr;
-        
+
         const existingRollNos = new Set((existingStudents || []).map(s => s.roll_number));
-        
+
         // 3. Prepare missing students for insertion
         const missingStudents = [];
         const seenRollNos = new Set();
-        
+
         for (const r of results) {
             if (r.entry_number && !existingRollNos.has(r.entry_number) && !seenRollNos.has(r.entry_number)) {
                 missingStudents.push({
@@ -34,34 +34,34 @@ export const resultsService = {
                 seenRollNos.add(r.entry_number);
             }
         }
-        
+
         // 4. Insert missing students if any
         if (missingStudents.length > 0) {
             const { error: insertErr } = await supabase
                 .from('students')
                 .insert(missingStudents);
-                
+
             if (insertErr) {
                 console.error('Failed to insert missing students:', insertErr);
                 // Proceed anyway, some inserts might be duplicated or fail, we'll fetch again
             }
         }
-        
+
         // 5. Fetch all needed students again to get their assigned IDs
         const { data: allStudents, error: fetchAllErr } = await supabase
             .from('students')
             .select('id, roll_number')
             .in('roll_number', uniqueRollNos);
-            
+
         if (fetchAllErr) throw fetchAllErr;
-        
+
         const studentMap = new Map((allStudents || []).map(s => [s.roll_number, s.id]));
 
         const inserts = [];
 
         for (const r of results) {
             if (!r.entry_number) continue;
-            
+
             const studentId = studentMap.get(r.entry_number);
 
             if (!studentId) {
@@ -86,6 +86,29 @@ export const resultsService = {
 
         if (inserts.length === 0) return [];
 
+        // 6. True Synchronization: Delete any existing results for this evaluation that are NOT in the new batch
+        const { data: existingRecords } = await supabase
+            .from('submission_results')
+            .select('student_id')
+            .eq('evaluation_id', evaluationId);
+
+        if (existingRecords && existingRecords.length > 0) {
+            const keepSet = new Set(inserts.map(i => i.student_id));
+            const toDelete = existingRecords.map(r => r.student_id).filter(id => !keepSet.has(id));
+
+            if (toDelete.length > 0) {
+                const { error: deleteErr } = await supabase
+                    .from('submission_results')
+                    .delete()
+                    .eq('evaluation_id', evaluationId)
+                    .in('student_id', toDelete);
+
+                if (deleteErr) {
+                    console.error('Failed to delete obsolete results during sync:', deleteErr);
+                }
+            }
+        }
+
         const { data, error } = await supabase
             .from('submission_results')
             .upsert(inserts, { onConflict: 'evaluation_id,student_id' })
@@ -105,6 +128,17 @@ export const resultsService = {
             .order('total_score', { ascending: false });
         if (error) throw error;
         return data;
+    },
+
+    /**
+     * Delete all results for an evaluation to start fresh
+     */
+    async clearResultsByEvaluation(evaluationId) {
+        const { error } = await supabase
+            .from('submission_results')
+            .delete()
+            .eq('evaluation_id', evaluationId);
+        if (error) throw error;
     },
 
     /**

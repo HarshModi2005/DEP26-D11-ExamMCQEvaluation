@@ -22,17 +22,23 @@ export const studentService = {
     async importStudents(courseId, studentList) {
         if (!studentList || studentList.length === 0) return;
 
-        // Upsert into students table
-        const { data: upserted, error: upsertError } = await supabase
-            .from('students')
-            .upsert(
-                studentList.map(s => ({
+        // Deduplicate by roll_number to prevent ON CONFLICT errors
+        const uniqueStudentsMap = new Map();
+        for (const s of studentList) {
+            if (s.roll_number) {
+                uniqueStudentsMap.set(s.roll_number, {
                     name: s.name,
                     roll_number: s.roll_number,
                     email: s.email || null,
-                })),
-                { onConflict: 'roll_number' }
-            )
+                });
+            }
+        }
+        const uniqueStudents = Array.from(uniqueStudentsMap.values());
+
+        // Upsert into students table
+        const { data: upserted, error: upsertError } = await supabase
+            .from('students')
+            .upsert(uniqueStudents, { onConflict: 'roll_number' })
             .select('id, roll_number');
         if (upsertError) throw upsertError;
 

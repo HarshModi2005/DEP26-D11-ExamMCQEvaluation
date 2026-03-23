@@ -765,44 +765,36 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
 # ═══════════════════════════════════════
 
 @router.post("/export-to-sheets")
-def export_to_sheets(request: ExportToSheetsRequest):
+def export_to_sheets(request: ExportToSheetsRequest, subsheet_name: str = None, evaluation_name: str = None):
     """
-    Matches evaluated results with a Google Sheet student list and writes marks.
-    
-    The Google Sheet should have columns for: Entry Number, Name, Marks
-    Column headers are auto-detected.
-    
-    Entry numbers are matched using the format yyyybbbnnnn (e.g. 2023CSB1122).
-    Names are cross-verified — mismatches are flagged but marks are still written.
+    Export results to Google Sheets — creates:
+    1. Marks sheet tab (named after subsheet_name/evaluation_name) with per-question scores + statistics
+    2. Student response sheet (studentResponse_<name>) with marked answers + answer key
+    3. Super Sheet entry with cumulative marks
     """
     # Try in-memory results first, fall back to database
     results_dicts = []
     
     if _current_results:
-        results_dicts = [
-            {
-                "entry_number": r.entry_number,
-                "name": r.name,
-                "total_score": r.total_score,
-                "comments": r.comments,  # Pass comments to sheet
-            }
-            for r in _current_results
-        ]
+        results_dicts = [r.model_dump() for r in _current_results]
     else:
         # Pull from database
         db_results = db.get_all_results()
         if db_results:
             for row in db_results:
-                # DB results have student_id (which is roll_no) and score
                 entry = row.get("student_id", "")
                 score = row.get("score", 0)
-                # Try to get name from students table
                 details_raw = row.get("details")
                 name = ""
+                details = []
                 if details_raw:
                     try:
-                        details = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
-                        name = details.get("name", "") or ""
+                        parsed = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                        if isinstance(parsed, dict):
+                            name = parsed.get("name", "") or ""
+                            details = parsed.get("details", [])
+                        elif isinstance(parsed, list):
+                            details = parsed
                     except (json.JSONDecodeError, AttributeError):
                         pass
                 
@@ -811,7 +803,8 @@ def export_to_sheets(request: ExportToSheetsRequest):
                         "entry_number": entry,
                         "name": name,
                         "total_score": score,
-                        "comments": row.get("feedback", ""), 
+                        "comments": row.get("feedback", ""),
+                        "details": details,
                     })
 
     if not results_dicts:
@@ -820,8 +813,40 @@ def export_to_sheets(request: ExportToSheetsRequest):
             detail="No results to export. Process some answer sheets first."
         )
 
+    # Determine sheet tab name
+    tab_name = subsheet_name or evaluation_name or None
+
     try:
-        summary = sheets_service.update_marks(request.sheet_url, results_dicts)
+        # 1. Write marks sheet with statistics
+        summary = sheets_service.update_marks(request.sheet_url, results_dicts, sheet_tab_name=tab_name)
+        
+        # 2. Try to create student response sheet (needs answer key)
+        response_sheet_result = None
+        if _current_answer_key and tab_name:
+            try:
+                response_sheet_name = f"studentResponse_{tab_name}"
+                response_sheet_result = sheets_service.create_student_response_sheet(
+                    request.sheet_url,
+                    results_dicts,
+                    _current_answer_key.model_dump(),
+                    response_sheet_name=response_sheet_name
+                )
+                summary["response_sheet"] = response_sheet_result
+            except Exception as e:
+                print(f"⚠️ Failed to create response sheet: {e}")
+                summary["response_sheet_error"] = str(e)
+        
+        # 3. Try to update Super Sheet
+        if tab_name:
+            try:
+                super_result = sheets_service.update_super_sheet(
+                    request.sheet_url, tab_name, results_dicts
+                )
+                summary["super_sheet"] = super_result
+            except Exception as e:
+                print(f"⚠️ Failed to update Super Sheet: {e}")
+                summary["super_sheet_error"] = str(e)
+
         return summary
 
     except RuntimeError as e:
@@ -844,21 +869,17 @@ def preview_sheet(sheet_url: str):
             "sheet_name": data["sheet_name"],
             "columns_detected": data["columns"],
             "student_count": len(data["students"]),
-            "students": data["students"][:20],  # preview first 20
+            "students": data["students"],  # Return all students for full import
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/export-student-responses")
-def export_student_responses(request: ExportToSheetsRequest):
+def export_student_responses(request: ExportToSheetsRequest, evaluation_name: str = None):
     """
     Create a detailed student response sheet with per-question answers.
-    
-    Creates a new tab in the Google Sheet with:
-    - Student info (entry number, name, total score)
-    - Per-question data (marked answer, correct answer, result status)
-    - Comments and observations
+    Sheet tab is named studentResponse_<evaluation_name>.
     """
     if not _current_answer_key:
         raise HTTPException(
@@ -872,7 +893,6 @@ def export_student_responses(request: ExportToSheetsRequest):
     if _current_results:
         results_dicts = [r.model_dump() for r in _current_results]
     else:
-        # Pull from database and reconstruct
         db_results = db.get_all_results()
         if db_results:
             for row in db_results:
@@ -890,12 +910,15 @@ def export_student_responses(request: ExportToSheetsRequest):
             detail="No results to export. Process some answer sheets first."
         )
 
+    # Build response sheet name
+    response_sheet_name = f"studentResponse_{evaluation_name}" if evaluation_name else "Student Responses"
+
     try:
         summary = sheets_service.create_student_response_sheet(
             request.sheet_url, 
             results_dicts,
             _current_answer_key.model_dump(),
-            response_sheet_name="Student Responses"
+            response_sheet_name=response_sheet_name
         )
         return summary
 

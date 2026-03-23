@@ -10,6 +10,8 @@ Supports writing per-question marks if columns like '1', 'Q1', '2', 'Q2' are pre
 
 import os
 import re
+import difflib
+import statistics as stats_module
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from typing import List, Dict, Optional, Tuple, Any
@@ -24,13 +26,13 @@ class SheetsService:
     ENTRY_NUMBER_ALIASES = {
         'entry number', 'entry_number', 'entry no', 'entry no.',
         'roll number', 'roll_number', 'roll no', 'roll no.',
-        'enrollment', 'enrollment number', 'enrollment no',
+        'enrollment', 'enrollment number', 'enrollment numbers', 'enrollment no',
         'id', 'student id', 'student_id', 'reg number',
         'registration number', 'reg no', 'reg no.',
     }
 
     NAME_ALIASES = {
-        'name', 'student name', 'student_name', 'full name',
+        'name', 'names', 'student name', 'student_name', 'full name',
         'full_name', 'candidate name',
     }
 
@@ -171,8 +173,19 @@ class SheetsService:
         if not sheets:
             raise ValueError("Spreadsheet has no sheets")
 
+        # Prioritize 'student_names' if no specific tab is mentioned in the URL
         if not sheet_name:
-            sheet_name = sheets[0]['properties']['title']
+            target_name = "student_names"
+            found_target = False
+            for sheet in sheets:
+                title = sheet['properties']['title']
+                if title.strip().lower() == target_name.lower():
+                    sheet_name = title
+                    found_target = True
+                    break
+            
+            if not found_target:
+                sheet_name = sheets[0]['properties']['title']
 
         range_name = f"'{sheet_name}'"
         result = self.service.spreadsheets().values().get(
@@ -230,20 +243,24 @@ class SheetsService:
     #  Writing Marks
     # ──────────────────────────────────────
 
-    def update_marks(self, sheet_url: str, results: List[Dict]) -> Dict:
+    def update_marks(self, sheet_url: str, results: List[Dict], sheet_tab_name: str = None) -> Dict:
         """
-        Write marks, comments, AND per-question scores. Auto-initializes if the sheet is empty.
+        Write marks, comments, AND per-question scores to a named sheet tab.
+        Auto-creates the tab if it doesn't exist. Matches records against the Master sheet.
+        Adds STATISTICS section at the bottom.
         """
         if not self.service:
             raise RuntimeError("Sheets service not initialized. Check credentials.")
 
-        # Read current state
-        sheet_data = self.read_student_list(sheet_url)
-        spreadsheet_id = sheet_data['spreadsheet_id']
-        sheet_name = sheet_data['sheet_name']
-        columns = sheet_data.get('columns', {})
-        students = sheet_data.get('students', [])
-        
+        # Read master student list to cross-verify against
+        try:
+            sheet_data = self.read_student_list(sheet_url)
+            master_students = sheet_data.get('students', [])
+        except Exception:
+            master_students = []
+
+        spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
+
         # Determine maximum questions from results
         all_q_nums = set()
         for r in results:
@@ -252,315 +269,381 @@ class SheetsService:
                 if qn: all_q_nums.add(int(qn))
         all_q_nums = sorted(list(all_q_nums))
 
-        # === AUTO-INITIALIZE COMPLETELY EMPTY OR INVALID SHEET ===
-        if sheet_data.get('is_empty') or not columns.get('entry_number'):
-            headers = ["Entry Number", "Name", "Total Marks", "Comments"]
-            for q in all_q_nums:
-                headers.append(f"Q{q}")
-                
-            data_rows = [headers]
-            for r in results:
-                row = [
-                    r.get('entry_number', ''),
-                    r.get('name', ''),
-                    r.get('total_score', 0),
-                    r.get('comments', '')
-                ]
-                d_map = {}
-                for d in r.get('details', []):
-                    qn = d.get('question_number') if isinstance(d, dict) else getattr(d, 'question_number', None)
-                    if qn: d_map[int(qn)] = d
-                for q in all_q_nums:
-                    d = d_map.get(q, {})
-                    val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
-                    st = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
-                    if st in ['multiple', 'unattempted', 'incorrect']: val = 0
-                    row.append(val)
-                data_rows.append(row)
-                
-            self.service.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id, range=f"'{sheet_name}'!A1",
-                valueInputOption='USER_ENTERED', body={'values': data_rows}
+        # If a sheet_tab_name is given, create the tab if it doesn't exist
+        if sheet_tab_name:
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
             ).execute()
-            return {
-                "updated": len(results), "not_found_in_sheet": [],
-                "not_found_in_results": [], "name_mismatches": [], "errors": []
-            }
-
-        # === APPEND MISSING REQUIRED COLUMNS IF PARTIAL HEADERS ===
-        headers = list(sheet_data.get('headers', []))
-        appended_headers = False
-        if not columns.get('marks'):
-            headers.append("Total Marks")
-            appended_headers = True
-        
-        # Optional: ensure we have columns for all questions
-        for q in all_q_nums:
-            if q not in columns.get('questions', {}):
-                headers.append(f"Q{q}")
-                appended_headers = True
-
-        if appended_headers:
-            self.service.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id, range=f"'{sheet_name}'!A1",
-                valueInputOption='USER_ENTERED', body={'values': [headers]}
+            existing_sheets = {sheet['properties']['title'] for sheet in spreadsheet.get('sheets', [])}
+            
+            if sheet_tab_name in existing_sheets:
+                self.service.spreadsheets().values().clear(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{sheet_tab_name}'"
+                ).execute()
+            else:
+                self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={'requests': [{'addSheet': {'properties': {'title': sheet_tab_name}}}]}
+                ).execute()
+            
+            target_sheet = sheet_tab_name
+        else:
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id
             ).execute()
-            # Re-read to get correct column mappings
-            sheet_data = self.read_student_list(sheet_url)
-            columns = sheet_data['columns']
+            sheets = spreadsheet.get('sheets', [])
+            if not sheets:
+                raise ValueError("Spreadsheet has no sheets")
+            target_sheet = sheets[0]['properties']['title']
 
-        marks_col_letter = columns['marks']['letter']
-        comments_col_letter = columns.get('comments', {}).get('letter')
-        question_cols = columns.get('questions', {}) # Dict[int, Dict] {1: {index, letter}, ...}
-
-        # Build lookup
+        # Build lookup from OCR results
         results_map = {}
         for r in results:
             raw = str(r.get('entry_number', '')).strip()
             normalized = self._normalize_entry_number(raw)
             if normalized:
                 results_map[normalized] = r
-                
-        # Also need logic to append students that are in results but NOT in students
-        existing_normalized_students = {self._normalize_entry_number(s['entry_number']) for s in students if self._normalize_entry_number(s['entry_number'])}
 
+        # Build headers
+        headers = ["Entry Number", "Name"]
+        for q in all_q_nums:
+            headers.append(f"Q{q}")
+        headers.append("Marks")
+        headers.append("Comments")
+
+        data_rows = []
+        all_scores = []
+        mismatches_to_bold = []
+        
         summary = {
             "updated": 0,
             "not_found_in_sheet": [],
             "not_found_in_results": [],
             "name_mismatches": [],
             "errors": [],
+            "sheet_tab": target_sheet,
+            "statistics": {}
         }
 
-        batch_data = []
-        matched_normalized = set()
+        matched_results = set()
 
-        # DEBUG
-        print(f"DEBUG: Results Map Keys: {list(results_map.keys())}")
+        if master_students:
+            # We have a master list to match against
+            for student in master_students:
+                raw_entry = student.get('entry_number', '')
+                normalized = self._normalize_entry_number(raw_entry)
+                result = None
+                is_fuzzy_match = False
 
-        for student in students:
-            raw_entry = student['entry_number']
-            normalized = self._normalize_entry_number(raw_entry)
-            
-            # DEBUG
-            # print(f"DEBUG: Sheet Row {student['row']}: '{raw_entry}' -> Normalized: '{normalized}'")
-
-            if not normalized:
-                continue
-
-            # 1. Try Entry Number Match
-            if normalized in results_map:
-                matched_normalized.add(normalized)
-                result = results_map[normalized]
-            else:
-                # 2. Fallback: Try Name Match
-                # Iterate through all results to find a name match
-                found_by_name = None
-                sheet_name_cleaned = student.get('name', '').strip().lower()
-                
-                if sheet_name_cleaned:
-                    for r in results:
-                        ocr_name_cleaned = r.get('name', '').strip().lower()
-                        # Simple inclusion check or intersection
-                        if not ocr_name_cleaned: continue
+                if normalized and normalized in results_map:
+                    result = results_map[normalized]
+                    matched_results.add(normalized)
+                elif raw_entry:
+                    # Fallback to Fuzzy Match (Name AND Entry Number)
+                    sheet_name = student.get('name', '').strip().lower()
+                    sheet_entry = str(raw_entry).strip().lower()
+                    
+                    best_match_id = None
+                    best_match_r = None
+                    best_score = 0
+                    
+                    for norm_id, r in results_map.items():
+                        if norm_id in matched_results:
+                            continue
+                            
+                        ocr_name = r.get('name', '').strip().lower()
+                        ocr_entry = str(r.get('entry_number', '')).strip().lower()
                         
-                        # Use existing name check logic? Or simplified?
-                        # If exact match or significant overlap
-                        if sheet_name_cleaned == ocr_name_cleaned:
-                            found_by_name = r
-                            break
+                        # Similarity ratios (0.0 to 1.0)
+                        name_sim = difflib.SequenceMatcher(None, sheet_name, ocr_name).ratio() if (sheet_name and ocr_name) else 0
+                        entry_sim = difflib.SequenceMatcher(None, sheet_entry, ocr_entry).ratio() if (sheet_entry and ocr_entry) else 0
                         
-                        # Split parts
-                        s_parts = set(sheet_name_cleaned.split())
-                        o_parts = set(ocr_name_cleaned.split())
+                        # Word intersection bonus for names
+                        s_parts = set(sheet_name.split())
+                        o_parts = set(ocr_name.split())
                         intersection = s_parts.intersection(o_parts)
+                        word_bonus = 0.2 if len(intersection) >= 1 else 0
                         
-                        # If at least 2 significant words match (e.g. "Harsh Modi")
-                        if len(intersection) >= 2:
-                            found_by_name = r
-                            break
-                        # Or if 1 word matches and total words is small, but be careful of "Kumar"
-                        if len(intersection) >= 1 and len(s_parts) == 1 and len(o_parts) == 1:
-                             found_by_name = r
-                             break
+                        total_score = name_sim + entry_sim + word_bonus
+                        
+                        # Require a reasonably high confidence to consider it a match
+                        # E.g. name similarity > 0.8, OR entry similarity > 0.8, OR combined > 1.2
+                        if (name_sim > 0.8 or entry_sim > 0.8 or total_score > 1.2) and total_score > best_score:
+                            best_score = total_score
+                            best_match_id = norm_id
+                            best_match_r = r
+                            
+                    if best_match_r:
+                        result = best_match_r
+                        is_fuzzy_match = True
+                        matched_results.add(best_match_id)
 
-                if found_by_name:
-                    result = found_by_name
-                    # mismatch_msg = f"Matched by Name ('{student['name']}') instead of ID ('{raw_entry}' vs OCR '{result.get('entry_number')}')"
-                    # final_comments.append(mismatch_msg)
-                else:
+                row = [
+                    raw_entry,
+                    student.get('name', ''),
+                ]
+
+                if not result:
                     summary['not_found_in_results'].append(raw_entry)
+                    for q in all_q_nums: row.append('')
+                    row.append('') # Marks
+                    row.append('Absent / No Answer Sheet Found')
+                    data_rows.append(row)
                     continue
 
-            # Check duplication (if multiple students map to same result? Not detecting here)
-            
-            score = result.get('total_score', 0)
-            details = result.get('details', []) # List of dicts/objects
-            
-            # Compose comment
-            final_comments = []
-            ocr_comment = result.get('comments', '')
-            if ocr_comment:
-                final_comments.append(ocr_comment)
+                summary['updated'] += 1
 
-            mismatch_msg = self._check_name_mismatch(
-                student.get('name', ''),
-                result.get('name', ''),
-                raw_entry,
-                student['row']
-            )
-            if mismatch_msg:
-                summary['name_mismatches'].append({
-                    "entry_number": raw_entry,
-                    "sheet_name": student['name'],
-                    "ocr_name": result.get('name'),
-                    "row": student['row']
-                })
-                final_comments.append(mismatch_msg)
-            
-            comment_str = "; ".join(final_comments)
-
-            # 1. Update Total Score
-            batch_data.append({
-                "range": f"'{sheet_name}'!{marks_col_letter}{student['row']}",
-                "values": [[score]]
-            })
-            
-            # 2. Update Comment
-            if comments_col_letter and comment_str:
-                batch_data.append({
-                    "range": f"'{sheet_name}'!{comments_col_letter}{student['row']}",
-                    "values": [[comment_str]]
-                })
-
-            # 3. Update Per-Question Scores
-            q_map = {}
-            if isinstance(details, list):
-                for d in details:
-                    try:
-                        if isinstance(d, dict):
-                            qn = int(d.get('question_number', -1))
-                            q_map[qn] = d
-                        else:
-                            qn = int(d.question_number)
-                            q_map[qn] = d
-                    except (ValueError, TypeError, AttributeError):
-                        continue
-            
-            for q_num, col_info in question_cols.items():
-                col_letter = col_info['letter']
+                final_comments = []
+                if result.get('comments'):
+                    final_comments.append(result.get('comments'))
                 
-                if q_num in q_map:
-                    q_data = q_map[q_num]
-                    val_to_write = 0
-                    
-                    if isinstance(q_data, dict):
-                        status = q_data.get('result', '')
-                        val = q_data.get('score', 0)
-                    else:
-                        status = getattr(q_data, 'result', '')
-                        val = getattr(q_data, 'score', 0)
-                    
-                    if status in ['multiple', 'unattempted', 'incorrect']:
-                        val_to_write = 0
-                    elif status == 'correct':
-                        val_to_write = val # Should be full marks
-                    else:
-                         # Default fallback
-                        val_to_write = val
-                    
-                    # Add to batch
-                    batch_data.append({
-                        "range": f"'{sheet_name}'!{col_letter}{student['row']}",
-                        "values": [[val_to_write]]
+                mismatch_msg = self._check_name_mismatch(
+                    student.get('name', ''),
+                    result.get('name', ''),
+                    raw_entry,
+                    0
+                )
+
+                is_mismatch = bool(mismatch_msg) or is_fuzzy_match
+
+                if is_fuzzy_match:
+                    final_comments.append(f"Fuzzy Match: Matched by Name ('{student.get('name')}') instead of OCR ID='{result.get('entry_number')}'")
+                    summary['name_mismatches'].append({
+                        "entry_number": raw_entry,
+                        "sheet_name": student.get('name', ''),
+                        "ocr_name": result.get('name', ''),
+                        "type": "fuzzy_match"
                     })
-                    
-        # === APPEND STUDENTS NOT FOUND IN SHEET ===
-        new_students = []
-        for r in results:
-            raw = str(r.get('entry_number', '')).strip()
-            norm = self._normalize_entry_number(raw)
-            if norm and norm not in existing_normalized_students:
-                new_students.append(r)
-                existing_normalized_students.add(norm)
-                matched_normalized.add(norm)
+                elif mismatch_msg:
+                    final_comments.append(mismatch_msg)
+                    summary['name_mismatches'].append({
+                        "entry_number": raw_entry,
+                        "sheet_name": student.get('name', ''),
+                        "ocr_name": result.get('name', ''),
+                        "type": "mismatch"
+                    })
+
+                if is_mismatch:
+                    mismatches_to_bold.append(len(data_rows))
                 
-        if new_students:
-            start_row = len(students) + 2
-            append_rows = []
-            col_list = list(columns.values())
-            # Find max col index
-            max_idx = max([c['index'] for c in col_list]) if col_list else 0
-            
-            for r in new_students:
-                row_data = [""] * (max_idx + 1)
+                # Per-question scores
+                d_map = {}
+                for d in result.get('details', []):
+                    qn = d.get('question_number') if isinstance(d, dict) else getattr(d, 'question_number', None)
+                    if qn: d_map[int(qn)] = d
                 
-                # Entry Number
-                e_idx = columns.get('entry_number', {}).get('index')
-                if e_idx is not None: row_data[e_idx] = r.get('entry_number', '')
+                for q in all_q_nums:
+                    d = d_map.get(q, {})
+                    val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
+                    st = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
+                    if st in ['multiple', 'unattempted', 'incorrect']: val = 0
+                    row.append(val)
                 
-                # Name
-                n_idx = columns.get('name', {}).get('index')
-                if n_idx is not None: row_data[n_idx] = r.get('name', '')
+                total = result.get('total_score', 0)
+                row.append(total)
+                all_scores.append(total)
                 
-                # Marks
-                m_idx = columns.get('marks', {}).get('index')
-                if m_idx is not None: row_data[m_idx] = r.get('total_score', 0)
+                row.append("; ".join(final_comments))
+                data_rows.append(row)
+
+        # Handle results that weren't matched in the master list, or if NO master list exists
+        for norm_id, r in results_map.items():
+            if norm_id not in matched_results:
+                raw_entry = r.get('entry_number', '')
+                if master_students:
+                    # Only report as not found if there was a master list to check against
+                    summary['not_found_in_sheet'].append(raw_entry)
+                summary['updated'] += 1
                 
-                # Comments
-                c_idx = columns.get('comments', {}).get('index')
-                if c_idx is not None: row_data[c_idx] = r.get('comments', '')
+                row = [
+                    raw_entry,
+                    r.get('name', ''),
+                ]
                 
-                # Questions
                 d_map = {}
                 for d in r.get('details', []):
                     qn = d.get('question_number') if isinstance(d, dict) else getattr(d, 'question_number', None)
                     if qn: d_map[int(qn)] = d
-                    
-                for q_num, col_info in question_cols.items():
-                    q_idx = col_info['index']
-                    d = d_map.get(q_num, {})
+                
+                for q in all_q_nums:
+                    d = d_map.get(q, {})
                     val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
-                    status = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
-                    if status in ['multiple', 'unattempted', 'incorrect']: val = 0
-                    row_data[q_idx] = val
-                    
-                append_rows.append(row_data)
+                    st = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
+                    if st in ['multiple', 'unattempted', 'incorrect']: val = 0
+                    row.append(val)
                 
-            if append_rows:
-                # Use append operation
-                self.service.spreadsheets().values().append(
-                    spreadsheetId=spreadsheet_id,
-                    range=f"'{sheet_name}'!A1",
-                    valueInputOption='USER_ENTERED',
-                    insertDataOption='INSERT_ROWS',
-                    body={'values': append_rows}
-                ).execute()
-
-        # Execute batch update (for existing students)
-        if batch_data:
-            try:
-                # Split huge batches if necessary (Google limit is around 50k calls?? No, payload size)
-                # Chunking 1000 updates at a time is safer
-                chunk_size = 500
-                for i in range(0, len(batch_data), chunk_size):
-                    chunk = batch_data[i:i + chunk_size]
-                    body = {
-                        "valueInputOption": "RAW",
-                        "data": chunk,
-                    }
-                    self.service.spreadsheets().values().batchUpdate(
-                        spreadsheetId=spreadsheet_id,
-                        body=body
-                    ).execute()
+                total = r.get('total_score', 0)
+                row.append(total)
+                all_scores.append(total)
                 
-                summary['updated'] = len(matched_normalized)
-                print(f"✅ Updated {len(batch_data)} cells for {len(matched_normalized)} students.")
-            except Exception as e:
-                summary['errors'].append(f"Batch update failed: {str(e)}")
-                print(f"❌ Batch update failed: {e}")
+                final_comments = []
+                if r.get('comments'): final_comments.append(r.get('comments'))
+                if master_students:
+                    final_comments.append("Not found in Master Student List")
+                    mismatches_to_bold.append(len(data_rows))
+                
+                row.append("; ".join(final_comments))
+                data_rows.append(row)
 
+        # Statistics
+        marks_col_idx = len(headers) - 2
+        if all_scores:
+            mean_val = round(sum(all_scores) / len(all_scores), 2)
+            sorted_scores = sorted(all_scores)
+            n = len(sorted_scores)
+            median_val = (sorted_scores[n//2 - 1] + sorted_scores[n//2]) / 2 if n % 2 == 0 else sorted_scores[n//2]
+            highest_val = max(all_scores)
+            lowest_val = min(all_scores)
+        else:
+            mean_val = median_val = highest_val = lowest_val = 0
+
+        summary['statistics'] = {
+            "mean": mean_val,
+            "median": median_val,
+            "highest": highest_val,
+            "lowest": lowest_val
+        }
+
+        empty_row = [''] * len(headers)
+        stats_label_row = [''] * len(headers)
+        stats_label_row[1] = 'STATISTICS'
+
+        mean_row = [''] * len(headers)
+        mean_row[1] = 'Mean / Average'
+        mean_row[marks_col_idx] = mean_val
+
+        median_row = [''] * len(headers)
+        median_row[1] = 'Median'
+        median_row[marks_col_idx] = median_val
+
+        highest_row = [''] * len(headers)
+        highest_row[1] = 'Highest'
+        highest_row[marks_col_idx] = highest_val
+
+        lowest_row = [''] * len(headers)
+        lowest_row[1] = 'Lowest'
+        lowest_row[marks_col_idx] = lowest_val
+
+        all_data = [headers] + data_rows + [empty_row, stats_label_row, mean_row, median_row, highest_row, lowest_row]
+
+        self.service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{target_sheet}'!A1",
+            valueInputOption='USER_ENTERED',
+            body={'values': all_data}
+        ).execute()
+
+        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(data_rows), len(all_data), mismatches_to_bold)
+
+        print(f"✅ Wrote {len(data_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Mismatches: {len(mismatches_to_bold)}")
         return summary
+
+    def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, mismatches_to_bold: List[int] = None):
+        """Apply formatting to the marks sheet — bold header, statistics, and highlights for mismatches."""
+        try:
+            spreadsheet = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            if sheet_id is None:
+                return
+
+            requests = []
+
+            # Bold header row
+            requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'startRowIndex': 0, 'endRowIndex': 1,
+                        'startColumnIndex': 0, 'endColumnIndex': num_cols
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9},
+                            'textFormat': {'bold': True},
+                            'horizontalAlignment': 'CENTER'
+                        }
+                    },
+                    'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+            })
+
+            # Formatting for mismatched rows (bold and red text)
+            if mismatches_to_bold:
+                for r_idx in mismatches_to_bold:
+                    real_row = r_idx + 1  # Offset by 1 for the header
+                    requests.append({
+                        'repeatCell': {
+                            'range': {
+                                'sheetId': sheet_id,
+                                'startRowIndex': real_row, 'endRowIndex': real_row + 1,
+                                'startColumnIndex': 0, 'endColumnIndex': 2  # Bold Entry Number and Name
+                            },
+                            'cell': {
+                                'userEnteredFormat': {
+                                    'textFormat': {
+                                        'bold': True,
+                                        'foregroundColor': {'red': 0.8, 'green': 0.0, 'blue': 0.0}
+                                    }
+                                }
+                            },
+                            'fields': 'userEnteredFormat(textFormat)'
+                        }
+                    })
+
+            # Bold statistics section
+            stats_start_row = num_data_rows + 2
+            if total_rows > stats_start_row:
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': stats_start_row,
+                            'endRowIndex': total_rows,
+                            'startColumnIndex': 0, 'endColumnIndex': num_cols
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'textFormat': {'bold': True}
+                            }
+                        },
+                        'fields': 'userEnteredFormat(textFormat)'
+                    }
+                })
+
+            # Freeze header row
+            requests.append({
+                'updateSheetProperties': {
+                    'properties': {
+                        'sheetId': sheet_id,
+                        'gridProperties': {'frozenRowCount': 1}
+                    },
+                    'fields': 'gridProperties.frozenRowCount'
+                }
+            })
+
+            # Auto-resize columns
+            requests.append({
+                'autoResizeDimensions': {
+                    'dimensions': {
+                        'sheetId': sheet_id,
+                        'dimension': 'COLUMNS',
+                        'startIndex': 0, 'endIndex': num_cols
+                    }
+                }
+            })
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={'requests': requests}
+            ).execute()
+
+        except Exception as e:
+            print(f"Warning: Failed to format marks sheet: {e}")
 
     def create_student_response_sheet(
         self, 
@@ -570,34 +653,34 @@ class SheetsService:
         response_sheet_name: str = "Student Responses"
     ) -> Dict:
         """
-        Create a separate sheet tab with detailed student responses (per-question answers).
-        
-        Args:
-            sheet_url: Google Sheet URL
-            results: List of StudentResult dictionaries with details
-            answer_key: Answer key dictionary for question mapping
-            response_sheet_name: Name for the new response sheet tab
-            
-        Returns:
-            Summary of the export operation
+        Create a sheet tab with per-question student responses (marked answers).
+        Format: Entry Number | Name | Q1 | Q2 | ... | Qn
+        Last row is the Answer Key with correct answers bolded.
         """
         if not self.service:
             raise RuntimeError("Sheets service not initialized. Check credentials.")
 
         spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
 
-        # Get all questions from answer key
-        questions = sorted([int(q) for q in answer_key.get('answers', {}).keys()])
+        # Get all questions from answer key — handle both int and str keys
+        answers_dict = answer_key.get('answers', {})
+        
+        # Build a normalized lookup: int -> answer_entry_dict
+        normalized_answers = {}
+        for k, v in answers_dict.items():
+            q_num = int(k)
+            normalized_answers[q_num] = v
+        
+        questions = sorted(normalized_answers.keys())
         if not questions:
             raise ValueError("No questions found in answer key")
 
-        # Prepare headers
-        headers = ['Entry Number', 'Name', 'Total Score']
+        # Prepare headers: Entry Number, Name, Q1, Q2, ..., Qn
+        headers = ['Entry Number', 'Name']
         for q in questions:
-            headers.extend([f'Q{q} Marked', f'Q{q} Correct', f'Q{q} Result'])
-        headers.append('Comments')
+            headers.append(f'Q{q}')
 
-        # Prepare data rows
+        # Prepare student data rows
         data_rows = []
         for result in results:
             if not isinstance(result, dict):
@@ -606,7 +689,6 @@ class SheetsService:
             row = [
                 result.get('entry_number', ''),
                 result.get('name', ''),
-                str(result.get('total_score', 0))
             ]
             
             # Get per-question details
@@ -617,33 +699,34 @@ class SheetsService:
                     if q_num:
                         details_map[int(q_num)] = detail
             
-            # Add per-question data
+            # Add marked answer for each question
             for q in questions:
                 detail = details_map.get(q, {})
                 marked = detail.get('marked', '') or ''
-                correct = detail.get('correct', '') or ''
-                result_status = detail.get('result', '') or ''
-                
-                # Format result status with emoji
-                status_emoji = {
-                    'correct': '✓',
-                    'incorrect': '✗',
-                    'unattempted': '—',
-                    'multiple': '⚠️'
-                }.get(result_status, '')
-                
-                row.extend([
-                    marked,
-                    correct,
-                    f"{status_emoji} {result_status}" if status_emoji else result_status
-                ])
+                row.append(str(marked))
             
-            row.append(result.get('comments', ''))
             data_rows.append(row)
+
+        # Build Answer Key row (last row) — extract correct_answer from each entry
+        answer_key_row = ['Answer Key', '']
+        for q in questions:
+            entry = normalized_answers.get(q)
+            correct = ''
+            if entry is None:
+                correct = ''
+            elif isinstance(entry, dict):
+                correct = entry.get('correct_answer', '') or entry.get('correct_option', '') or ''
+            elif isinstance(entry, str):
+                correct = entry
+            else:
+                # Could be an AnswerKeyEntry Pydantic object (shouldn't happen after model_dump, but just in case)
+                correct = getattr(entry, 'correct_answer', getattr(entry, 'correct_option', str(entry)))
+            answer_key_row.append(str(correct))
+        
+        print(f"📋 Student Response Sheet — Answer Key Row: {answer_key_row}")
 
         # Create or update the response sheet
         try:
-            # Check if sheet exists
             spreadsheet = self.service.spreadsheets().get(
                 spreadsheetId=spreadsheet_id
             ).execute()
@@ -652,28 +735,18 @@ class SheetsService:
                              for sheet in spreadsheet.get('sheets', [])}
             
             if response_sheet_name in existing_sheets:
-                # Clear existing data
-                sheet_id = existing_sheets[response_sheet_name]
                 self.service.spreadsheets().values().clear(
                     spreadsheetId=spreadsheet_id,
                     range=f"'{response_sheet_name}'"
                 ).execute()
             else:
-                # Create new sheet
-                requests = [{
-                    'addSheet': {
-                        'properties': {
-                            'title': response_sheet_name
-                        }
-                    }
-                }]
                 self.service.spreadsheets().batchUpdate(
                     spreadsheetId=spreadsheet_id,
-                    body={'requests': requests}
+                    body={'requests': [{'addSheet': {'properties': {'title': response_sheet_name}}}]}
                 ).execute()
 
-            # Write data
-            all_data = [headers] + data_rows
+            # Write data: headers + student rows + empty row + answer key
+            all_data = [headers] + data_rows + [[]] + [answer_key_row]
             self.service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
                 range=f"'{response_sheet_name}'!A1",
@@ -681,8 +754,9 @@ class SheetsService:
                 body={'values': all_data}
             ).execute()
 
-            # Format the sheet
-            self._format_response_sheet(spreadsheet_id, response_sheet_name, len(headers), len(data_rows) + 1)
+            # Format the sheet (bold headers and answer key row)
+            answer_key_row_idx = len(data_rows) + 2  # +1 header, +1 empty row (0-indexed)
+            self._format_response_sheet(spreadsheet_id, response_sheet_name, len(headers), len(all_data), answer_key_row_idx)
 
             return {
                 "message": f"Student response sheet '{response_sheet_name}' created successfully",
@@ -695,10 +769,163 @@ class SheetsService:
         except Exception as e:
             raise RuntimeError(f"Failed to create student response sheet: {str(e)}")
 
-    def _format_response_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_rows: int):
-        """Apply formatting to the student response sheet."""
+    def update_super_sheet(self, sheet_url: str, evaluation_name: str, results: List[Dict]) -> Dict:
+        """
+        Add/update a column in the 'Super Sheet' tab for this evaluation.
+        Super Sheet has: Entry Number | Name | <eval1 marks> | <eval2 marks> | ... | Cumulative Total
+        """
+        if not self.service:
+            raise RuntimeError("Sheets service not initialized. Check credentials.")
+
+        spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
+        super_sheet_name = "Super Sheet"
+
+        # Get spreadsheet metadata
+        spreadsheet = self.service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id
+        ).execute()
+        existing_sheets = {sheet['properties']['title'] for sheet in spreadsheet.get('sheets', [])}
+
+        # Read existing Super Sheet data, or create if missing
+        if super_sheet_name not in existing_sheets:
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={'requests': [{'addSheet': {'properties': {'title': super_sheet_name}}}]}
+            ).execute()
+            existing_data = []
+        else:
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{super_sheet_name}'"
+            ).execute()
+            existing_data = result.get('values', [])
+
+        # Build student lookup from results
+        results_by_entry = {}
+        for r in results:
+            entry = r.get('entry_number', '')
+            if entry:
+                results_by_entry[self._normalize_entry_number(entry) or entry] = r
+
+        if not existing_data:
+            # Initialize Super Sheet from scratch
+            headers = ['Entry Number', 'Name', evaluation_name, 'Cumulative Total']
+            rows = [headers]
+            for r in results:
+                total = r.get('total_score', 0)
+                rows.append([
+                    r.get('entry_number', ''),
+                    r.get('name', ''),
+                    total,
+                    total
+                ])
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{super_sheet_name}'!A1",
+                valueInputOption='USER_ENTERED',
+                body={'values': rows}
+            ).execute()
+        else:
+            # Super Sheet already has data — add/update column for this evaluation
+            headers = existing_data[0] if existing_data else []
+            
+            # Check if evaluation column already exists
+            eval_col_idx = None
+            cumulative_col_idx = None
+            for idx, h in enumerate(headers):
+                if h.strip().lower() == evaluation_name.strip().lower():
+                    eval_col_idx = idx
+                if h.strip().lower() in ('cumulative total', 'cumulative_total', 'total'):
+                    cumulative_col_idx = idx
+
+            if eval_col_idx is not None:
+                # Column exists — update it
+                pass
+            else:
+                # Add new column before Cumulative Total (or at end)
+                if cumulative_col_idx is not None:
+                    # Insert before cumulative
+                    eval_col_idx = cumulative_col_idx
+                    headers.insert(eval_col_idx, evaluation_name)
+                    cumulative_col_idx = eval_col_idx + 1
+                    # Shift existing rows
+                    for i in range(1, len(existing_data)):
+                        row = existing_data[i]
+                        while len(row) < len(headers) - 1:
+                            row.append('')
+                        row.insert(eval_col_idx, '')
+                else:
+                    # No cumulative column — add eval + cumulative at end
+                    eval_col_idx = len(headers)
+                    headers.append(evaluation_name)
+                    cumulative_col_idx = len(headers)
+                    headers.append('Cumulative Total')
+
+            # Ensure all rows have correct length
+            for i in range(1, len(existing_data)):
+                while len(existing_data[i]) < len(headers):
+                    existing_data[i].append('')
+
+            # Build entry-number-indexed rows
+            entry_col = 0  # Assume first column is entry number
+            student_rows = {}
+            for i in range(1, len(existing_data)):
+                row = existing_data[i]
+                entry = row[entry_col] if row else ''
+                norm = self._normalize_entry_number(entry) if entry else None
+                if norm:
+                    student_rows[norm] = i
+
+            # Update existing students and collect new ones
+            new_rows = []
+            for norm_entry, r in results_by_entry.items():
+                total = r.get('total_score', 0)
+                if norm_entry in student_rows:
+                    row_idx = student_rows[norm_entry]
+                    existing_data[row_idx][eval_col_idx] = total
+                else:
+                    # New student — create a new row
+                    new_row = [''] * len(headers)
+                    new_row[0] = r.get('entry_number', '')
+                    new_row[1] = r.get('name', '')
+                    new_row[eval_col_idx] = total
+                    new_rows.append(new_row)
+
+            # Update headers
+            existing_data[0] = headers
+
+            # Append new students
+            existing_data.extend(new_rows)
+
+            # Recalculate Cumulative Total for all students
+            if cumulative_col_idx is not None:
+                # Sum all numeric columns between Name and Cumulative Total
+                for i in range(1, len(existing_data)):
+                    row = existing_data[i]
+                    while len(row) < len(headers):
+                        row.append('')
+                    cumulative = 0
+                    for j in range(2, cumulative_col_idx):
+                        try:
+                            cumulative += float(row[j]) if row[j] != '' else 0
+                        except (ValueError, TypeError):
+                            pass
+                    row[cumulative_col_idx] = cumulative
+
+            # Write back
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{super_sheet_name}'!A1",
+                valueInputOption='USER_ENTERED',
+                body={'values': existing_data}
+            ).execute()
+
+        print(f"✅ Super Sheet updated with '{evaluation_name}' column.")
+        return {"message": f"Super Sheet updated with '{evaluation_name}'"}
+
+    def _format_response_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_rows: int, answer_key_row_idx: int = -1):
+        """Apply formatting to the student response sheet — bold header and Answer Key row."""
         try:
-            # Get sheet ID
             spreadsheet = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
             sheet_id = None
             for sheet in spreadsheet.get('sheets', []):
@@ -711,53 +938,99 @@ class SheetsService:
 
             requests = []
             
-            # Format header row
+            # Format header row — light blue background, bold, centered
             requests.append({
                 'repeatCell': {
                     'range': {
                         'sheetId': sheet_id,
-                        'startRowIndex': 0,
-                        'endRowIndex': 1,
-                        'startColumnIndex': 0,
-                        'endColumnIndex': num_cols
+                        'startRowIndex': 0, 'endRowIndex': 1,
+                        'startColumnIndex': 0, 'endColumnIndex': num_cols
                     },
                     'cell': {
                         'userEnteredFormat': {
-                            'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9},
-                            'textFormat': {'bold': True},
+                            'backgroundColor': {'red': 0.85, 'green': 0.92, 'blue': 1.0},
+                            'textFormat': {'bold': True, 'fontSize': 10},
                             'horizontalAlignment': 'CENTER'
                         }
                     },
                     'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
                 }
             })
+
+            # Bold Answer Key row with light green background
+            if answer_key_row_idx >= 0:
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': answer_key_row_idx,
+                            'endRowIndex': answer_key_row_idx + 1,
+                            'startColumnIndex': 0, 'endColumnIndex': num_cols
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': {'red': 0.85, 'green': 0.95, 'blue': 0.85},
+                                'textFormat': {'bold': True, 'fontSize': 10},
+                                'horizontalAlignment': 'CENTER'
+                            }
+                        },
+                        'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                    }
+                })
+            
+            # Center-align question columns (C onwards) for all data rows
+            if num_cols > 2:
+                requests.append({
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': 1, 'endRowIndex': num_rows,
+                            'startColumnIndex': 2, 'endColumnIndex': num_cols
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'horizontalAlignment': 'CENTER'
+                            }
+                        },
+                        'fields': 'userEnteredFormat(horizontalAlignment)'
+                    }
+                })
+            
+            # Set fixed column widths: Entry Number (140px), Name (160px), Questions (50px each)
+            requests.append({
+                'updateDimensionProperties': {
+                    'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 1},
+                    'properties': {'pixelSize': 140},
+                    'fields': 'pixelSize'
+                }
+            })
+            requests.append({
+                'updateDimensionProperties': {
+                    'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 1, 'endIndex': 2},
+                    'properties': {'pixelSize': 160},
+                    'fields': 'pixelSize'
+                }
+            })
+            if num_cols > 2:
+                requests.append({
+                    'updateDimensionProperties': {
+                        'range': {'sheetId': sheet_id, 'dimension': 'COLUMNS', 'startIndex': 2, 'endIndex': num_cols},
+                        'properties': {'pixelSize': 50},
+                        'fields': 'pixelSize'
+                    }
+                })
             
             # Freeze header row
             requests.append({
                 'updateSheetProperties': {
                     'properties': {
                         'sheetId': sheet_id,
-                        'gridProperties': {
-                            'frozenRowCount': 1
-                        }
+                        'gridProperties': {'frozenRowCount': 1}
                     },
                     'fields': 'gridProperties.frozenRowCount'
                 }
             })
-            
-            # Auto-resize columns
-            requests.append({
-                'autoResizeDimensions': {
-                    'dimensions': {
-                        'sheetId': sheet_id,
-                        'dimension': 'COLUMNS',
-                        'startIndex': 0,
-                        'endIndex': num_cols
-                    }
-                }
-            })
 
-            # Apply formatting
             self.service.spreadsheets().batchUpdate(
                 spreadsheetId=spreadsheet_id,
                 body={'requests': requests}

@@ -191,8 +191,8 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-text-secondary mb-1">Questions</label>
-                                <input type="number" min="1" max="200" defaultValue="50" 
-                                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500" 
+                                <input type="number" min="1" max="200" defaultValue="50"
+                                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                                     id="template-questions" />
                             </div>
                         </div>
@@ -212,7 +212,7 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                 {hasKey && evaluation.answer_key_data?.answers && (
                     <div className="mt-2 p-3 bg-success-50 border border-success-100 rounded-lg">
                         <p className="text-xs font-semibold text-success-700 mb-2 flex items-center gap-1"><Icon name="CheckCircle" size={12} />Loaded Answer Key</p>
-                        
+
                         {/* Question Type Summary */}
                         {(() => {
                             const typeCounts = {};
@@ -230,14 +230,14 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                                 </div>
                             );
                         })()}
-                        
+
                         <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                             {Object.entries(evaluation.answer_key_data.answers).slice(0, 20).map(([q, a]) => {
                                 const answer = typeof a === 'object' ? (a.correct_answer || a.correct_option) : a;
                                 const type = typeof a === 'object' ? a.question_type : 'SMCQ';
-                                const typeColor = type === 'MMCQ' ? 'border-blue-200 bg-blue-50' : 
-                                                type === 'NCQ' ? 'border-orange-200 bg-orange-50' : 
-                                                'border-success-200 bg-white';
+                                const typeColor = type === 'MMCQ' ? 'border-blue-200 bg-blue-50' :
+                                    type === 'NCQ' ? 'border-orange-200 bg-orange-50' :
+                                        'border-success-200 bg-white';
                                 return (
                                     <span key={q} className={`px-1.5 py-0.5 border rounded text-xs font-mono ${typeColor}`}>
                                         Q{q}:{answer}
@@ -377,7 +377,7 @@ const EvaluatePage = () => {
         }
     }, [evaluationId]);
 
-    useEffect(() => { 
+    useEffect(() => {
         fetchData();
         loadCacheStatus();
     }, [fetchData]);
@@ -403,25 +403,25 @@ const EvaluatePage = () => {
         } else if (processingMode === 'zip') {
             if (!zipFile) { setError('Please select a ZIP file containing student answer sheets.'); return; }
         }
-        
+
         if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
 
         setPipelineLoading(true);
         setError('');
         setPipelineProgress(10);
-        
+
         const modeText = processingMode === 'zip' ? 'ZIP file' : 'Drive folder';
         const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
-        
-        setPipelineLog(prev => [...prev, 
-            `🚀 Starting OCR pipeline (${modeText})...`, 
-            `📁 Source: ${sourceText}`,
-            forceReprocess ? '🔄 Force reprocess enabled (bypassing cache)' : '🎯 Using cache for already processed files'
+
+        setPipelineLog(prev => [...prev,
+        `🚀 Starting OCR pipeline (${modeText})...`,
+        `📁 Source: ${sourceText}`,
+        forceReprocess ? '🔄 Force reprocess enabled (bypassing cache)' : '🎯 Using cache for already processed files'
         ]);
 
         try {
             let pipelineResult;
-            
+
             if (processingMode === 'drive') {
                 const url = driveFolderUrl || evaluation?.drive_folder_url;
                 // Save drive folder URL if changed
@@ -438,12 +438,12 @@ const EvaluatePage = () => {
                 setPipelineLog(prev => [...prev, '📦 Processing ZIP file...']);
                 pipelineResult = await backendService.processZipFile(zipFile, forceReprocess, true);
             }
-            
+
             setPipelineProgress(80);
 
             const processedResults = pipelineResult.results || [];
             const stats = pipelineResult.processing_stats || {};
-            
+
             setPipelineLog(prev => [
                 ...prev,
                 `✅ Processed ${processedResults.length} student sheets`,
@@ -480,6 +480,24 @@ const EvaluatePage = () => {
         }
     };
 
+    const handleClearResults = async () => {
+        if (!window.confirm("Are you sure you want to completely clear the Grading Results and OCR cache for this evaluation? You will start fresh with zero processed students.")) return;
+
+        setError('');
+        setPipelineProgress(0);
+        setPipelineLog(['🧹 Clearing OCR cache and Grading Results...']);
+        try {
+            await backendService.clearCache();
+            await resultsService.clearResultsByEvaluation(evaluationId);
+            setResults([]);
+            setPipelineLog(prev => [...prev, '✅ Cache and results cleared successfully! Start a new pipeline run.']);
+            await loadCacheStatus();
+        } catch (err) {
+            setError('Failed to clear results: ' + err.message);
+            setPipelineLog(prev => [...prev, `❌ Error: ${err.message}`]);
+        }
+    };
+
     const handleExportToSheet = async () => {
         const course = evaluation?.courses;
         if (!course?.master_sheet_url) {
@@ -489,30 +507,28 @@ const EvaluatePage = () => {
         setExportLoading(true);
         setExportMsg('');
         try {
-            const res = await backendService.exportToSheets(course.master_sheet_url, evaluation.subsheet_name);
+            const evalName = evaluation.subsheet_name || evaluation.name;
+            const res = await backendService.exportToSheets(
+                course.master_sheet_url,
+                evaluation.subsheet_name,
+                evalName
+            );
             await evaluationService.updateStatus(evaluationId, 'published');
             setEvaluation(prev => ({ ...prev, status: 'published' }));
-            setExportMsg(`✅ Exported to Google Sheet. Updated: ${res.updated}, Not found: ${res.not_found?.length || 0}`);
+
+            let msg = `✅ Exported to Google Sheet "${evalName}". Updated: ${res.updated} students.`;
+            if (res.response_sheet) {
+                msg += ` Response sheet: "${res.response_sheet.sheet_name}" (${res.response_sheet.students_exported} students).`;
+            }
+            if (res.super_sheet) {
+                msg += ` Super Sheet updated.`;
+            }
+            if (res.statistics) {
+                msg += ` Stats: Mean=${res.statistics.mean}, Highest=${res.statistics.highest}, Lowest=${res.statistics.lowest}.`;
+            }
+            setExportMsg(msg);
         } catch (err) {
             setExportMsg('❌ Export failed: ' + err.message);
-        } finally {
-            setExportLoading(false);
-        }
-    };
-
-    const handleExportResponses = async () => {
-        const course = evaluation?.courses;
-        if (!course?.master_sheet_url) {
-            setExportMsg('❌ No master Google Sheet URL set for this course. Set it in Course Settings.');
-            return;
-        }
-        setExportLoading(true);
-        setExportMsg('');
-        try {
-            const res = await backendService.exportStudentResponses(course.master_sheet_url);
-            setExportMsg(`✅ Student response sheet created: "${res.sheet_name}". ${res.students_exported} students, ${res.questions_exported} questions exported.`);
-        } catch (err) {
-            setExportMsg('❌ Response export failed: ' + err.message);
         } finally {
             setExportLoading(false);
         }
@@ -577,22 +593,13 @@ const EvaluatePage = () => {
                         </div>
                         <div className="flex items-center gap-3">
                             {results.length > 0 && (
-                                <>
-                                    <button onClick={handleExportToSheet} disabled={exportLoading}
-                                        className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
-                                        {exportLoading
-                                            ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
-                                            : <Icon name="FileSpreadsheet" size={16} />}
-                                        Export Marks
-                                    </button>
-                                    <button onClick={handleExportResponses} disabled={exportLoading}
-                                        className="px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
-                                        {exportLoading
-                                            ? <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                            : <Icon name="FileText" size={16} />}
-                                        Export Responses
-                                    </button>
-                                </>
+                                <button onClick={handleExportToSheet} disabled={exportLoading}
+                                    className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                    {exportLoading
+                                        ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
+                                        : <Icon name="FileSpreadsheet" size={16} />}
+                                    Export to Sheet
+                                </button>
                             )}
                         </div>
                     </div>
@@ -631,19 +638,17 @@ const EvaluatePage = () => {
                                     <div>
                                         <label className="block text-xs font-medium text-text-secondary mb-2">Processing Mode</label>
                                         <div className="flex border border-border rounded-lg overflow-hidden">
-                                            <button 
+                                            <button
                                                 onClick={() => setProcessingMode('drive')}
-                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                                                    processingMode === 'drive' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
-                                                }`}>
+                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${processingMode === 'drive' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
+                                                    }`}>
                                                 <Icon name="FolderOpen" size={14} />
                                                 Google Drive
                                             </button>
-                                            <button 
+                                            <button
                                                 onClick={() => setProcessingMode('zip')}
-                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
-                                                    processingMode === 'zip' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
-                                                }`}>
+                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${processingMode === 'zip' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
+                                                    }`}>
                                                 <Icon name="Archive" size={14} />
                                                 ZIP Upload
                                             </button>
@@ -681,11 +686,11 @@ const EvaluatePage = () => {
                                     <div className="space-y-3">
                                         <div className="flex items-center justify-between">
                                             <label className="flex items-center gap-2 text-sm">
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={forceReprocess} 
+                                                <input
+                                                    type="checkbox"
+                                                    checked={forceReprocess}
                                                     onChange={e => setForceReprocess(e.target.checked)}
-                                                    className="rounded border-border text-primary focus:ring-primary-500" 
+                                                    className="rounded border-border text-primary focus:ring-primary-500"
                                                 />
                                                 Force reprocess (bypass cache)
                                             </label>
@@ -695,7 +700,7 @@ const EvaluatePage = () => {
                                                 </span>
                                             )}
                                         </div>
-                                        
+
                                         {forceReprocess && (
                                             <div className="p-2 bg-warning-50 border border-warning-200 rounded text-xs text-warning-700">
                                                 ⚠️ This will reprocess all files, ignoring cached results. Use only if you suspect cache issues.
@@ -782,7 +787,7 @@ const EvaluatePage = () => {
                                             </div>
                                         );
                                     })()}
-                                    
+
                                     {/* Answer Key Type Summary */}
                                     {evaluation?.answer_key_data?.answers && (() => {
                                         const typeCounts = {};
@@ -821,9 +826,14 @@ const EvaluatePage = () => {
                                         </h3>
                                     </div>
                                     {results.length > 0 && (
-                                        <button onClick={fetchData} className="text-xs text-primary hover:underline flex items-center gap-1">
-                                            <Icon name="RefreshCw" size={12} />Refresh
-                                        </button>
+                                        <div className="flex items-center gap-4">
+                                            <button onClick={handleClearResults} className="text-xs text-secondary-500 hover:text-error-600 hover:underline flex items-center gap-1 transition-colors">
+                                                <Icon name="Trash2" size={12} />Clear Cache & Results
+                                            </button>
+                                            <button onClick={fetchData} className="text-xs text-primary hover:underline flex items-center gap-1">
+                                                <Icon name="RefreshCw" size={12} />Refresh
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
                                 <ResultsTable results={results} onCommentUpdate={handleCommentUpdate} />

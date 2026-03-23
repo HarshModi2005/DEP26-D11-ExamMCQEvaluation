@@ -78,13 +78,13 @@ export const backendService = {
     async processZipFile(file, forceReprocess = false, extractAnswerKey = true) {
         const formData = new FormData();
         formData.append('file', file);
-        
+
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
         if (!extractAnswerKey) params.append('extract_answer_key', 'false');
-        
+
         const url = `/process-zip${params.toString() ? '?' + params.toString() : ''}`;
-        
+
         const res = await fetch(`${BACKEND_URL}/api${url}`, {
             method: 'POST',
             body: formData,
@@ -97,12 +97,15 @@ export const backendService = {
     },
 
     /**
-     * Export results to a Google Sheet (optionally a specific tab)
+     * Export results to a Google Sheet (optionally a specific tab).
+     * This now creates: marks sheet, studentResponse sheet, and Super Sheet entry.
      */
-    async exportToSheets(sheetUrl, subsheetName) {
-        const url = subsheetName
-            ? `/export-to-sheets?subsheet_name=${encodeURIComponent(subsheetName)}`
-            : '/export-to-sheets';
+    async exportToSheets(sheetUrl, subsheetName, evaluationName) {
+        const params = new URLSearchParams();
+        if (subsheetName) params.append('subsheet_name', subsheetName);
+        if (evaluationName) params.append('evaluation_name', evaluationName);
+        const queryStr = params.toString();
+        const url = queryStr ? `/export-to-sheets?${queryStr}` : '/export-to-sheets';
         return api(url, {
             method: 'POST',
             body: JSON.stringify({ sheet_url: sheetUrl }),
@@ -136,8 +139,12 @@ export const backendService = {
     /**
      * Export detailed student responses to a separate sheet
      */
-    async exportStudentResponses(sheetUrl) {
-        return api('/export-student-responses', {
+    async exportStudentResponses(sheetUrl, evaluationName) {
+        const params = new URLSearchParams();
+        if (evaluationName) params.append('evaluation_name', evaluationName);
+        const queryStr = params.toString();
+        const url = queryStr ? `/export-student-responses?${queryStr}` : '/export-student-responses';
+        return api(url, {
             method: 'POST',
             body: JSON.stringify({ sheet_url: sheetUrl }),
         });
