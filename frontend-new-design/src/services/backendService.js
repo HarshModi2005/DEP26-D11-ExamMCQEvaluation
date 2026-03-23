@@ -61,11 +61,11 @@ export const backendService = {
         return api('/answer-key');
     },
 
-    /**
-     * Process all student answer sheets in a Drive folder
-     */
     async processDriveFolder(driveFolderUrl, forceReprocess = false) {
-        const url = forceReprocess ? '/process-drive-folder?force_reprocess=true' : '/process-drive-folder';
+        // Updated to use the ultra-optimized parallel pipelined endpoint
+        // (Note: the optimized endpoint doesn't officially support 'force_reprocess' query param,
+        // but we'll include it in case the backend is updated to capture it later, FastAPI simply ignores it).
+        const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
             body: JSON.stringify({ folder_url: driveFolderUrl }),

@@ -1,0 +1,10 @@
+[
+  {
+    "input": "5\n7\n",
+    "output": "Enter First Number: Enter Second Number: In Addition of 5 and 7 is 12\n"
+  },
+  {
+    "input": "10\n20\n",
+    "output": "Enter First Number: Enter Second Number: In Addition of 10 and 20 is 30\n"
+  }
+]

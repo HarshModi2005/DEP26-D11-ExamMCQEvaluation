@@ -1,0 +1,11 @@
+INPUT:
+5
+7
+OUTPUT:
+Enter First Number: Enter Second Number: In Addition of 5 and 7 is 12
+
+INPUT:
+10
+20
+OUTPUT:
+Enter First Number: Enter Second Number: In Addition of 10 and 20 is 30

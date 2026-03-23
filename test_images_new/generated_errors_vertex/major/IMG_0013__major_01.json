@@ -1,0 +1,10 @@
+{
+  "source_image": "/Users/harsh/Desktop/newRepo/AnswerKeyEvaluationDEP/test_images_new/converted/IMG_0013.jpg",
+  "output_image": "/Users/harsh/Desktop/newRepo/AnswerKeyEvaluationDEP/test_images_new/generated_errors_vertex/major/IMG_0013__major_01.png",
+  "category": "major",
+  "variant_index": 1,
+  "model": "gemini-2.5-flash-image",
+  "api_mode": "vertex_project",
+  "prompt": "You are editing a photo of handwritten/printed C code for a competitive-programming prefix-sum problem.\nKeep the same visual style, handwriting/print look, lighting, framing, and paper/background.\nEdit only the code content to create a realistic student-written variant.\nDo not add explanations, labels, watermarks, or extra non-code text.\nReturn an edited image only.\n\nRequired edit:\nCreate a major logical bug by swapping roles of n and q in loops/allocation so the program compiles but behaves incorrectly.\n",
+  "response_mime_type": "image/png"
+}
