@@ -8,24 +8,70 @@ export const resultsService = {
     async saveResults(evaluationId, courseId, results, gradedById) {
         if (!results || results.length === 0) return;
 
+        // 1. Get unique roll numbers from results
+        const uniqueRollNos = [...new Set(results.map(r => r.entry_number).filter(Boolean))];
+        
+        // 2. Fetch existing students
+        const { data: existingStudents, error: fetchErr } = await supabase
+            .from('students')
+            .select('id, roll_number')
+            .in('roll_number', uniqueRollNos);
+            
+        if (fetchErr) throw fetchErr;
+        
+        const existingRollNos = new Set((existingStudents || []).map(s => s.roll_number));
+        
+        // 3. Prepare missing students for insertion
+        const missingStudents = [];
+        const seenRollNos = new Set();
+        
+        for (const r of results) {
+            if (r.entry_number && !existingRollNos.has(r.entry_number) && !seenRollNos.has(r.entry_number)) {
+                missingStudents.push({
+                    roll_number: r.entry_number,
+                    name: r.name || 'Unknown Student'
+                });
+                seenRollNos.add(r.entry_number);
+            }
+        }
+        
+        // 4. Insert missing students if any
+        if (missingStudents.length > 0) {
+            const { error: insertErr } = await supabase
+                .from('students')
+                .insert(missingStudents);
+                
+            if (insertErr) {
+                console.error('Failed to insert missing students:', insertErr);
+                // Proceed anyway, some inserts might be duplicated or fail, we'll fetch again
+            }
+        }
+        
+        // 5. Fetch all needed students again to get their assigned IDs
+        const { data: allStudents, error: fetchAllErr } = await supabase
+            .from('students')
+            .select('id, roll_number')
+            .in('roll_number', uniqueRollNos);
+            
+        if (fetchAllErr) throw fetchAllErr;
+        
+        const studentMap = new Map((allStudents || []).map(s => [s.roll_number, s.id]));
+
         const inserts = [];
 
         for (const r of results) {
-            // Find student by roll number
-            const { data: student } = await supabase
-                .from('students')
-                .select('id')
-                .eq('roll_number', r.entry_number)
-                .single();
+            if (!r.entry_number) continue;
+            
+            const studentId = studentMap.get(r.entry_number);
 
-            if (!student) {
-                console.warn(`Student not found for roll: ${r.entry_number}`);
+            if (!studentId) {
+                console.warn(`Student not found and could not be created for roll: ${r.entry_number}`);
                 continue;
             }
 
             inserts.push({
                 evaluation_id: evaluationId,
-                student_id: student.id,
+                student_id: studentId,
                 graded_by: gradedById,
                 total_score: r.total_score,
                 max_score: r.max_score,
@@ -37,6 +83,8 @@ export const resultsService = {
                 comments: r.comments || '',
             });
         }
+
+        if (inserts.length === 0) return [];
 
         const { data, error } = await supabase
             .from('submission_results')

@@ -97,24 +97,25 @@ class ResultCacheService:
         key_content = json.dumps(answer_key, sort_keys=True)
         return hashlib.sha256(key_content.encode()).hexdigest()
 
-    async def get_cached_ocr_result(self, file_path: str) -> Optional[Dict[str, Any]]:
+    async def get_cached_ocr_result(self, file_path: str, file_hash: str = None) -> Optional[Dict[str, Any]]:
         """
         Retrieve cached OCR result if available.
         
         Args:
             file_path: Path to the image file
+            file_hash: Optional pre-computed hash or unique ID (like Google Drive ID)
             
         Returns:
             Cached OCR result or None if not found/expired
         """
         try:
-            file_hash = await self.get_file_hash(file_path)
+            computed_hash = file_hash if file_hash else await self.get_file_hash(file_path)
             loop = asyncio.get_event_loop()
             
             return await loop.run_in_executor(
                 self.executor,
                 self._get_cached_result_sync,
-                file_hash,
+                computed_hash,
                 'ocr'
             )
         except Exception as e:
@@ -217,23 +218,24 @@ class ResultCacheService:
         finally:
             conn.close()
 
-    async def cache_ocr_result(self, file_path: str, ocr_result: Dict[str, Any]):
+    async def cache_ocr_result(self, file_path: str, ocr_result: Dict[str, Any], file_hash: str = None):
         """
         Cache OCR result for future use.
         
         Args:
             file_path: Path to the processed image file
             ocr_result: OCR extraction result to cache
+            file_hash: Optional pre-computed hash or unique ID
         """
         try:
-            file_hash = await self.get_file_hash(file_path)
+            computed_hash = file_hash if file_hash else await self.get_file_hash(file_path)
             file_name = os.path.basename(file_path)
             
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 self.executor,
                 self._cache_result_sync,
-                file_hash,
+                computed_hash,
                 file_name,
                 ocr_result,
                 None,  # No evaluation result yet

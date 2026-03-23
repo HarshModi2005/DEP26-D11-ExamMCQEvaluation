@@ -181,43 +181,49 @@ class SheetsService:
         ).execute()
 
         values = result.get('values', [])
-        if not values or len(values) < 2:
-            raise ValueError("Sheet is empty or has no data rows")
+        
+        # If completely empty, we will auto-initialize in update_marks
+        if not values:
+            return {
+                "spreadsheet_id": spreadsheet_id,
+                "sheet_name": sheet_name,
+                "columns": {},
+                "students": [],
+                "is_empty": True
+            }
 
         headers = values[0]
         columns = self._detect_columns(headers)
 
-        if not columns.get('entry_number'):
-            raise ValueError(
-                f"Could not detect entry number column. Headers: {headers}. "
-                f"Expected one of: {self.ENTRY_NUMBER_ALIASES}"
-            )
-
         students = []
-        entry_col = columns['entry_number']['index']
-        name_col = columns.get('name', {}).get('index')
-        comments_col = columns.get('comments', {}).get('index')
+        if columns.get('entry_number'):
+            entry_col = columns['entry_number']['index']
+            name_col = columns.get('name', {}).get('index')
+            comments_col = columns.get('comments', {}).get('index')
 
-        for row_idx, row in enumerate(values[1:], start=2):
-            entry_number = self._safe_get(row, entry_col, '').strip()
-            if not entry_number:
-                continue
+            # Process up to current data rows
+            for row_idx, row in enumerate(values[1:], start=2):
+                entry_number = self._safe_get(row, entry_col, '').strip()
+                if not entry_number:
+                    continue
 
-            name = self._safe_get(row, name_col, '').strip() if name_col is not None else ''
-            existing_comment = self._safe_get(row, comments_col, '') if comments_col is not None else ''
+                name = self._safe_get(row, name_col, '').strip() if name_col is not None else ''
+                existing_comment = self._safe_get(row, comments_col, '') if comments_col is not None else ''
 
-            students.append({
-                "row": row_idx,
-                "entry_number": entry_number,
-                "name": name,
-                "existing_comment": existing_comment
-            })
+                students.append({
+                    "row": row_idx,
+                    "entry_number": entry_number,
+                    "name": name,
+                    "existing_comment": existing_comment
+                })
 
         return {
             "spreadsheet_id": spreadsheet_id,
             "sheet_name": sheet_name,
             "columns": columns,
             "students": students,
+            "is_empty": False,
+            "headers": headers
         }
 
     # ──────────────────────────────────────
@@ -226,7 +232,7 @@ class SheetsService:
 
     def update_marks(self, sheet_url: str, results: List[Dict]) -> Dict:
         """
-        Write marks, comments, AND per-question scores.
+        Write marks, comments, AND per-question scores. Auto-initializes if the sheet is empty.
         """
         if not self.service:
             raise RuntimeError("Sheets service not initialized. Check credentials.")
@@ -235,12 +241,73 @@ class SheetsService:
         sheet_data = self.read_student_list(sheet_url)
         spreadsheet_id = sheet_data['spreadsheet_id']
         sheet_name = sheet_data['sheet_name']
-        columns = sheet_data['columns']
-        students = sheet_data['students']
+        columns = sheet_data.get('columns', {})
+        students = sheet_data.get('students', [])
+        
+        # Determine maximum questions from results
+        all_q_nums = set()
+        for r in results:
+            for d in r.get('details', []):
+                qn = d.get('question_number') if isinstance(d, dict) else getattr(d, 'question_number', None)
+                if qn: all_q_nums.add(int(qn))
+        all_q_nums = sorted(list(all_q_nums))
 
-        # Check required columns
+        # === AUTO-INITIALIZE COMPLETELY EMPTY OR INVALID SHEET ===
+        if sheet_data.get('is_empty') or not columns.get('entry_number'):
+            headers = ["Entry Number", "Name", "Total Marks", "Comments"]
+            for q in all_q_nums:
+                headers.append(f"Q{q}")
+                
+            data_rows = [headers]
+            for r in results:
+                row = [
+                    r.get('entry_number', ''),
+                    r.get('name', ''),
+                    r.get('total_score', 0),
+                    r.get('comments', '')
+                ]
+                d_map = {}
+                for d in r.get('details', []):
+                    qn = d.get('question_number') if isinstance(d, dict) else getattr(d, 'question_number', None)
+                    if qn: d_map[int(qn)] = d
+                for q in all_q_nums:
+                    d = d_map.get(q, {})
+                    val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
+                    st = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
+                    if st in ['multiple', 'unattempted', 'incorrect']: val = 0
+                    row.append(val)
+                data_rows.append(row)
+                
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id, range=f"'{sheet_name}'!A1",
+                valueInputOption='USER_ENTERED', body={'values': data_rows}
+            ).execute()
+            return {
+                "updated": len(results), "not_found_in_sheet": [],
+                "not_found_in_results": [], "name_mismatches": [], "errors": []
+            }
+
+        # === APPEND MISSING REQUIRED COLUMNS IF PARTIAL HEADERS ===
+        headers = list(sheet_data.get('headers', []))
+        appended_headers = False
         if not columns.get('marks'):
-            raise ValueError("No 'marks' column detected.")
+            headers.append("Total Marks")
+            appended_headers = True
+        
+        # Optional: ensure we have columns for all questions
+        for q in all_q_nums:
+            if q not in columns.get('questions', {}):
+                headers.append(f"Q{q}")
+                appended_headers = True
+
+        if appended_headers:
+            self.service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id, range=f"'{sheet_name}'!A1",
+                valueInputOption='USER_ENTERED', body={'values': [headers]}
+            ).execute()
+            # Re-read to get correct column mappings
+            sheet_data = self.read_student_list(sheet_url)
+            columns = sheet_data['columns']
 
         marks_col_letter = columns['marks']['letter']
         comments_col_letter = columns.get('comments', {}).get('letter')
@@ -253,6 +320,9 @@ class SheetsService:
             normalized = self._normalize_entry_number(raw)
             if normalized:
                 results_map[normalized] = r
+                
+        # Also need logic to append students that are in results but NOT in students
+        existing_normalized_students = {self._normalize_entry_number(s['entry_number']) for s in students if self._normalize_entry_number(s['entry_number'])}
 
         summary = {
             "updated": 0,
@@ -377,13 +447,6 @@ class SheetsService:
                     except (ValueError, TypeError, AttributeError):
                         continue
             
-            # DEBUG: Print details for the first matched student
-            if len(matched_normalized) == 1:
-                print(f"🔍 DEBUG: Inspecting first student {raw_entry}")
-                print(f"   Details count: {len(details)}")
-                print(f"   Q_MAP keys (int): {list(q_map.keys())}")
-                print(f"   Question Cols keys (int): {list(question_cols.keys())}")
-                
             for q_num, col_info in question_cols.items():
                 col_letter = col_info['letter']
                 
@@ -411,12 +474,70 @@ class SheetsService:
                         "range": f"'{sheet_name}'!{col_letter}{student['row']}",
                         "values": [[val_to_write]]
                     })
-                else:
-                    # If the student didn't have data for this question (e.g. absent/error or not in answer key?)
-                    # We can choose to write 0 or leave blank.
-                    pass
+                    
+        # === APPEND STUDENTS NOT FOUND IN SHEET ===
+        new_students = []
+        for r in results:
+            raw = str(r.get('entry_number', '')).strip()
+            norm = self._normalize_entry_number(raw)
+            if norm and norm not in existing_normalized_students:
+                new_students.append(r)
+                existing_normalized_students.add(norm)
+                matched_normalized.add(norm)
+                
+        if new_students:
+            start_row = len(students) + 2
+            append_rows = []
+            col_list = list(columns.values())
+            # Find max col index
+            max_idx = max([c['index'] for c in col_list]) if col_list else 0
+            
+            for r in new_students:
+                row_data = [""] * (max_idx + 1)
+                
+                # Entry Number
+                e_idx = columns.get('entry_number', {}).get('index')
+                if e_idx is not None: row_data[e_idx] = r.get('entry_number', '')
+                
+                # Name
+                n_idx = columns.get('name', {}).get('index')
+                if n_idx is not None: row_data[n_idx] = r.get('name', '')
+                
+                # Marks
+                m_idx = columns.get('marks', {}).get('index')
+                if m_idx is not None: row_data[m_idx] = r.get('total_score', 0)
+                
+                # Comments
+                c_idx = columns.get('comments', {}).get('index')
+                if c_idx is not None: row_data[c_idx] = r.get('comments', '')
+                
+                # Questions
+                d_map = {}
+                for d in r.get('details', []):
+                    qn = d.get('question_number') if isinstance(d, dict) else getattr(d, 'question_number', None)
+                    if qn: d_map[int(qn)] = d
+                    
+                for q_num, col_info in question_cols.items():
+                    q_idx = col_info['index']
+                    d = d_map.get(q_num, {})
+                    val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
+                    status = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
+                    if status in ['multiple', 'unattempted', 'incorrect']: val = 0
+                    row_data[q_idx] = val
+                    
+                append_rows.append(row_data)
+                
+            if append_rows:
+                # Use append operation
+                self.service.spreadsheets().values().append(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{sheet_name}'!A1",
+                    valueInputOption='USER_ENTERED',
+                    insertDataOption='INSERT_ROWS',
+                    body={'values': append_rows}
+                ).execute()
 
-        # Execute batch update
+        # Execute batch update (for existing students)
         if batch_data:
             try:
                 # Split huge batches if necessary (Google limit is around 50k calls?? No, payload size)

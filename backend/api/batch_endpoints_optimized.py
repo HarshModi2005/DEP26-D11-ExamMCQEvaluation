@@ -27,7 +27,7 @@ import io
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
-router = APIRouter()
+router = APIRouter(prefix="/api")
 
 # Services
 drive_service = DriveService()
@@ -276,18 +276,11 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     async def _handle(sheet_file: dict, idx: int):
         nonlocal success_count
         fname = sheet_file["name"]
+        file_id = sheet_file["id"]
         local_path = os.path.join(temp_dir, f"{idx}_{fname}")
 
-        # 1. Download
-        ok = await asyncio.to_thread(drive_service.download_file, sheet_file["id"], local_path)
-        if not ok:
-            async with lock:
-                errors.append({"file": fname, "error": "Download failed"})
-                _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
-            return
-
-        # 2. Cache check
-        cached = await cache_service.get_cached_ocr_result(local_path)
+        # 1. Cache check BEFORE download
+        cached = await cache_service.get_cached_ocr_result(local_path, file_hash=file_id)
         if cached:
             ocr = cached
             async with lock:
@@ -295,18 +288,27 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
         else:
             async with lock:
                 _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
+            
+            # 2. Download
+            ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
+            if not ok:
+                async with lock:
+                    errors.append({"file": fname, "error": "Download failed"})
+                    _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+                return
+
             # 3. OCR — rate-limited, multi-region, auto-retry
             async with ocr_sem:
                 ocr = await _ocr_one(session, local_path, _get_headers, project_id)
             if "error" not in ocr:
-                await cache_service.cache_ocr_result(local_path, ocr)
+                await cache_service.cache_ocr_result(local_path, ocr, file_hash=file_id)
 
         if "error" in ocr:
             async with lock:
                 errors.append({"file": fname, "error": ocr["error"]})
                 _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
             try:
-                os.remove(local_path)
+                os.path.exists(local_path) and os.remove(local_path)
             except Exception:
                 pass
             return
@@ -334,7 +336,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                     print(f"  📊 {processed}/{total} ({pct:.0f}%) | ✅{success_count} ❌{len(errors)} | {rate:.2f}/s | ETA {eta:.0f}s")
 
         try:
-            os.remove(local_path)
+            os.path.exists(local_path) and os.remove(local_path)
         except Exception:
             pass
 
@@ -394,16 +396,20 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
         _processing_stats[processing_id]["total_files"] = len(student_sheets)
 
         # Load answer key
-        if (_current_answer_key is None or force_reprocess) and answer_key_files:
-            _processing_stats[processing_id]["status"] = "loading_answer_key"
-            tmp = tempfile.mkdtemp(prefix="ak_")
-            try:
-                local_ak = drive_service.download_answer_key(answer_key_files[0], tmp)
-                _current_answer_key = answer_key_service.extract_answer_key(
-                    local_ak, answer_key_files[0].get("mimeType", "")
-                )
-            finally:
-                shutil.rmtree(tmp, ignore_errors=True)
+        if (_current_answer_key is None or force_reprocess):
+            if answer_key_files:
+                _processing_stats[processing_id]["status"] = "loading_answer_key"
+                tmp = tempfile.mkdtemp(prefix="ak_")
+                try:
+                    local_ak = drive_service.download_answer_key(answer_key_files[0], tmp)
+                    _current_answer_key = answer_key_service.extract_answer_key(
+                        local_ak, answer_key_files[0].get("mimeType", "")
+                    )
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+            else:
+                # Fallback to local disk if previously uploaded
+                _current_answer_key = answer_key_service.load_from_disk()
 
         if not _current_answer_key:
             raise HTTPException(status_code=400, detail="No answer key loaded.")
