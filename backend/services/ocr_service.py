@@ -3,6 +3,9 @@ import requests
 import base64
 import json
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 class OCRService:
     def __init__(self, api_key: str = None, provider: str = None):
@@ -195,7 +198,7 @@ class OCRService:
     def extract_objective_sheet(self, image_path: str) -> dict:
         """
         Specialized extraction for OBJECTIVE answer sheets.
-        
+
         Returns a dict ready for match_and_score():
             {
                 "entry_number": "2023CSE001",
@@ -207,6 +210,7 @@ class OCRService:
             return {"error": f"File not found: {image_path}"}
 
         print(f"📝 Processing objective sheet: {image_path}")
+        logger.info(f"[OCR] Starting extraction for: {image_path}")
 
         try:
             base64_image = self._encode_image(image_path)
@@ -245,27 +249,109 @@ class OCRService:
 
             result = response.json()
             extracted_text = self._parse_streaming_response(result)
-            parsed = self._parse_json(extracted_text)
+
+            # ── LOG 1: raw model output ───────────────────────────────────
+            logger.info(f"[OCR] Raw model text for {os.path.basename(image_path)}:\n{extracted_text[:800]}")
+            print(f"  📋 Raw OCR text:\n{extracted_text[:600]}")
+
+            cleaned = re.sub(r'```json\s*|\s*```', '', extracted_text).strip()
+            parsed = None
+            parse_error = None
+
+            # ── LOG 2: JSON parse attempt ─────────────────────────────────
+            try:
+                parsed = json.loads(cleaned)
+                logger.info(f"[OCR] JSON parse OK — keys: {list(parsed.keys())}")
+            except json.JSONDecodeError as je:
+                parse_error = str(je)
+                logger.warning(f"[OCR] JSON parse FAILED ({je}), trying regex extraction")
+                match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+                if match:
+                    try:
+                        parsed = json.loads(match.group())
+                        logger.info(f"[OCR] Regex JSON extraction OK — keys: {list(parsed.keys())}")
+                    except json.JSONDecodeError as je2:
+                        logger.error(f"[OCR] Regex JSON extraction also FAILED: {je2}")
+                        return {"error": f"Parse failed: {je2}", "raw_response": extracted_text[:500]}
+                else:
+                    logger.error("[OCR] No JSON object found in model output at all")
+                    return {"error": "No JSON found in model response", "raw_response": extracted_text[:500]}
 
             if "error" in parsed:
+                logger.warning(f"[OCR] Model returned error field: {parsed['error']}")
                 return parsed
 
+            # ── LOG 3: raw field values before normalization ───────────────
+            raw_entry = parsed.get("entry_number") or parsed.get("roll_number") or ""
+            raw_name  = parsed.get("name") or parsed.get("student_name") or ""
+            raw_answers = parsed.get("answers", {})
+            logger.info(
+                f"[OCR] Pre-norm → entry='{raw_entry}' name='{raw_name}' "
+                f"answer_count={len(raw_answers) if isinstance(raw_answers, dict) else 'list:'+str(len(raw_answers))}"
+            )
+            print(
+                f"  🔍 OCR extracted: entry='{raw_entry}' | name='{raw_name}' | "
+                f"answers ({len(raw_answers) if isinstance(raw_answers, dict) else len(raw_answers)} qs): "
+                f"{dict(list(raw_answers.items())[:5]) if isinstance(raw_answers, dict) else raw_answers[:5]}"
+            )
+
+            # ── LOG 4: common format-related diagnosis ────────────────────
+            if not raw_entry:
+                logger.warning(
+                    "[OCR] ⚠️  entry_number is EMPTY — common causes:\n"
+                    "  • 'Entry No.' label + value written on same line at bottom of question section\n"
+                    "  • Entry number has spaces (e.g. 'B21 CSB 1001') which confused the model\n"
+                    "  • Model returned it under a different key (e.g. 'roll_number', 'id')\n"
+                    f"  • All keys in parsed JSON: {list(parsed.keys())}"
+                )
+                print(f"  ⚠️  No entry_number found! All OCR keys: {list(parsed.keys())}")
+            if not raw_name:
+                logger.warning(
+                    "[OCR] ⚠️  name is EMPTY — the model may have missed 'Name -' label\n"
+                    f"  • All keys in parsed JSON: {list(parsed.keys())}"
+                )
+            if isinstance(raw_answers, dict) and len(raw_answers) == 0:
+                logger.warning(
+                    "[OCR] ⚠️  answers dict is EMPTY — common causes:\n"
+                    "  • Two-column answer grid (1-5 left, 6-10 right) not parsed correctly\n"
+                    "  • Model returned answers under a different key (e.g. 'objective_answers')\n"
+                    f"  • All keys in parsed JSON: {list(parsed.keys())}"
+                )
+
             # Normalize the output
-            return self._normalize_objective_output(parsed)
+            normalized = self._normalize_objective_output(parsed)
+
+            # ── LOG 5: final normalized result ────────────────────────────
+            logger.info(
+                f"[OCR] Normalized → entry='{normalized['entry_number']}' "
+                f"name='{normalized['name']}' "
+                f"answers={normalized['answers']}"
+            )
+            print(
+                f"  ✅ Normalized: entry='{normalized['entry_number']}' | "
+                f"name='{normalized['name']}' | answers={normalized['answers']}"
+            )
+            return normalized
 
         except Exception as e:
+            logger.exception(f"[OCR] Unexpected exception for {image_path}: {e}")
             print(f"❌ Objective sheet extraction failed: {e}")
             return {"error": str(e)}
 
+
     def _get_objective_prompt(self):
         return """
-You are analyzing an OBJECTIVE answer sheet (MCQ/OMR style) that may contain different question types.
+You are analyzing a student OBJECTIVE answer sheet. The sheet has a specific layout:
+- The TOP section contains printed questions (Q1 to Q10 or similar).
+- Below the questions, near the BOTTOM of the question block, there is a "Name" field and an "Entry No." field written by the student — look for them carefully even if they are on the same line or have labels like "Name -" or "Entry No.-".
+- Below that is an ANSWER GRID with question numbers (1, 2, 3...) and the student's handwritten answers.
+- The answer grid may be in TWO COLUMNS (e.g., questions 1-5 on the left and 6-10 on the right).
 
-Extract ONLY the following fields and return as valid JSON (no markdown):
+Extract the following and return ONLY valid JSON (no markdown, no explanation):
 
 {
-    "entry_number": "the student's entry/roll number",
-    "name": "the student's name",
+    "entry_number": "the student's entry/roll number exactly as written (e.g. '2021CSB1001' or 'B21 CSB 1001' — DO NOT normalize or remove spaces)",
+    "name": "the student's name as written",
     "answers": {
         "1": "A",
         "2": "C",
@@ -273,28 +359,25 @@ Extract ONLY the following fields and return as valid JSON (no markdown):
         "4": "2.5",
         ...
     },
-    "comments": "Any observations about the sheet: e.g. 'Damage on corner', 'Q5 ambiguous', 'Name unclear', 'Erasures detected'. If clean, return null."
+    "comments": "Any observations about the sheet quality or ambiguities. null if clean."
 }
 
-Rules:
-- "entry_number": Look for roll number, entry number, enrollment number, registration number, student ID, etc.
-- "name": The student's name as written on the sheet.
-- "answers": A dictionary mapping question number (as string) to the marked answer.
-  
-Answer formats by question type:
-- Single MCQ (SMCQ): Single letter like "A", "B", "C", "D"
-- Multiple MCQ (MMCQ): Multiple letters like "AC", "BCD", "AB" (no spaces)
-- Numerical (NCQ): Numbers like "2.5", "7.0", "15"
+Rules for answers:
+- Scan BOTH columns of the answer grid. Do not miss the right column.
+- Single MCQ: one letter e.g. "A", "B", "C", "D"
+- Multiple MCQ: concatenated letters e.g. "AC", "BCD"
+- Numerical: include decimals e.g. "2.5", "7.0"
+- If a question is blank/unanswered, OMIT it from answers (do not include it at all).
+- If multiple options are circled for a SINGLE-choice question, use "MULTIPLE".
+- Question numbers MUST be strings ("1", "2", ...), not integers.
 
-General rules:
-- If a question appears unanswered or blank, DO NOT include it in answers.
-- If multiple options are marked for a single-choice question, set the value to "MULTIPLE".
-- For multiple-choice questions, combine all marked letters (e.g., if A and C are marked, use "AC").
-- For numerical answers, include decimal points if present (e.g., "2.5" not "2").
-- Question numbers must be integers represented as strings.
-- If entry_number or name is not found, set to null.
+For entry_number:
+- Look for a field labelled "Entry No.", "Entry Number", "Roll No.", "Enrollment No.", or similar.
+- It is usually written near the student's name, often in the format YYYY<branch><number> e.g. "2021CSB1001" or with spaces like "B21 CSB 1001".
+- Return it EXACTLY as written by the student, including spaces.
+- If not found, return null.
 
-Return ONLY valid JSON, no explanation, no markdown.
+Return ONLY the JSON object.
 """
 
     def _normalize_objective_output(self, parsed: dict) -> dict:

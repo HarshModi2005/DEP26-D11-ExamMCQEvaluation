@@ -396,7 +396,7 @@ const EvaluatePage = () => {
 
     const handleKeyLoaded = (keyData) => {
         setEvaluation(prev => ({ ...prev, answer_key_data: keyData }));
-        setPipelineLog(prev => [...prev, `✅ Answer key loaded — ${keyData.total_questions || '?'} questions`]);
+        setPipelineLog(prev => [...prev, `Answer key loaded — ${keyData.total_questions || '?'} questions`]);
     };
 
     const handleRunPipeline = async () => {
@@ -418,13 +418,14 @@ const EvaluatePage = () => {
         const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
 
         setPipelineLog(prev => [...prev,
-            `🚀 Starting OCR pipeline (${modeText})...`,
-            `📁 Source: ${sourceText}`,
-            forceReprocess ? '🔄 Force reprocess enabled (bypassing cache)' : '⚡ Evaluation cache active — cached sheets skip OCR entirely',
+            `Starting OCR pipeline (${modeText})...`,
+            `Source: ${sourceText}`,
+            forceReprocess ? 'Force reprocess enabled (bypassing cache)' : 'Evaluation cache active — cached sheets skip OCR entirely',
         ]);
 
         try {
             let pipelineResult;
+            const startTime = Date.now();
 
             if (processingMode === 'drive') {
                 const url = driveFolderUrl || evaluation?.drive_folder_url;
@@ -434,11 +435,11 @@ const EvaluatePage = () => {
                 }
 
                 setPipelineProgress(25);
-                setPipelineLog(prev => [...prev, '🔍 Scanning Drive folder for sheets...']);
+                setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
                 pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
             } else {
                 setPipelineProgress(25);
-                setPipelineLog(prev => [...prev, '📦 Processing ZIP file...']);
+                setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
                 pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
             }
 
@@ -458,19 +459,18 @@ const EvaluatePage = () => {
                 errors: pipelineResult.errors?.length || 0,
             });
 
-            const logLines = [
-                `📊 Total sheets in folder: ${totalSheets}`,
-                `✅ Successfully processed: ${processedResults.length} / ${totalSheets}`,
-            ];
-            if (cacheHits > 0)    logLines.push(`⚡ Served from cache (no OCR): ${cacheHits}`);
-            if (newlyProcessed > 0) logLines.push(`🔬 Newly OCR'd: ${newlyProcessed}`);
-            if (pipelineResult.errors?.length > 0)
-                logLines.push(`⚠️ ${pipelineResult.errors.length} error(s): ${pipelineResult.errors.map(e => e.file).join(', ')}`);
+            const endTime = Date.now();
+            const timeSeconds = (endTime - startTime) / 1000;
+            const speed = timeSeconds > 0 ? (totalSheets / timeSeconds).toFixed(2) : "0.00";
+            const processedPct = totalSheets > 0 ? Math.round((processedResults.length / totalSheets) * 100) : 0;
+            const errorCount = pipelineResult.errors?.length || 0;
 
-            setPipelineLog(prev => [...prev, ...logLines]);
+            const logLine = `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✓${processedResults.length} ✗${errorCount} ${cacheHits} cached | ${speed}/s`;
+            
+            setPipelineLog(prev => [...prev, logLine]);
 
             if (processedResults.length > 0) {
-                setPipelineLog(prev => [...prev, '💾 Saving results to database...']);
+                setPipelineLog(prev => [...prev, 'Saving results to database...']);
                 await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
                 setPipelineProgress(95);
 
@@ -483,13 +483,13 @@ const EvaluatePage = () => {
                 const fresh = await resultsService.getResultsByEvaluation(evaluationId);
                 setResults(fresh || []);
                 setPipelineProgress(100);
-                setPipelineLog(prev => [...prev, `🎉 Done! ${fresh.length} student results saved.`]);
+                setPipelineLog(prev => [...prev, `Done! ${fresh.length} student results saved.`]);
             } else {
-                setPipelineLog(prev => [...prev, '⚠️ No results returned. Check the Drive folder.']);
+                setPipelineLog(prev => [...prev, 'No results returned. Check the source folder or file.']);
             }
         } catch (err) {
             setError('Pipeline failed: ' + err.message);
-            setPipelineLog(prev => [...prev, `❌ Error: ${err.message}`]);
+            setPipelineLog(prev => [...prev, `Error: ${err.message}`]);
         } finally {
             setPipelineLoading(false);
             loadCacheStatus();
@@ -501,23 +501,23 @@ const EvaluatePage = () => {
 
         setError('');
         setPipelineProgress(0);
-        setPipelineLog(['🧹 Clearing OCR cache and Grading Results...']);
+        setPipelineLog(['Clearing OCR cache and Grading Results...']);
         try {
             await backendService.clearCache();
             await resultsService.clearResultsByEvaluation(evaluationId);
             setResults([]);
-            setPipelineLog(prev => [...prev, '✅ Cache and results cleared successfully! Start a new pipeline run.']);
+            setPipelineLog(prev => [...prev, 'Cache and results cleared successfully! Start a new pipeline run.']);
             await loadCacheStatus();
         } catch (err) {
             setError('Failed to clear results: ' + err.message);
-            setPipelineLog(prev => [...prev, `❌ Error: ${err.message}`]);
+            setPipelineLog(prev => [...prev, `Error: ${err.message}`]);
         }
     };
 
     const handleExportToSheet = async () => {
         const course = evaluation?.courses;
         if (!course?.master_sheet_url) {
-            setExportMsg('❌ No master Google Sheet URL set for this course. Set it in Course Settings.');
+            setExportMsg('Error: No master Google Sheet URL set for this course. Set it in Course Settings.');
             return;
         }
         setExportLoading(true);
@@ -542,7 +542,7 @@ const EvaluatePage = () => {
             await evaluationService.updateStatus(evaluationId, 'published');
             setEvaluation(prev => ({ ...prev, status: 'published' }));
 
-            let msg = `✅ Exported to Google Sheet "${evalName}". Updated: ${res.updated} students.`;
+            let msg = `Exported to Google Sheet "${evalName}". Updated: ${res.updated} students.`;
             if (res.response_sheet) {
                 msg += ` Response sheet: "${res.response_sheet.sheet_name}" (${res.response_sheet.students_exported} students).`;
             }
@@ -554,7 +554,7 @@ const EvaluatePage = () => {
             }
             setExportMsg(msg);
         } catch (err) {
-            setExportMsg('❌ Export failed: ' + err.message);
+            setExportMsg('Export failed: ' + err.message);
         } finally {
             setExportLoading(false);
         }
@@ -639,7 +639,7 @@ const EvaluatePage = () => {
                     )}
 
                     {exportMsg && (
-                        <div className={`p-4 rounded-xl border text-sm ${exportMsg.startsWith('✅') ? 'bg-success-50 border-success-200 text-success-700' : 'bg-error-50 border-error-200 text-error'}`}>
+                        <div className={`p-4 rounded-xl border text-sm ${!exportMsg.startsWith('Error') && !exportMsg.startsWith('Export failed') ? 'bg-success-50 border-success-200 text-success-700' : 'bg-error-50 border-error-200 text-error'}`}>
                             {exportMsg}
                         </div>
                     )}
@@ -729,7 +729,7 @@ const EvaluatePage = () => {
 
                                         {forceReprocess && (
                                             <div className="p-2 bg-warning-50 border border-warning-200 rounded text-xs text-warning-700">
-                                                ⚠️ This will reprocess all files, ignoring cached results. Use only if you suspect cache issues.
+                                                Note: This will reprocess all files, ignoring cached results. Use only if you suspect cache issues.
                                             </div>
                                         )}
                                     </div>
@@ -763,15 +763,15 @@ const EvaluatePage = () => {
                                             </div>
                                             <div className="bg-success-50 border border-success-100 rounded-lg p-2">
                                                 <p className="text-lg font-bold text-success-600">{pipelineSheetCount.processed}</p>
-                                                <p className="text-xs text-success-600">Processed ✓</p>
+                                                <p className="text-xs text-success-600">Processed</p>
                                             </div>
                                             <div className="bg-blue-50 border border-blue-100 rounded-lg p-2">
                                                 <p className="text-lg font-bold text-blue-600">{pipelineSheetCount.cached}</p>
-                                                <p className="text-xs text-blue-600">⚡ From Cache</p>
+                                                <p className="text-xs text-blue-600">From Cache</p>
                                             </div>
                                             <div className="bg-secondary-50 border border-border rounded-lg p-2">
                                                 <p className="text-lg font-bold text-text-primary">{pipelineSheetCount.newOcr}</p>
-                                                <p className="text-xs text-text-secondary">🔬 New OCR</p>
+                                                <p className="text-xs text-text-secondary">New OCR</p>
                                             </div>
                                         </div>
                                     )}

@@ -141,7 +141,7 @@ class SheetsService:
     @classmethod
     def _normalize_entry_number(cls, raw: str) -> Optional[str]:
         """Normalize to YYYYBBBNNNN."""
-        if not raw or raw.lower() in ('none', 'n/a', ''):
+        if not raw or raw.lower() in ('unknown', 'none', 'n/a', ''):
             return None
 
         clean = raw.strip()
@@ -396,7 +396,14 @@ class SheetsService:
         if not sheet_name or not ocr_name:
             return None
 
-        sim = cls._name_similarity(sheet_name, ocr_name)
+        s = sheet_name.strip().lower()
+        o = ocr_name.strip().lower()
+
+        # Skip comparison if either name is a known placeholder — raw OCR couldn't read it
+        if not s or not o or s == 'unknown' or o == 'unknown':
+            return None
+
+        sim = cls._name_similarity(s, o)
         if sim >= 0.6:  # Good enough match — no mismatch
             return None
 
@@ -545,9 +552,11 @@ class SheetsService:
                 raise ValueError("Spreadsheet has no sheets")
             target_sheet = sheets[0]['properties']['title']
 
-        # Sanitize helper — strip legacy placeholder strings from OCR results
-        # Note: 'unknown' is intentionally NOT in this set so raw OCR text is preserved.
-        _UNKNOWN_PLACEHOLDERS = {'n/a', 'none', 'null'}
+        # Sanitize helper — strip known meaningless placeholder strings from OCR results.
+        # 'unknown' IS included here: when OCR cannot read a field it outputs 'unknown',
+        # which should become an empty string so downstream matching/export stays clean.
+        # The actual raw OCR text (garbled entry numbers, partial names) is kept as-is.
+        _UNKNOWN_PLACEHOLDERS = {'unknown', 'n/a', 'none', 'null'}
 
         def _sanitize(val: str) -> str:
             """Return empty string if val is a known placeholder, else val."""
