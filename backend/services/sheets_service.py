@@ -101,13 +101,47 @@ class SheetsService:
         return spreadsheet_id, sheet_name
 
     # ──────────────────────────────────────
-    #  Entry Number Normalization
+    #  OCR-Aware Smart Matching System
     # ──────────────────────────────────────
+
+    # Groups of characters that OCR commonly swaps
+    OCR_CONFUSABLE_GROUPS = [
+        frozenset('0ODQo'),       # zero, O, D, Q, lowercase-o
+        frozenset('1IlL|!i'),     # one, I, l, L, pipe, exclamation, lowercase-i
+        frozenset('5S$s'),        # five, S, dollar, lowercase-s
+        frozenset('8B&'),         # eight, B, ampersand
+        frozenset('2Zz'),         # two, Z, lowercase-z
+        frozenset('6Gb'),         # six, G, lowercase-b (round shape)
+        frozenset('9gq'),         # nine, g, q
+        frozenset('UVuv'),        # U, V and lowercase
+        frozenset('CcG('),        # C, c, G, open-paren
+        frozenset('4A'),          # four looks like A in some fonts
+        frozenset('7T'),          # seven looks like T
+        frozenset('3E'),          # three looks like E (reversed)
+        frozenset('Pp'),          # P, p
+        frozenset('Kk'),          # K, k
+        frozenset('Ww'),          # W, w
+        frozenset('Ff'),          # F, f
+        frozenset('Yy'),          # Y, y
+        frozenset('Xx'),          # X, x
+        frozenset('Hh'),          # H, h — OCR sometimes swaps case
+        frozenset('Mm'),          # M, m
+        frozenset('Nn'),          # N, n
+        frozenset('Rr'),          # R, r
+    ]
+
+    # Digit-to-letter confusions for MCQ answer correction (number OCR'd instead of letter)
+    # e.g. OCR reads '8' but student actually bubbled 'B'
+    OCR_DIGIT_TO_LETTER = {
+        '0': 'O', '1': 'I', '2': 'Z', '3': 'E',
+        '4': 'A', '5': 'S', '6': 'G', '7': 'T',
+        '8': 'B', '9': 'G',
+    }
 
     @classmethod
     def _normalize_entry_number(cls, raw: str) -> Optional[str]:
         """Normalize to YYYYBBBNNNN."""
-        if not raw or raw.lower() in ('unknown', 'none', 'n/a', ''):
+        if not raw or raw.lower() in ('none', 'n/a', ''):
             return None
 
         clean = raw.strip()
@@ -123,36 +157,250 @@ class SheetsService:
             return fallback
         return None
 
+    @classmethod
+    def _ocr_canonicalize(cls, text: str) -> str:
+        """
+        Canonicalize a string for OCR-robust comparison.
+        Maps all confusable characters to a canonical representative.
+        """
+        result = []
+        for ch in text.upper():
+            canonical = ch
+            for group in cls.OCR_CONFUSABLE_GROUPS:
+                if ch in group:
+                    canonical = sorted(group)[0]  # Pick lowest char as canonical
+                    break
+            result.append(canonical)
+        return ''.join(result)
+
+    @classmethod
+    def _levenshtein_distance(cls, s1: str, s2: str) -> int:
+        """Compute Levenshtein edit distance between two strings."""
+        if len(s1) < len(s2):
+            return cls._levenshtein_distance(s2, s1)
+        if len(s2) == 0:
+            return len(s1)
+        prev_row = range(len(s2) + 1)
+        for i, c1 in enumerate(s1):
+            curr_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                # Substitutions cost 0 if chars are OCR-confusable
+                if c1 == c2:
+                    sub_cost = 0
+                elif cls._are_ocr_confusable(c1, c2):
+                    sub_cost = 0.3  # Low cost for OCR-common confusions
+                else:
+                    sub_cost = 1
+                curr_row.append(min(
+                    curr_row[-1] + 1,           # insertion
+                    prev_row[j + 1] + 1,        # deletion
+                    prev_row[j] + sub_cost       # substitution
+                ))
+            prev_row = curr_row
+        return prev_row[-1]
+
+    @classmethod
+    def _are_ocr_confusable(cls, c1: str, c2: str) -> bool:
+        """Check if two characters are commonly confused by OCR."""
+        c1u, c2u = c1.upper(), c2.upper()
+        if c1u == c2u:
+            return True
+        for group in cls.OCR_CONFUSABLE_GROUPS:
+            if c1u in group and c2u in group:
+                return True
+        return False
+
+    @classmethod
+    def _entry_number_similarity(cls, entry1: str, entry2: str) -> float:
+        """
+        Compute similarity between two entry numbers using OCR-aware comparison.
+        Returns 0.0 to 1.0.
+        """
+        if not entry1 or not entry2:
+            return 0.0
+
+        # Strip all whitespace and punctuation for raw comparison
+        e1 = re.sub(r'[\s\-_./]', '', entry1).upper()
+        e2 = re.sub(r'[\s\-_./]', '', entry2).upper()
+
+        if not e1 or not e2:
+            return 0.0
+
+        # 1. Exact match after cleanup
+        if e1 == e2:
+            return 1.0
+
+        # 2. OCR-canonical match (maps confusable chars to same representative)
+        c1 = cls._ocr_canonicalize(e1)
+        c2 = cls._ocr_canonicalize(e2)
+        if c1 == c2:
+            return 0.98
+
+        # 3. Extract just the digits and compare (handles letter confusion but same digits)
+        digits1 = re.sub(r'[^0-9]', '', e1)
+        digits2 = re.sub(r'[^0-9]', '', e2)
+        if digits1 and digits2 and digits1 == digits2 and len(digits1) >= 4:
+            return 0.92
+
+        # 4. Levenshtein distance with OCR-aware substitution costs
+        max_len = max(len(e1), len(e2))
+        if max_len == 0:
+            return 0.0
+        lev_dist = cls._levenshtein_distance(e1, e2)
+        lev_sim = 1.0 - (lev_dist / max_len)
+
+        # 5. Check if entry numbers share a structural pattern (same year + branch)
+        m1 = cls.ENTRY_NUMBER_PATTERN.search(entry1)
+        m2 = cls.ENTRY_NUMBER_PATTERN.search(entry2)
+        structural_bonus = 0.0
+        if m1 and m2:
+            if m1.group(1) == m2.group(1):  # Same year
+                structural_bonus += 0.05
+            if m1.group(2).upper() == m2.group(2).upper():  # Same branch
+                structural_bonus += 0.05
+            # Compare just the numeric tail with OCR awareness
+            tail1 = m1.group(3)
+            tail2 = m2.group(3)
+            if tail1 == tail2:
+                structural_bonus += 0.15
+            elif len(tail1) == len(tail2):
+                tail_dist = cls._levenshtein_distance(tail1, tail2)
+                if tail_dist <= 1:
+                    structural_bonus += 0.10
+
+        return min(lev_sim + structural_bonus, 1.0)
+
+    @classmethod
+    def _name_similarity(cls, name1: str, name2: str) -> float:
+        """
+        Compute OCR-aware name similarity using multiple signals.
+        Returns 0.0 to 1.0.
+        """
+        if not name1 or not name2:
+            return 0.0
+
+        s = name1.strip().lower()
+        o = name2.strip().lower()
+
+        if not s or not o:
+            return 0.0
+
+        # 1. Exact match
+        if s == o:
+            return 1.0
+
+        # 2. Word-level matching (handles word reordering)
+        s_parts = set(s.split())
+        o_parts = set(o.split())
+        s_words = s.split()
+        o_words = o.split()
+
+        if s_parts and o_parts:
+            # Exact word intersection
+            common_exact = s_parts.intersection(o_parts)
+            total_words = max(len(s_parts), len(o_parts))
+            word_ratio = len(common_exact) / total_words if total_words > 0 else 0
+
+            # If all words match (possibly reordered), it's a perfect match
+            if word_ratio >= 1.0:
+                return 1.0
+            # If most words match, very high confidence
+            if word_ratio >= 0.6 and len(common_exact) >= 2:
+                return 0.9 + (word_ratio * 0.1)
+
+        # 3. OCR-aware word matching (fuzzy per-word)
+        fuzzy_word_matches = 0
+        total_word_pairs = max(len(s_words), len(o_words))
+        for sw in s_words:
+            for ow in o_words:
+                if len(sw) >= 2 and len(ow) >= 2:
+                    per_word_dist = cls._levenshtein_distance(sw, ow)
+                    max_word_len = max(len(sw), len(ow))
+                    if per_word_dist <= max(1, max_word_len * 0.3):  # Allow ~30% error
+                        fuzzy_word_matches += 1
+                        break
+        fuzzy_word_ratio = fuzzy_word_matches / total_word_pairs if total_word_pairs > 0 else 0
+
+        # 4. Substring containment (one name contains the other)
+        containment_bonus = 0.0
+        if s in o or o in s:
+            containment_bonus = 0.3
+        else:
+            # Check if any significant word (>=3 chars) appears as substring
+            for word in s_parts:
+                if len(word) >= 3 and word in o:
+                    containment_bonus = 0.15
+                    break
+            if containment_bonus == 0:
+                for word in o_parts:
+                    if len(word) >= 3 and word in s:
+                        containment_bonus = 0.15
+                        break
+
+        # 5. Character bigram similarity (robust to small OCR errors)
+        def bigrams(text):
+            return set(text[i:i+2] for i in range(len(text) - 1)) if len(text) >= 2 else set()
+
+        s_bigrams = bigrams(s.replace(' ', ''))
+        o_bigrams = bigrams(o.replace(' ', ''))
+        if s_bigrams and o_bigrams:
+            bigram_sim = len(s_bigrams & o_bigrams) / len(s_bigrams | o_bigrams)
+        else:
+            bigram_sim = 0.0
+
+        # 6. SequenceMatcher ratio as baseline
+        seq_ratio = difflib.SequenceMatcher(None, s, o).ratio()
+
+        # Combine signals with weights
+        combined = (
+            fuzzy_word_ratio * 0.35 +
+            bigram_sim * 0.25 +
+            seq_ratio * 0.25 +
+            containment_bonus * 0.15
+        )
+
+        return min(combined, 1.0)
+
+    @classmethod
+    def _smart_match_score(cls, sheet_entry: str, sheet_name: str,
+                           ocr_entry: str, ocr_name: str) -> float:
+        """
+        Compute an overall match confidence score (0.0 - 1.0) between a master sheet
+        student and an OCR result, accounting for common OCR errors.
+        """
+        entry_sim = cls._entry_number_similarity(sheet_entry, ocr_entry)
+        name_sim = cls._name_similarity(sheet_name, ocr_name)
+
+        # Weighted combination: entry number is more reliable than name for matching
+        # because names are more prone to OCR errors in handwritten sheets
+        if entry_sim >= 0.9:
+            # Entry number is very strong match — trust it heavily
+            return entry_sim * 0.75 + name_sim * 0.25
+        elif entry_sim >= 0.7:
+            # Moderate entry match — balance both signals
+            return entry_sim * 0.55 + name_sim * 0.45
+        elif name_sim >= 0.8:
+            # Strong name match even if entry is weak
+            return entry_sim * 0.3 + name_sim * 0.7
+        else:
+            # Both weak — average with entry slightly higher
+            return entry_sim * 0.5 + name_sim * 0.5
+
     # ──────────────────────────────────────
     #  Name Cross-Verification
     # ──────────────────────────────────────
 
-    @staticmethod
-    def _check_name_mismatch(sheet_name: str, ocr_name: str, entry_number: str, row: int) -> Optional[str]:
-        """Returns mismatch message string if names don't match."""
+    @classmethod
+    def _check_name_mismatch(cls, sheet_name: str, ocr_name: str, entry_number: str, row: int) -> Optional[str]:
+        """Returns mismatch message string if names don't match, using OCR-aware comparison."""
         if not sheet_name or not ocr_name:
             return None
 
-        s = sheet_name.strip().lower()
-        o = ocr_name.strip().lower()
-
-        if not s or not o or s == 'unknown' or o == 'unknown':
+        sim = cls._name_similarity(sheet_name, ocr_name)
+        if sim >= 0.6:  # Good enough match — no mismatch
             return None
 
-        if s == o: return None
-        
-        s_parts = set(s.split())
-        o_parts = set(o.split())
-        if s_parts.intersection(o_parts): return None
-
-        if s in o or o in s: return None
-
-        for word in s_parts:
-            if len(word) >= 3 and word in o: return None
-        for word in o_parts:
-            if len(word) >= 3 and word in s: return None
-
-        return f"Name mismatch: Sheet='{sheet_name}' vs OCR='{ocr_name}'"
+        return f"Name mismatch: Sheet='{sheet_name}' vs OCR='{ocr_name}' (sim={sim:.2f})"
 
     # ──────────────────────────────────────
     #  Reading Student List
@@ -297,16 +545,33 @@ class SheetsService:
                 raise ValueError("Spreadsheet has no sheets")
             target_sheet = sheets[0]['properties']['title']
 
-        # Build lookup from OCR results
+        # Sanitize helper — strip legacy placeholder strings from OCR results
+        # Note: 'unknown' is intentionally NOT in this set so raw OCR text is preserved.
+        _UNKNOWN_PLACEHOLDERS = {'n/a', 'none', 'null'}
+
+        def _sanitize(val: str) -> str:
+            """Return empty string if val is a known placeholder, else val."""
+            stripped = (val or '').strip()
+            return '' if stripped.lower() in _UNKNOWN_PLACEHOLDERS else stripped
+
+        # Build lookup from OCR results (sanitize entry/name on the way in)
         results_map = {}
         for r in results:
-            raw = str(r.get('entry_number', '')).strip()
+            # Sanitize in-place so downstream code sees clean values
+            if isinstance(r, dict):
+                r['entry_number'] = _sanitize(str(r.get('entry_number', '')))
+                r['name'] = _sanitize(str(r.get('name', '')))
+            raw = r.get('entry_number', '') if isinstance(r, dict) else ''
             normalized = self._normalize_entry_number(raw)
             if normalized:
                 results_map[normalized] = r
+            elif r.get('name') or r.get('answers'):
+                # No valid entry number but has other data — still include with a placeholder key
+                placeholder_key = f"__noentry_{len(results_map)}"
+                results_map[placeholder_key] = r
 
-        # Build headers
-        headers = ["Entry Number", "Name"]
+        # Build headers — include OCR-detected name/entry for cross-reference
+        headers = ["Entry Number", "Name", "OCR Entry Number", "OCR Name"]
         for q in all_q_nums:
             headers.append(f"Q{q}")
         headers.append("Marks")
@@ -315,6 +580,7 @@ class SheetsService:
         data_rows = []
         all_scores = []
         mismatches_to_bold = []
+        unmatched_to_red = []
         
         summary = {
             "updated": 0,
@@ -340,37 +606,30 @@ class SheetsService:
                     result = results_map[normalized]
                     matched_results.add(normalized)
                 elif raw_entry:
-                    # Fallback to Fuzzy Match (Name AND Entry Number)
-                    sheet_name = student.get('name', '').strip().lower()
-                    sheet_entry = str(raw_entry).strip().lower()
+                    # Fallback to OCR-Aware Smart Fuzzy Matching
+                    sheet_name_str = student.get('name', '').strip()
+                    sheet_entry_str = str(raw_entry).strip()
                     
                     best_match_id = None
                     best_match_r = None
-                    best_score = 0
+                    best_score = 0.0
                     
                     for norm_id, r in results_map.items():
                         if norm_id in matched_results:
                             continue
                             
-                        ocr_name = r.get('name', '').strip().lower()
-                        ocr_entry = str(r.get('entry_number', '')).strip().lower()
+                        ocr_name_str = r.get('name', '').strip()
+                        ocr_entry_str = str(r.get('entry_number', '')).strip()
                         
-                        # Similarity ratios (0.0 to 1.0)
-                        name_sim = difflib.SequenceMatcher(None, sheet_name, ocr_name).ratio() if (sheet_name and ocr_name) else 0
-                        entry_sim = difflib.SequenceMatcher(None, sheet_entry, ocr_entry).ratio() if (sheet_entry and ocr_entry) else 0
+                        # Multi-signal OCR-aware smart match
+                        match_score = self._smart_match_score(
+                            sheet_entry_str, sheet_name_str,
+                            ocr_entry_str, ocr_name_str
+                        )
                         
-                        # Word intersection bonus for names
-                        s_parts = set(sheet_name.split())
-                        o_parts = set(ocr_name.split())
-                        intersection = s_parts.intersection(o_parts)
-                        word_bonus = 0.2 if len(intersection) >= 1 else 0
-                        
-                        total_score = name_sim + entry_sim + word_bonus
-                        
-                        # Require a reasonably high confidence to consider it a match
-                        # E.g. name similarity > 0.8, OR entry similarity > 0.8, OR combined > 1.2
-                        if (name_sim > 0.8 or entry_sim > 0.8 or total_score > 1.2) and total_score > best_score:
-                            best_score = total_score
+                        # Accept matches with confidence >= 0.55
+                        if match_score >= 0.55 and match_score > best_score:
+                            best_score = match_score
                             best_match_id = norm_id
                             best_match_r = r
                             
@@ -378,6 +637,7 @@ class SheetsService:
                         result = best_match_r
                         is_fuzzy_match = True
                         matched_results.add(best_match_id)
+                        print(f"  🔗 Smart match: '{sheet_entry_str}' → '{best_match_r.get('entry_number', '')}' (confidence: {best_score:.2f})")
 
                 row = [
                     raw_entry,
@@ -386,11 +646,17 @@ class SheetsService:
 
                 if not result:
                     summary['not_found_in_results'].append(raw_entry)
+                    row.extend(['', ''])  # OCR Entry, OCR Name
                     for q in all_q_nums: row.append('')
                     row.append('') # Marks
                     row.append('Absent / No Answer Sheet Found')
                     data_rows.append(row)
                     continue
+
+                # Add OCR-detected entry number and name
+                ocr_entry = str(result.get('entry_number', '')).strip()
+                ocr_name = str(result.get('name', '')).strip()
+                row.extend([ocr_entry, ocr_name])
 
                 summary['updated'] += 1
 
@@ -400,27 +666,36 @@ class SheetsService:
                 
                 mismatch_msg = self._check_name_mismatch(
                     student.get('name', ''),
-                    result.get('name', ''),
+                    ocr_name,
                     raw_entry,
                     0
                 )
 
-                is_mismatch = bool(mismatch_msg) or is_fuzzy_match
+                # Check if OCR entry number differs from master
+                entry_sim = self._entry_number_similarity(raw_entry, ocr_entry)
+                entry_mismatch = entry_sim < 0.95
+
+                is_mismatch = bool(mismatch_msg) or is_fuzzy_match or entry_mismatch
 
                 if is_fuzzy_match:
-                    final_comments.append(f"Fuzzy Match: Matched by Name ('{student.get('name')}') instead of OCR ID='{result.get('entry_number')}'")
+                    final_comments.append(f"Fuzzy Match: OCR ID='{ocr_entry}', OCR Name='{ocr_name}'")
                     summary['name_mismatches'].append({
                         "entry_number": raw_entry,
                         "sheet_name": student.get('name', ''),
-                        "ocr_name": result.get('name', ''),
+                        "ocr_name": ocr_name,
+                        "ocr_entry": ocr_entry,
                         "type": "fuzzy_match"
                     })
-                elif mismatch_msg:
-                    final_comments.append(mismatch_msg)
+                elif mismatch_msg or entry_mismatch:
+                    if mismatch_msg:
+                        final_comments.append(mismatch_msg)
+                    if entry_mismatch:
+                        final_comments.append(f"Entry mismatch: Sheet='{raw_entry}' vs OCR='{ocr_entry}'")
                     summary['name_mismatches'].append({
                         "entry_number": raw_entry,
                         "sheet_name": student.get('name', ''),
-                        "ocr_name": result.get('name', ''),
+                        "ocr_name": ocr_name,
+                        "ocr_entry": ocr_entry,
                         "type": "mismatch"
                     })
 
@@ -451,6 +726,7 @@ class SheetsService:
         for norm_id, r in results_map.items():
             if norm_id not in matched_results:
                 raw_entry = r.get('entry_number', '')
+                ocr_name_unmatched = r.get('name', '')
                 if master_students:
                     # Only report as not found if there was a master list to check against
                     summary['not_found_in_sheet'].append(raw_entry)
@@ -458,7 +734,9 @@ class SheetsService:
                 
                 row = [
                     raw_entry,
-                    r.get('name', ''),
+                    ocr_name_unmatched,
+                    raw_entry,       # OCR Entry Number (same as raw since no master to compare)
+                    ocr_name_unmatched,  # OCR Name
                 ]
                 
                 d_map = {}
@@ -481,7 +759,7 @@ class SheetsService:
                 if r.get('comments'): final_comments.append(r.get('comments'))
                 if master_students:
                     final_comments.append("Not found in Master Student List")
-                    mismatches_to_bold.append(len(data_rows))
+                    unmatched_to_red.append(len(data_rows))
                 
                 row.append("; ".join(final_comments))
                 data_rows.append(row)
@@ -534,13 +812,16 @@ class SheetsService:
             body={'values': all_data}
         ).execute()
 
-        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(data_rows), len(all_data), mismatches_to_bold)
+        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(data_rows), len(all_data), mismatches_to_bold, unmatched_to_red)
 
         print(f"✅ Wrote {len(data_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Mismatches: {len(mismatches_to_bold)}")
         return summary
 
-    def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, mismatches_to_bold: List[int] = None):
+    def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, mismatches_to_bold: List[int] = None, unmatched_to_red: List[int] = None):
         """Apply formatting to the marks sheet — bold header, statistics, and highlights for mismatches."""
+        mismatches_to_bold = mismatches_to_bold or []
+        unmatched_to_red = unmatched_to_red or []
+        
         try:
             spreadsheet = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
             sheet_id = None
@@ -572,16 +853,41 @@ class SheetsService:
                 }
             })
 
-            # Formatting for mismatched rows (bold and red text)
+            # Formatting for mismatched rows (bold and red text on OCR columns only)
             if mismatches_to_bold:
                 for r_idx in mismatches_to_bold:
                     real_row = r_idx + 1  # Offset by 1 for the header
+                    # Red text on OCR Entry Number (col 2) and OCR Name (col 3)
                     requests.append({
                         'repeatCell': {
                             'range': {
                                 'sheetId': sheet_id,
                                 'startRowIndex': real_row, 'endRowIndex': real_row + 1,
-                                'startColumnIndex': 0, 'endColumnIndex': 2  # Bold Entry Number and Name
+                                'startColumnIndex': 2, 'endColumnIndex': 4  # OCR Entry Number and OCR Name
+                            },
+                            'cell': {
+                                'userEnteredFormat': {
+                                    'textFormat': {
+                                        'bold': True,
+                                        'foregroundColor': {'red': 0.8, 'green': 0.0, 'blue': 0.0}
+                                    }
+                                }
+                            },
+                            'fields': 'userEnteredFormat(textFormat)'
+                        }
+                    })
+
+            # Formatting for unmatched rows (bold and red text on ALL identification columns - Master & OCR)
+            if unmatched_to_red:
+                for r_idx in unmatched_to_red:
+                    real_row = r_idx + 1  # Offset by 1 for the header
+                    # Red text on Master Entry, Master Name, OCR Entry, OCR Name (cols 0 to 3)
+                    requests.append({
+                        'repeatCell': {
+                            'range': {
+                                'sheetId': sheet_id,
+                                'startRowIndex': real_row, 'endRowIndex': real_row + 1,
+                                'startColumnIndex': 0, 'endColumnIndex': 4
                             },
                             'cell': {
                                 'userEnteredFormat': {
@@ -675,8 +981,8 @@ class SheetsService:
         if not questions:
             raise ValueError("No questions found in answer key")
 
-        # Prepare headers: Entry Number, Name, Q1, Q2, ..., Qn
-        headers = ['Entry Number', 'Name']
+        # Prepare headers: Name, Entry Number, Q1, Q2, ..., Qn (user-requested order)
+        headers = ['Name', 'Entry Number']
         for q in questions:
             headers.append(f'Q{q}')
 
@@ -687,8 +993,8 @@ class SheetsService:
                 continue
                 
             row = [
-                result.get('entry_number', ''),
                 result.get('name', ''),
+                result.get('entry_number', ''),
             ]
             
             # Get per-question details

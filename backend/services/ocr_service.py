@@ -300,8 +300,8 @@ Return ONLY valid JSON, no explanation, no markdown.
     def _normalize_objective_output(self, parsed: dict) -> dict:
         """Normalize OCR output to the expected format for match_and_score()."""
         result = {
-            "entry_number": parsed.get("entry_number") or parsed.get("roll_number") or "unknown",
-            "name": parsed.get("name") or parsed.get("student_name") or "unknown",
+            "entry_number": parsed.get("entry_number") or parsed.get("roll_number") or "",
+            "name": parsed.get("name") or parsed.get("student_name") or "",
             "comments": parsed.get("comments") or "",
             "answers": {}
         }

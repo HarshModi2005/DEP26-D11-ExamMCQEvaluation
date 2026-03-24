@@ -455,8 +455,8 @@ Rules: answers as dict, question numbers as strings, answers can be single lette
     def _normalize_ocr_output(self, parsed: Dict) -> Dict:
         """Fast normalization"""
         result = {
-            "entry_number": parsed.get("entry_number") or "unknown",
-            "name": parsed.get("name") or "unknown",
+            "entry_number": parsed.get("entry_number") or "",
+            "name": parsed.get("name") or "",
             "comments": parsed.get("comments") or "",
             "answers": {}
         }

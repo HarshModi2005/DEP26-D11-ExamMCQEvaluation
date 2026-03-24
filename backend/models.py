@@ -89,10 +89,13 @@ class StudentResult(BaseModel):
 
 class ProcessFolderRequest(BaseModel):
     folder_url: str
+    evaluation_id: Optional[str] = None
 
 
 class ExportToSheetsRequest(BaseModel):
     sheet_url: str
+    results: Optional[List[Dict]] = None
+    answer_key: Optional[Dict] = None
 
 
 class FullPipelineRequest(BaseModel):

@@ -61,23 +61,22 @@ export const backendService = {
         return api('/answer-key');
     },
 
-    async processDriveFolder(driveFolderUrl, forceReprocess = false) {
+    async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false) {
         // Updated to use the ultra-optimized parallel pipelined endpoint
-        // (Note: the optimized endpoint doesn't officially support 'force_reprocess' query param,
-        // but we'll include it in case the backend is updated to capture it later, FastAPI simply ignores it).
         const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
-            body: JSON.stringify({ folder_url: driveFolderUrl }),
+            body: JSON.stringify({ folder_url: driveFolderUrl, evaluation_id: evaluationId }),
         });
     },
 
     /**
      * Upload and process a ZIP file containing answer sheets
      */
-    async processZipFile(file, forceReprocess = false, extractAnswerKey = true) {
+    async processZipFile(file, evaluationId, forceReprocess = false, extractAnswerKey = true) {
         const formData = new FormData();
         formData.append('file', file);
+        if (evaluationId) formData.append('evaluation_id', evaluationId);
 
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
@@ -100,7 +99,7 @@ export const backendService = {
      * Export results to a Google Sheet (optionally a specific tab).
      * This now creates: marks sheet, studentResponse sheet, and Super Sheet entry.
      */
-    async exportToSheets(sheetUrl, subsheetName, evaluationName) {
+    async exportToSheets(sheetUrl, subsheetName, evaluationName, results = null, answerKey = null) {
         const params = new URLSearchParams();
         if (subsheetName) params.append('subsheet_name', subsheetName);
         if (evaluationName) params.append('evaluation_name', evaluationName);
@@ -108,7 +107,7 @@ export const backendService = {
         const url = queryStr ? `/export-to-sheets?${queryStr}` : '/export-to-sheets';
         return api(url, {
             method: 'POST',
-            body: JSON.stringify({ sheet_url: sheetUrl }),
+            body: JSON.stringify({ sheet_url: sheetUrl, results, answer_key: answerKey }),
         });
     },
 
@@ -139,14 +138,14 @@ export const backendService = {
     /**
      * Export detailed student responses to a separate sheet
      */
-    async exportStudentResponses(sheetUrl, evaluationName) {
+    async exportStudentResponses(sheetUrl, evaluationName, results = null, answerKey = null) {
         const params = new URLSearchParams();
         if (evaluationName) params.append('evaluation_name', evaluationName);
         const queryStr = params.toString();
         const url = queryStr ? `/export-student-responses?${queryStr}` : '/export-student-responses';
         return api(url, {
             method: 'POST',
-            body: JSON.stringify({ sheet_url: sheetUrl }),
+            body: JSON.stringify({ sheet_url: sheetUrl, results, answer_key: answerKey }),
         });
     },
 

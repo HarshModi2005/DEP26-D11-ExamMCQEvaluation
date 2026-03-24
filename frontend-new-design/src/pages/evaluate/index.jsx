@@ -349,11 +349,13 @@ const EvaluatePage = () => {
 
     const [evaluation, setEvaluation] = useState(null);
     const [results, setResults] = useState([]);
+    const [rawOcrResults, setRawOcrResults] = useState([]); // ALL OCR results, including unmatched
     const [pageLoading, setPageLoading] = useState(true);
     const [pipelineLoading, setPipelineLoading] = useState(false);
     const [exportLoading, setExportLoading] = useState(false);
     const [pipelineLog, setPipelineLog] = useState([]);
     const [pipelineProgress, setPipelineProgress] = useState(0);
+    const [pipelineSheetCount, setPipelineSheetCount] = useState(null); // {total, processed, cached, new}
     const [error, setError] = useState('');
     const [exportMsg, setExportMsg] = useState('');
     const [driveFolderUrl, setDriveFolderUrl] = useState('');
@@ -361,6 +363,7 @@ const EvaluatePage = () => {
     const [processingMode, setProcessingMode] = useState('drive'); // 'drive' | 'zip'
     const [forceReprocess, setForceReprocess] = useState(false);
     const [cacheStatus, setCacheStatus] = useState(null);
+    const logEndRef = React.useRef(null);
 
     const fetchData = useCallback(async () => {
         setPageLoading(true);
@@ -409,14 +412,15 @@ const EvaluatePage = () => {
         setPipelineLoading(true);
         setError('');
         setPipelineProgress(10);
+        setPipelineSheetCount(null);
 
         const modeText = processingMode === 'zip' ? 'ZIP file' : 'Drive folder';
         const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
 
         setPipelineLog(prev => [...prev,
-        `🚀 Starting OCR pipeline (${modeText})...`,
-        `📁 Source: ${sourceText}`,
-        forceReprocess ? '🔄 Force reprocess enabled (bypassing cache)' : '🎯 Using cache for already processed files'
+            `🚀 Starting OCR pipeline (${modeText})...`,
+            `📁 Source: ${sourceText}`,
+            forceReprocess ? '🔄 Force reprocess enabled (bypassing cache)' : '⚡ Evaluation cache active — cached sheets skip OCR entirely',
         ]);
 
         try {
@@ -424,50 +428,62 @@ const EvaluatePage = () => {
 
             if (processingMode === 'drive') {
                 const url = driveFolderUrl || evaluation?.drive_folder_url;
-                // Save drive folder URL if changed
                 if (url !== evaluation.drive_folder_url) {
                     await evaluationService.updateDriveFolderUrl(evaluationId, url);
                     setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
                 }
 
-                setPipelineProgress(30);
-                setPipelineLog(prev => [...prev, '🔍 Scanning Drive folder...']);
-                pipelineResult = await backendService.processDriveFolder(url, forceReprocess);
+                setPipelineProgress(25);
+                setPipelineLog(prev => [...prev, '🔍 Scanning Drive folder for sheets...']);
+                pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
             } else {
-                setPipelineProgress(30);
+                setPipelineProgress(25);
                 setPipelineLog(prev => [...prev, '📦 Processing ZIP file...']);
-                pipelineResult = await backendService.processZipFile(zipFile, forceReprocess, true);
+                pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
             }
 
-            setPipelineProgress(80);
+            setPipelineProgress(85);
 
             const processedResults = pipelineResult.results || [];
             const stats = pipelineResult.processing_stats || {};
+            const totalSheets = stats.total_files || processedResults.length;
+            const cacheHits = (stats.cache_hits || 0) + (stats.ocr_cache_hits || 0);
+            const newlyProcessed = totalSheets - cacheHits;
 
-            setPipelineLog(prev => [
-                ...prev,
-                `✅ Processed ${processedResults.length} student sheets`,
-                ...(stats.cache_hits > 0 ? [`🎯 Cache hits: ${stats.cache_hits}`] : []),
-                ...(stats.newly_processed > 0 ? [`🔄 Newly processed: ${stats.newly_processed}`] : []),
-                ...(pipelineResult.errors?.length > 0
-                    ? [`⚠️ ${pipelineResult.errors.length} errors: ${pipelineResult.errors.map(e => e.file).join(', ')}`]
-                    : []),
-            ]);
+            setPipelineSheetCount({
+                total: totalSheets,
+                processed: processedResults.length,
+                cached: cacheHits,
+                newOcr: newlyProcessed,
+                errors: pipelineResult.errors?.length || 0,
+            });
+
+            const logLines = [
+                `📊 Total sheets in folder: ${totalSheets}`,
+                `✅ Successfully processed: ${processedResults.length} / ${totalSheets}`,
+            ];
+            if (cacheHits > 0)    logLines.push(`⚡ Served from cache (no OCR): ${cacheHits}`);
+            if (newlyProcessed > 0) logLines.push(`🔬 Newly OCR'd: ${newlyProcessed}`);
+            if (pipelineResult.errors?.length > 0)
+                logLines.push(`⚠️ ${pipelineResult.errors.length} error(s): ${pipelineResult.errors.map(e => e.file).join(', ')}`);
+
+            setPipelineLog(prev => [...prev, ...logLines]);
 
             if (processedResults.length > 0) {
                 setPipelineLog(prev => [...prev, '💾 Saving results to database...']);
                 await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
-                setPipelineProgress(90);
+                setPipelineProgress(95);
 
-                // Update eval status to grading
                 await evaluationService.updateStatus(evaluationId, 'grading');
                 setEvaluation(prev => ({ ...prev, status: 'grading' }));
 
-                // Refresh results
+                // Store ALL raw OCR results for export (before DB filtering)
+                setRawOcrResults(processedResults);
+
                 const fresh = await resultsService.getResultsByEvaluation(evaluationId);
                 setResults(fresh || []);
                 setPipelineProgress(100);
-                setPipelineLog(prev => [...prev, `🎉 Done! ${fresh.length} results saved.`]);
+                setPipelineLog(prev => [...prev, `🎉 Done! ${fresh.length} student results saved.`]);
             } else {
                 setPipelineLog(prev => [...prev, '⚠️ No results returned. Check the Drive folder.']);
             }
@@ -476,7 +492,7 @@ const EvaluatePage = () => {
             setPipelineLog(prev => [...prev, `❌ Error: ${err.message}`]);
         } finally {
             setPipelineLoading(false);
-            loadCacheStatus(); // Refresh cache status after processing
+            loadCacheStatus();
         }
     };
 
@@ -508,10 +524,20 @@ const EvaluatePage = () => {
         setExportMsg('');
         try {
             const evalName = evaluation.subsheet_name || evaluation.name;
+            // Use raw OCR results if available (includes unmatched/garbled entry numbers)
+            // Fall back to DB results if pipeline hasn't been run this session
+            const exportResults = rawOcrResults.length > 0 ? rawOcrResults : results;
+            const mappedResults = exportResults.map(r => ({
+                ...r,
+                entry_number: r.entry_number || r.students?.roll_number || '',
+                name: r.name || r.students?.name || ''
+            }));
             const res = await backendService.exportToSheets(
                 course.master_sheet_url,
                 evaluation.subsheet_name,
-                evalName
+                evalName,
+                mappedResults,
+                evaluation.answer_key_data
             );
             await evaluationService.updateStatus(evaluationId, 'published');
             setEvaluation(prev => ({ ...prev, status: 'published' }));
@@ -728,11 +754,33 @@ const EvaluatePage = () => {
                                         )}
                                     </div>
 
+                                    {/* Sheet count summary badge */}
+                                    {pipelineSheetCount && (
+                                        <div className="grid grid-cols-2 gap-2 text-center">
+                                            <div className="bg-primary-50 border border-primary-100 rounded-lg p-2">
+                                                <p className="text-lg font-bold text-primary">{pipelineSheetCount.total}</p>
+                                                <p className="text-xs text-primary-600">Total Sheets</p>
+                                            </div>
+                                            <div className="bg-success-50 border border-success-100 rounded-lg p-2">
+                                                <p className="text-lg font-bold text-success-600">{pipelineSheetCount.processed}</p>
+                                                <p className="text-xs text-success-600">Processed ✓</p>
+                                            </div>
+                                            <div className="bg-blue-50 border border-blue-100 rounded-lg p-2">
+                                                <p className="text-lg font-bold text-blue-600">{pipelineSheetCount.cached}</p>
+                                                <p className="text-xs text-blue-600">⚡ From Cache</p>
+                                            </div>
+                                            <div className="bg-secondary-50 border border-border rounded-lg p-2">
+                                                <p className="text-lg font-bold text-text-primary">{pipelineSheetCount.newOcr}</p>
+                                                <p className="text-xs text-text-secondary">🔬 New OCR</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Progress bar */}
                                     {pipelineLoading && (
                                         <div>
                                             <div className="flex justify-between text-xs text-text-secondary mb-1">
-                                                <span>Processing...</span>
+                                                <span>Processing sheets...</span>
                                                 <span>{pipelineProgress}%</span>
                                             </div>
                                             <div className="w-full bg-secondary-100 rounded-full h-2">
@@ -745,7 +793,7 @@ const EvaluatePage = () => {
                                     <button onClick={handleRunPipeline} disabled={pipelineLoading}
                                         className="w-full py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                                         {pipelineLoading
-                                            ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Running OCR...</>
+                                            ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Running OCR Pipeline...</>
                                             : <><Icon name="Play" size={16} />Run OCR Pipeline</>}
                                     </button>
                                 </div>
@@ -753,13 +801,24 @@ const EvaluatePage = () => {
                                 {/* Pipeline Log */}
                                 {pipelineLog.length > 0 && (
                                     <div className="border-t border-border p-4">
-                                        <p className="text-xs font-medium text-text-secondary mb-2 flex items-center gap-1">
-                                            <Icon name="Terminal" size={12} />Pipeline Log
-                                        </p>
-                                        <div className="bg-secondary-900 rounded-lg p-3 max-h-36 overflow-y-auto space-y-1">
-                                            {pipelineLog.map((log, i) => (
-                                                <p key={i} className="text-xs font-mono text-secondary-200">{log}</p>
-                                            ))}
+                                        <div className="flex items-center justify-between mb-2">
+                                            <p className="text-xs font-medium text-text-secondary flex items-center gap-1">
+                                                <Icon name="Terminal" size={12} />Pipeline Log
+                                                <span className="ml-1 text-text-tertiary">({pipelineLog.length} lines)</span>
+                                            </p>
+                                            <button onClick={() => setPipelineLog([])} className="text-xs text-text-tertiary hover:text-error transition-colors">Clear</button>
+                                        </div>
+                                        <div
+                                            className="bg-secondary-900 rounded-lg p-3 max-h-52 overflow-y-auto space-y-1"
+                                            ref={el => { if (el) el.scrollTop = el.scrollHeight; }}
+                                        >
+                                            {pipelineLog.map((log, i) => {
+                                                const isCache = log.includes('⚡') || log.includes('cache');
+                                                const isError = log.includes('❌') || log.includes('⚠️');
+                                                const isSuccess = log.includes('✅') || log.includes('🎉');
+                                                const color = isError ? 'text-red-400' : isSuccess ? 'text-green-400' : isCache ? 'text-blue-300' : 'text-secondary-200';
+                                                return <p key={i} className={`text-xs font-mono ${color}`}>{log}</p>;
+                                            })}
                                         </div>
                                     </div>
                                 )}

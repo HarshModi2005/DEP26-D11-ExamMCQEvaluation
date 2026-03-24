@@ -772,10 +772,12 @@ def export_to_sheets(request: ExportToSheetsRequest, subsheet_name: str = None, 
     2. Student response sheet (studentResponse_<name>) with marked answers + answer key
     3. Super Sheet entry with cumulative marks
     """
-    # Try in-memory results first, fall back to database
+    # Try request body results first, then in-memory, fall back to database
     results_dicts = []
     
-    if _current_results:
+    if request.results:
+        results_dicts = request.results
+    elif _current_results:
         results_dicts = [r.model_dump() for r in _current_results]
     else:
         # Pull from database
@@ -822,13 +824,20 @@ def export_to_sheets(request: ExportToSheetsRequest, subsheet_name: str = None, 
         
         # 2. Try to create student response sheet (needs answer key)
         response_sheet_result = None
-        if _current_answer_key and tab_name:
+        # Prefer answer key from request body, fall back to in-memory
+        answer_key_data = None
+        if request.answer_key:
+            answer_key_data = request.answer_key
+        elif _current_answer_key:
+            answer_key_data = _current_answer_key.model_dump()
+        
+        if answer_key_data and tab_name:
             try:
                 response_sheet_name = f"studentResponse_{tab_name}"
                 response_sheet_result = sheets_service.create_student_response_sheet(
                     request.sheet_url,
                     results_dicts,
-                    _current_answer_key.model_dump(),
+                    answer_key_data,
                     response_sheet_name=response_sheet_name
                 )
                 summary["response_sheet"] = response_sheet_result
@@ -881,7 +890,9 @@ def export_student_responses(request: ExportToSheetsRequest, evaluation_name: st
     Create a detailed student response sheet with per-question answers.
     Sheet tab is named studentResponse_<evaluation_name>.
     """
-    if not _current_answer_key:
+    ak = request.answer_key if request.answer_key else (_current_answer_key.model_dump() if _current_answer_key else None)
+    
+    if not ak:
         raise HTTPException(
             status_code=400,
             detail="No answer key loaded. Cannot create response sheet without answer key."
@@ -890,7 +901,9 @@ def export_student_responses(request: ExportToSheetsRequest, evaluation_name: st
     # Get results data
     results_dicts = []
     
-    if _current_results:
+    if request.results:
+        results_dicts = request.results
+    elif _current_results:
         results_dicts = [r.model_dump() for r in _current_results]
     else:
         db_results = db.get_all_results()
@@ -914,10 +927,13 @@ def export_student_responses(request: ExportToSheetsRequest, evaluation_name: st
     response_sheet_name = f"studentResponse_{evaluation_name}" if evaluation_name else "Student Responses"
 
     try:
-        summary = sheets_service.create_student_response_sheet(
+        from models import AnswerKey
+        ak_obj = AnswerKey(**ak) if isinstance(ak, dict) else ak
+        summary = sheets_service.export_responses_to_sheet(
             request.sheet_url, 
-            results_dicts,
-            _current_answer_key.model_dump(),
+            results_dicts, 
+            ak_obj,
+            evaluation_name=evaluation_name,
             response_sheet_name=response_sheet_name
         )
         return summary

@@ -29,8 +29,8 @@ class EvaluationService:
                     "comments": "erasure on Q5"  (optional)
                 }
         """
-        entry_number = str(student_answers.get("entry_number", "unknown")).strip()
-        name = str(student_answers.get("name", "unknown")).strip()
+        entry_number = str(student_answers.get("entry_number", "")).strip()
+        name = str(student_answers.get("name", "")).strip()
         raw_answers = student_answers.get("answers", {})
         
         # Aggregate comments
@@ -134,10 +134,40 @@ class EvaluationService:
             comments="; ".join(comments_list) if comments_list else ""
         )
 
+    # Digit-to-letter OCR confusion map (when OCR reads a number instead of a letter)
+    OCR_DIGIT_TO_LETTER = {
+        '0': 'O', '1': 'I', '2': 'Z', '3': 'E',
+        '4': 'A', '5': 'S', '6': 'G', '7': 'T',
+        '8': 'B', '9': 'G',
+    }
+
+    @staticmethod
+    def _ocr_correct_mcq_answer(answer: str) -> str:
+        """
+        If the OCR'd answer is a digit and could be a letter that OCR misread,
+        map it to the likely letter. Only applies to single-char digit answers.
+        Does NOT do letter-to-letter fuzzy matching.
+        """
+        if len(answer) == 1 and answer.isdigit():
+            return EvaluationService.OCR_DIGIT_TO_LETTER.get(answer, answer)
+        # For multi-char answers (MMCQ), correct each digit char but leave letters as-is
+        if any(c.isdigit() for c in answer) and not answer.replace('.', '').replace('-', '').isdigit():
+            # Mixed digits+letters — correct digits that sit among letters
+            corrected = []
+            for c in answer:
+                if c.isdigit():
+                    corrected.append(EvaluationService.OCR_DIGIT_TO_LETTER.get(c, c))
+                else:
+                    corrected.append(c)
+            return ''.join(corrected)
+        return answer
+
     @staticmethod
     def _is_answer_correct(student_answer: str, correct_answer: str, question_type: str) -> bool:
         """
         Check if student answer matches correct answer based on question type.
+        Applies OCR digit-to-letter correction for MCQ types (SMCQ, MMCQ).
+        Does NOT use fuzzy matching between letters -- only digit→letter correction.
         
         Args:
             student_answer: What the student marked
@@ -151,18 +181,27 @@ class EvaluationService:
         correct_answer = correct_answer.strip().upper()
         
         if question_type == "SMCQ":
-            # Single Multiple Choice Question - exact match
-            return student_answer == correct_answer
+            # Exact match first
+            if student_answer == correct_answer:
+                return True
+            # OCR digit-to-letter correction (e.g., '8' → 'B')
+            corrected = EvaluationService._ocr_correct_mcq_answer(student_answer)
+            return corrected == correct_answer
             
         elif question_type == "MMCQ":
-            # Multiple Multiple Choice Question - all correct options must be selected
             # Sort both to handle different ordering (e.g., "AC" vs "CA")
             student_sorted = ''.join(sorted(student_answer))
             correct_sorted = ''.join(sorted(correct_answer))
-            return student_sorted == correct_sorted
+            if student_sorted == correct_sorted:
+                return True
+            # Try OCR digit-to-letter correction
+            corrected = EvaluationService._ocr_correct_mcq_answer(student_answer)
+            corrected_sorted = ''.join(sorted(corrected))
+            return corrected_sorted == correct_sorted
             
         elif question_type == "NCQ":
             # Numerical Choice Question - handle floating point comparison
+            # NO fuzzy matching — exact numerical comparison only
             try:
                 student_val = float(student_answer)
                 correct_val = float(correct_answer)

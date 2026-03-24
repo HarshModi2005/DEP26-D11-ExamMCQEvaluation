@@ -192,7 +192,7 @@ class BatchEvaluationService:
         """
         try:
             entry_number = str(student_ocr_result.get("entry_number", f"student_{student_index}")).strip()
-            name = str(student_ocr_result.get("name", "unknown")).strip()
+            name = str(student_ocr_result.get("name", "")).strip()
             raw_answers = student_ocr_result.get("answers", {})
             
             # Aggregate comments efficiently
@@ -251,6 +251,18 @@ class BatchEvaluationService:
                         comments_list.append(f"Q{q_num}: Multiple marks")
                     
                     elif marked == correct_option:
+                        correct_count += 1
+                        total_score += marks
+                        details.append(QuestionResult(
+                            question_number=q_num,
+                            marked=marked,
+                            correct=correct_option,
+                            result="correct",
+                            score=marks
+                        ))
+                    
+                    elif EvaluationService._ocr_correct_mcq_answer(marked) == correct_option:
+                        # OCR digit-to-letter correction matched (e.g. '8' → 'B')
                         correct_count += 1
                         total_score += marks
                         details.append(QuestionResult(

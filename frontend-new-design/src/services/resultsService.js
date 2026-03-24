@@ -29,7 +29,7 @@ export const resultsService = {
             if (r.entry_number && !existingRollNos.has(r.entry_number) && !seenRollNos.has(r.entry_number)) {
                 missingStudents.push({
                     roll_number: r.entry_number,
-                    name: r.name || 'Unknown Student'
+                    name: r.name || ''
                 });
                 seenRollNos.add(r.entry_number);
             }
@@ -57,7 +57,7 @@ export const resultsService = {
 
         const studentMap = new Map((allStudents || []).map(s => [s.roll_number, s.id]));
 
-        const inserts = [];
+        const insertsMap = new Map();
 
         for (const r of results) {
             if (!r.entry_number) continue;
@@ -69,7 +69,7 @@ export const resultsService = {
                 continue;
             }
 
-            inserts.push({
+            insertsMap.set(studentId, {
                 evaluation_id: evaluationId,
                 student_id: studentId,
                 graded_by: gradedById,
@@ -83,6 +83,8 @@ export const resultsService = {
                 comments: r.comments || '',
             });
         }
+
+        const inserts = Array.from(insertsMap.values());
 
         if (inserts.length === 0) return [];
 

@@ -2,8 +2,15 @@
 Optimized Batch Processing Endpoints
 =====================================
 True streaming pipeline: Download → OCR → Evaluate → DB, all concurrent.
-Rate-aware: per-region token bucket throttling (12 RPM × 4 regions = 48 effective RPM).
-Automatic 429 retry with exponential backoff.
+
+Model priority:
+  1. gemini-2.5-pro   (GA) — primary, highest quality
+  2. gemini-2.5-flash       — fallback, fast & capable
+  3. gemini-2.5-flash-lite  — last resort only
+
+Multi-region load distribution across 14+ endpoints using all available quota.
+Token-bucket rate limiting prevents 429s proactively.
+Evaluation results are FULLY CACHED — cache hits skip OCR AND evaluation entirely.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -24,6 +31,7 @@ import base64
 import json
 import re
 import io
+import hashlib
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
@@ -44,20 +52,54 @@ _processing_stats: Dict[str, Any] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  RATE LIMITER — per-region token bucket
+#  MODEL TIERS — priority order (Pro first, then Flash, then Lite)
 # ─────────────────────────────────────────────────────────────────────
 
-_REGIONS = ["us-central1", "us-east1", "us-west1", "europe-west1"]
-_MODEL = "gemini-2.5-flash"
-_RPM_PER_REGION = 12   # 12 × 4 regions = 48 effective RPM
+# Each entry: (model_id, region, rpm_budget)
+# Distribute load across all available regions for maximum throughput.
+# Budgets are conservative (well below quota limits) to stay stable.
 
+_ENDPOINT_POOL: List[Dict] = [
+    # ── Tier 1: gemini-2.5-pro GA  (40,248 RPM across US regions) ──
+    {"model": "gemini-2.5-pro",       "region": "us-central1",   "rpm": 250, "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "us-east1",      "rpm": 250, "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "us-east4",      "rpm": 250, "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "us-east5",      "rpm": 250, "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "us-south1",     "rpm": 250, "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "us-west1",      "rpm": 250, "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "us-west4",      "rpm": 250, "tier": 1},
+    # ── Tier 1: gemini-2.5-pro GA  (Europe) ──
+    {"model": "gemini-2.5-pro",       "region": "europe-west1",  "rpm": 60,  "tier": 1},
+    {"model": "gemini-2.5-pro",       "region": "europe-west4",  "rpm": 60,  "tier": 1},
+
+    # ── Tier 2: gemini-2.5-flash (40,248 RPM across Asia+US) ──
+    {"model": "gemini-2.5-flash",     "region": "asia-east1",    "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "asia-east2",    "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "asia-northeast1","rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "asia-northeast3","rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "us-east4",      "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "us-east5",      "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "us-south1",     "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "us-west2",      "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "us-west4",      "rpm": 200, "tier": 2},
+    {"model": "gemini-2.5-flash",     "region": "europe-west1",  "rpm": 60,  "tier": 2},
+
+    # ── Tier 3: gemini-2.5-flash-lite  (LAST RESORT only) ──
+    {"model": "gemini-2.5-flash-lite", "region": "us-central1",  "rpm": 40,  "tier": 3},
+    {"model": "gemini-2.5-flash-lite", "region": "us-east1",     "rpm": 40,  "tier": 3},
+]
+
+# ─────────────────────────────────────────────────────────────────────
+#  PER-ENDPOINT TOKEN BUCKETS
+# ─────────────────────────────────────────────────────────────────────
 
 class _TokenBucket:
-    """Allows at most `rate` calls per 60 seconds per bucket."""
-    def __init__(self, rate: int):
-        self.interval = 60.0 / rate
+    """Strict token-bucket: at most `rpm` tokens per 60 seconds."""
+    def __init__(self, rpm: int):
+        self.interval = 60.0 / rpm
         self._lock = asyncio.Lock()
         self._next_allowed = time.monotonic()
+        self.rpm = rpm
 
     async def acquire(self):
         async with self._lock:
@@ -68,48 +110,87 @@ class _TokenBucket:
             await asyncio.sleep(wait)
 
 
-_rate_limiters: Dict[str, _TokenBucket] = {}    # built lazily inside event loop
-_rr_counter = 0
+# Bucket per (model, region) pair, lazily initialised
+_buckets: Dict[str, _TokenBucket] = {}
+_bucket_lock: Optional[asyncio.Lock] = None
+
+def _bucket_key(ep: Dict) -> str:
+    return f"{ep['model']}|{ep['region']}"
+
+def _get_bucket(ep: Dict) -> _TokenBucket:
+    key = _bucket_key(ep)
+    if key not in _buckets:
+        _buckets[key] = _TokenBucket(ep["rpm"])
+    return _buckets[key]
+
+
+# Round-robin counters per tier
+_rr: Dict[int, int] = {1: 0, 2: 0, 3: 0}
 _rr_lock: Optional[asyncio.Lock] = None
 
+_tier1_eps = [ep for ep in _ENDPOINT_POOL if ep["tier"] == 1]
+_tier2_eps = [ep for ep in _ENDPOINT_POOL if ep["tier"] == 2]
+_tier3_eps = [ep for ep in _ENDPOINT_POOL if ep["tier"] == 3]
 
-def _get_bucket(region: str) -> _TokenBucket:
-    if region not in _rate_limiters:
-        _rate_limiters[region] = _TokenBucket(_RPM_PER_REGION)
-    return _rate_limiters[region]
+# Track which tiers are degraded (too many 429s recently)
+_tier_failures: Dict[int, int] = {1: 0, 2: 0, 3: 0}
+_TIER_FAILURE_THRESHOLD = 15  # escalate only after this many consecutive 429s on a tier (Pro gets priority)
 
 
-async def _pick_region() -> str:
-    global _rr_counter, _rr_lock
+async def _pick_endpoint(prefer_tier: int = 1) -> Dict:
+    """Pick the next endpoint via round-robin within the current active tier."""
+    global _rr_lock
     if _rr_lock is None:
         _rr_lock = asyncio.Lock()
+
     async with _rr_lock:
-        region = _REGIONS[_rr_counter % len(_REGIONS)]
-        _rr_counter += 1
-    return region
+        # Walk up tiers only when lower tier is fully degraded
+        for tier in [prefer_tier, 2, 3]:
+            eps = [_tier1_eps, _tier2_eps, _tier3_eps][tier - 1]
+            if not eps:
+                continue
+            if _tier_failures[tier] >= _TIER_FAILURE_THRESHOLD and tier < 3:
+                continue  # skip degraded tier, try next
+            idx = _rr[tier] % len(eps)
+            _rr[tier] += 1
+            return eps[idx]
+
+        # Absolute fallback
+        return _tier3_eps[0] if _tier3_eps else _tier1_eps[0]
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CORE OCR FUNCTION — rate-limited, multi-region, auto-retried
+#  CORE OCR FUNCTION — rate-limited, multi-tier, multi-region
 # ─────────────────────────────────────────────────────────────────────
 
-async def _ocr_one(session, image_path: str, get_headers, project_id: str, max_retries: int = 4) -> dict:
+_OCR_PROMPT = (
+    'Extract from this answer sheet and return JSON:\n'
+    '{"entry_number":"roll number","name":"student name",'
+    '"answers":{"1":"A","2":"AC","3":"2.5",...}}\n'
+    'answers: dict of question_number(str)->answer(str). '
+    'Single letter (A/B/C/D), multi-letter (AC/BCD), or number (2.5). '
+    'Omit blank questions.'
+)
+
+
+async def _ocr_one(session, image_path: str, get_headers, project_id: str,
+                   max_retries: int = 12) -> dict:
     """
-    OCR a single image with:
-    - Token-bucket rate limiting per region (prevents 429 proactively)
-    - Round-robin across 4 regions (distributes quota)
-    - Exponential backoff on 429
+    OCR one image.  Tries Tier-1 (Pro) first; on repeated 429s quietly
+    falls back to Tier-2 (Flash) then Tier-3 (Lite) as a last resort.
     """
     last_error = None
+    prefer_tier = 1
 
     for attempt in range(max_retries + 1):
-        region = await _pick_region()
-        await _get_bucket(region).acquire()
+        ep = await _pick_endpoint(prefer_tier)
+        bucket = _get_bucket(ep)
+        await bucket.acquire()
 
         url = (
-            f"https://{region}-aiplatform.googleapis.com/v1/"
-            f"projects/{project_id}/locations/{region}/"
-            f"publishers/google/models/{_MODEL}:generateContent"
+            f"https://{ep['region']}-aiplatform.googleapis.com/v1/"
+            f"projects/{project_id}/locations/{ep['region']}/"
+            f"publishers/google/models/{ep['model']}:generateContent"
         )
         headers = await get_headers()
 
@@ -131,14 +212,7 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str, max_r
 
         payload = {
             "contents": [{"role": "user", "parts": [
-                {"text": (
-                    'Extract from this answer sheet and return JSON:\n'
-                    '{"entry_number":"roll number","name":"student name",'
-                    '"answers":{"1":"A","2":"AC","3":"2.5",...}}\n'
-                    'answers: dict of question_number(str)->answer(str). '
-                    'Single letter (A/B/C/D), multi-letter (AC/BCD), or number (2.5). '
-                    'Omit blank questions.'
-                )},
+                {"text": _OCR_PROMPT},
                 {"inline_data": {"mime_type": mime, "data": b64}},
             ]}],
             "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.0},
@@ -147,8 +221,9 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str, max_r
         try:
             import aiohttp
             async with session.post(url, headers=headers, json=payload,
-                                    timeout=aiohttp.ClientTimeout(total=25)) as resp:
+                                    timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status == 200:
+                    _tier_failures[ep["tier"]] = max(0, _tier_failures[ep["tier"]] - 1)
                     data = await resp.json()
                     text = "".join(
                         part["text"]
@@ -163,10 +238,11 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str, max_r
                         m = re.search(r'\{.*\}', cleaned, re.DOTALL)
                         parsed = json.loads(m.group()) if m else {}
                     result = {
-                        "entry_number": parsed.get("entry_number") or "unknown",
-                        "name": parsed.get("name") or "unknown",
+                        "entry_number": parsed.get("entry_number") or "",
+                        "name": parsed.get("name") or "",
                         "comments": parsed.get("comments") or "",
                         "answers": {},
+                        "_endpoint": f"{ep['model']}@{ep['region']}",
                     }
                     for k, v in (parsed.get("answers") or {}).items():
                         try:
@@ -176,9 +252,20 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str, max_r
                     return result
 
                 elif resp.status == 429:
-                    backoff = min(5 * (2 ** attempt), 60)
-                    last_error = f"429 rate-limited (region={region})"
-                    print(f"  ⏳ 429 on {region} attempt {attempt+1}/{max_retries+1} — wait {backoff}s")
+                    _tier_failures[ep["tier"]] += 1
+                    backoff = min(4 * (2 ** attempt), 60)
+                    last_error = f"429 rate-limited ({ep['model']}@{ep['region']})"
+                    print(f"  ⏳ 429 on {ep['model']}@{ep['region']} attempt {attempt+1} — wait {backoff}s")
+                    # Step down only when: threshold hit AND we are past the halfway point of retries.
+                    # This ensures Tier-1 (Pro) gets the full retry budget before Flash is ever used.
+                    past_halfway = attempt >= max_retries // 2
+                    if (
+                        _tier_failures[ep["tier"]] >= _TIER_FAILURE_THRESHOLD
+                        and past_halfway
+                        and prefer_tier < 3
+                    ):
+                        prefer_tier += 1
+                        print(f"  ⬇️  Stepping down to Tier-{prefer_tier} (attempt {attempt+1}/{max_retries+1}, {_tier_failures[ep['tier']]} failures on Tier-{ep['tier']})")
                     await asyncio.sleep(backoff)
 
                 else:
@@ -187,7 +274,7 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str, max_r
                     await asyncio.sleep(2 * (attempt + 1))
 
         except asyncio.TimeoutError:
-            last_error = f"Timeout on {region} attempt {attempt+1}"
+            last_error = f"Timeout on {ep['model']}@{ep['region']} attempt {attempt+1}"
         except Exception as e:
             last_error = str(e)
             await asyncio.sleep(1 * (attempt + 1))
@@ -224,13 +311,21 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
 #  TRUE STREAMING PIPELINE
 # ─────────────────────────────────────────────────────────────────────
 
-async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str):
+def _make_eval_cache_key(file_id: str, answer_key_hash: str, evaluation_id: str = "default") -> str:
+    """Stable cache key for a fully evaluated result (OCR + scoring), namespaced by evaluation."""
+    raw = f"eval:{evaluation_id}:{file_id}:{answer_key_hash}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default"):
     """
     Streaming pipeline:
-      - All downloads start concurrently
-      - OCR starts the moment each file downloads (no waiting for full batch)
-      - Token-bucket rate limiting per region prevents 429
+      - Cache check (OCR + evaluation) BEFORE downloading anything
+      - Cache hits skip download, OCR AND re-evaluation entirely
+      - Downloads & OCR run concurrently across all sheets
+      - Token-bucket rate limiting per (model, region) pair prevents 429
       - Evaluation + DB write happen immediately after OCR
+      - Tier-1 (Pro) → Tier-2 (Flash) → Tier-3 (Lite) failover
     """
     import aiohttp
     from google.oauth2 import service_account
@@ -240,11 +335,18 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     errors: List = []
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "project-75abf07c-e594-4660-ab7")
     optimized_key = batch_eval_service.optimize_answer_key(answer_key)
+    answer_key_hash = cache_service.get_answer_key_hash(
+        {"answers": optimized_key["answers"], "negative_marking": optimized_key["negative_marking"]}
+    )
 
-    # Shared HTTP session
-    import aiohttp as _aio
-    connector = _aio.TCPConnector(limit=64, keepalive_timeout=60, enable_cleanup_closed=True)
-    session = _aio.ClientSession(connector=connector)
+    # Shared HTTP session — large pool for many concurrent connections
+    connector = aiohttp.TCPConnector(
+        limit=256,
+        limit_per_host=32,
+        keepalive_timeout=60,
+        enable_cleanup_closed=True,
+    )
+    session = aiohttp.ClientSession(connector=connector)
 
     # Auth token refresher
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "vertex_key.json")
@@ -265,43 +367,67 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     db_queue: asyncio.Queue = asyncio.Queue()
     writer_task = asyncio.create_task(_db_writer_worker(db_queue, processing_id))
 
-    # 6 concurrent OCR slots — rate buckets handle the actual pacing
-    ocr_sem = asyncio.Semaphore(6)
+    # High concurrency — token buckets do the pacing, not a semaphore
+    # Use a generous semaphore just to cap memory from too many in-flight downloads
+    download_sem = asyncio.Semaphore(50)
     lock = asyncio.Lock()
     success_count = 0
+    cache_hit_count = 0
     start_t = time.time()
     _processing_stats[processing_id]["start_time"] = start_t
     total = len(student_sheets)
 
     async def _handle(sheet_file: dict, idx: int):
-        nonlocal success_count
+        nonlocal success_count, cache_hit_count  # noqa: E741
         fname = sheet_file["name"]
         file_id = sheet_file["id"]
         local_path = os.path.join(temp_dir, f"{idx}_{fname}")
+        eval_cache_key = _make_eval_cache_key(file_id, answer_key_hash, evaluation_id)
+        ocr_cache_key = f"ocr:{evaluation_id}:{file_id}"
 
-        # 1. Cache check BEFORE download
-        cached = await cache_service.get_cached_ocr_result(local_path, file_hash=file_id)
-        if cached:
-            ocr = cached
+        # ── STEP 1: Check FULL evaluation cache (OCR + scored result) ──
+        # If hit, we're done — no download, no OCR, no re-evaluation needed.
+        eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
+        if eval_cached and "entry_number" in eval_cached and "total_score" in eval_cached:
             async with lock:
-                _processing_stats[processing_id]["cache_hits"] = _processing_stats[processing_id].get("cache_hits", 0) + 1
+                cache_hit_count += 1
+                _processing_stats[processing_id]["cache_hits"] = cache_hit_count
+                # Reconstruct a StudentResult-like dict from cached data
+                student_result = eval_cached  # already fully scored
+                results.append(student_result)
+                success_count += 1
+                processed = len(results) + len(errors)
+                _processing_stats[processing_id]["processed_files"] = processed
+                _log_progress(processing_id, processed, total, success_count,
+                              len(errors), cache_hit_count, start_t, from_cache=True)
+            await db_queue.put(student_result)
+            return
+
+        # ── STEP 2: Check OCR-only cache ──
+        ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
+        if ocr_cached:
+            ocr = ocr_cached
+            async with lock:
+                _processing_stats[processing_id]["ocr_cache_hits"] = \
+                    _processing_stats[processing_id].get("ocr_cache_hits", 0) + 1
         else:
             async with lock:
-                _processing_stats[processing_id]["cache_misses"] = _processing_stats[processing_id].get("cache_misses", 0) + 1
-            
-            # 2. Download
-            ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
+                _processing_stats[processing_id]["cache_misses"] = \
+                    _processing_stats[processing_id].get("cache_misses", 0) + 1
+
+            # ── STEP 3: Download ──
+            async with download_sem:
+                ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
             if not ok:
                 async with lock:
                     errors.append({"file": fname, "error": "Download failed"})
                     _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
                 return
 
-            # 3. OCR — rate-limited, multi-region, auto-retry
-            async with ocr_sem:
-                ocr = await _ocr_one(session, local_path, _get_headers, project_id)
+            # ── STEP 4: OCR (rate-limited, multi-tier, multi-region) ──
+            ocr = await _ocr_one(session, local_path, _get_headers, project_id)
             if "error" not in ocr:
-                await cache_service.cache_ocr_result(local_path, ocr, file_hash=file_id)
+                await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
 
         if "error" in ocr:
             async with lock:
@@ -313,7 +439,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                 pass
             return
 
-        # 4. Evaluate
+        # ── STEP 5: Evaluate ──
         ocr["index"] = idx
         ocr["file_name"] = fname
         student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
@@ -321,19 +447,23 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
         if isinstance(student_result, dict) and "error" in student_result:
             async with lock:
                 errors.append({"file": fname, "error": student_result["error"]})
+                _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
         else:
+            # ── STEP 6: Cache the fully evaluated result ──
+            try:
+                scored_dict = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
+                await cache_service.cache_ocr_result("__eval__", scored_dict, file_hash=eval_cache_key)
+            except Exception:
+                pass
+
             await db_queue.put(student_result)
             async with lock:
                 results.append(student_result)
                 success_count += 1
                 processed = len(results) + len(errors)
                 _processing_stats[processing_id]["processed_files"] = processed
-                if processed % 10 == 0 or processed == total:
-                    elapsed = time.time() - start_t
-                    rate = processed / max(elapsed, 1)
-                    eta = (total - processed) / rate if rate > 0 else 0
-                    pct = processed / total * 100
-                    print(f"  📊 {processed}/{total} ({pct:.0f}%) | ✅{success_count} ❌{len(errors)} | {rate:.2f}/s | ETA {eta:.0f}s")
+                _log_progress(processing_id, processed, total, success_count,
+                              len(errors), cache_hit_count, start_t, from_cache=False)
 
         try:
             os.path.exists(local_path) and os.remove(local_path)
@@ -356,6 +486,25 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     return results, errors
 
 
+def _log_progress(processing_id: str, processed: int, total: int, success: int,
+                  error_count: int, cache_hits: int, start_t: float, from_cache: bool):
+    """Emit a structured progress log entry."""
+    elapsed = time.time() - start_t
+    rate = processed / max(elapsed, 1)
+    eta = (total - processed) / rate if rate > 0 else 0
+    pct = processed / total * 100 if total else 0
+    cache_tag = "⚡CACHE" if from_cache else "🔬OCR"
+    print(
+        f"  [{cache_tag}] {processed}/{total} ({pct:.0f}%) | "
+        f"✅{success} ❌{error_count} 💾{cache_hits} cached | "
+        f"{rate:.2f}/s | ETA {eta:.0f}s"
+    )
+    _processing_stats[processing_id]["log_line"] = (
+        f"{processed}/{total} ({pct:.0f}%) | ✅{success} ❌{error_count} 💾{cache_hits} cached | "
+        f"{rate:.2f} sheets/s | ETA {eta:.0f}s"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────
 #  ENDPOINT
 # ─────────────────────────────────────────────────────────────────────
@@ -364,10 +513,10 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
 async def process_folder_optimized(request: ProcessFolderRequest, force_reprocess: bool = False):
     """
     Ultra-optimized folder processing.
-    - Streaming pipeline: each file is OCR'd as soon as it downloads
-    - Rate-aware: token-bucket throttling per region prevents 429
-    - 4 regions × 12 RPM = 48 effective RPM
-    - Exponential backoff retry on 429
+    - Full evaluation cache: cache hits skip download, OCR AND re-evaluation
+    - Tier-1 Pro → Tier-2 Flash → Tier-3 Lite failover
+    - 14+ endpoint pool with independent token-bucket rate limiting
+    - Streaming pipeline, high concurrency
     """
     global _current_answer_key, _processing_stats
 
@@ -381,8 +530,10 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
         "total_files": 0,
         "processed_files": 0,
         "cache_hits": 0,
+        "ocr_cache_hits": 0,
         "cache_misses": 0,
         "errors": [],
+        "log_line": "",
     }
 
     try:
@@ -393,10 +544,13 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
             raise HTTPException(status_code=404, detail="No files found in the Drive folder.")
 
         answer_key_files, student_sheets = drive_service.separate_files(all_files)
-        _processing_stats[processing_id]["total_files"] = len(student_sheets)
+        total_sheets = len(student_sheets)
+        _processing_stats[processing_id]["total_files"] = total_sheets
+
+        print(f"📂 Discovered {total_sheets} student sheet(s) + {len(answer_key_files)} answer key file(s)")
 
         # Load answer key
-        if (_current_answer_key is None or force_reprocess):
+        if _current_answer_key is None or force_reprocess:
             if answer_key_files:
                 _processing_stats[processing_id]["status"] = "loading_answer_key"
                 tmp = tempfile.mkdtemp(prefix="ak_")
@@ -408,7 +562,6 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
                 finally:
                     shutil.rmtree(tmp, ignore_errors=True)
             else:
-                # Fallback to local disk if previously uploaded
                 _current_answer_key = answer_key_service.load_from_disk()
 
         if not _current_answer_key:
@@ -416,15 +569,18 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
         if not student_sheets:
             raise HTTPException(status_code=404, detail="No student sheets found.")
 
+        print(f"🚀 Starting pipeline: {total_sheets} sheets | Pro→Flash→Lite tier failover | Full eval cache enabled")
+
         # Run pipeline
-        results, errors = await _process_sheets_optimized(student_sheets, _current_answer_key, processing_id)
+        eval_id = request.evaluation_id or "default"
+        results, errors = await _process_sheets_optimized(student_sheets, _current_answer_key, processing_id, eval_id)
 
         total_time = time.time() - start_time
         _processing_stats[processing_id].update({
             "status": "completed",
             "total_time": total_time,
-            "avg_time_per_file": total_time / len(student_sheets) if student_sheets else 0,
-            "success_rate": len(results) / len(student_sheets) if student_sheets else 0,
+            "avg_time_per_file": total_time / total_sheets if total_sheets else 0,
+            "success_rate": len(results) / total_sheets if total_sheets else 0,
         })
 
         return PipelineSummary(
