@@ -169,7 +169,9 @@ _OCR_PROMPT = (
     '"answers":{"1":"A","2":"AC","3":"2.5",...}}\n'
     'answers: dict of question_number(str)->answer(str). '
     'Single letter (A/B/C/D), multi-letter (AC/BCD), or number (2.5). '
-    'Omit blank questions.'
+    'Omit blank questions. '
+    'The image may be rotated or tilted — read it in whatever orientation makes the text readable. '
+    'entry_number/roll number is REQUIRED — look for it carefully in corners, margins, and headers.'
 )
 
 
@@ -194,12 +196,25 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
         )
         headers = await get_headers()
 
-        # Compress image
+        # Compress image and fix orientation
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             with Image.open(image_path) as img:
+                # Fix EXIF orientation (phone cameras store rotation as metadata)
+                try:
+                    img = ImageOps.exif_transpose(img)
+                except Exception:
+                    pass
+
                 if img.mode not in ("RGB", "L"):
                     img = img.convert("RGB")
+
+                # Auto-rotate: if image is significantly more tall than wide,
+                # it's likely a rotated landscape photo — rotate 90° CCW
+                w, h = img.size
+                if h > w * 1.5:  # portrait orientation, likely rotated
+                    img = img.rotate(90, expand=True)
+
                 img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=85, optimize=True)
@@ -231,19 +246,109 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
                         for part in cand.get("content", {}).get("parts", [])
                         if "text" in part
                     )
+
+                    # If the model returned no text at all, check why and RETRY
+                    if not text.strip():
+                        # Check for safety block or empty candidates
+                        candidates = data.get("candidates", [])
+                        if not candidates:
+                            last_error = f"No candidates in response for {os.path.basename(image_path)}"
+                        else:
+                            finish_reason = candidates[0].get("finishReason", "UNKNOWN")
+                            safety = candidates[0].get("safetyRatings", [])
+                            last_error = (f"Empty text for {os.path.basename(image_path)} "
+                                          f"(finishReason={finish_reason}, safety={safety})")
+                        print(f"  ⚠️ [OCR] {last_error}")
+                        await asyncio.sleep(1)
+                        continue  # retry on next attempt/endpoint
+
                     cleaned = re.sub(r'```json\s*|\s*```', '', text).strip()
+                    parsed = None
+
+                    # Strategy 1: Direct JSON parse
                     try:
                         parsed = json.loads(cleaned)
                     except Exception:
-                        m = re.search(r'\{.*\}', cleaned, re.DOTALL)
-                        parsed = json.loads(m.group()) if m else {}
+                        pass
+
+                    # Strategy 2: Find ALL JSON objects and use the LAST valid one
+                    # (Gemini thinking models put explanation before the actual JSON)
+                    if not parsed:
+                        # Find all potential JSON objects by matching balanced braces
+                        json_candidates = []
+                        depth = 0
+                        start_idx = None
+                        for i, ch in enumerate(cleaned):
+                            if ch == '{':
+                                if depth == 0:
+                                    start_idx = i
+                                depth += 1
+                            elif ch == '}':
+                                depth -= 1
+                                if depth == 0 and start_idx is not None:
+                                    json_candidates.append(cleaned[start_idx:i+1])
+                                    start_idx = None
+
+                        # Try each candidate in REVERSE order (last = most likely the actual answer)
+                        for candidate in reversed(json_candidates):
+                            try:
+                                test = json.loads(candidate)
+                                if isinstance(test, dict) and ("answers" in test or "entry_number" in test or "name" in test):
+                                    parsed = test
+                                    break
+                            except Exception:
+                                continue
+
+                    # Strategy 3: Last resort — extract fields via regex
+                    if not parsed:
+                        parsed = {}
+                        # Try to extract entry_number
+                        m = re.search(r'"entry_number"\s*:\s*"([^"]*)"', text)
+                        if m:
+                            parsed["entry_number"] = m.group(1)
+                        # Try to extract name
+                        m = re.search(r'"name"\s*:\s*"([^"]*)"', text)
+                        if m:
+                            parsed["name"] = m.group(1)
+                        # Try to extract answers block
+                        m = re.search(r'"answers"\s*:\s*(\{[^}]*\})', text)
+                        if m:
+                            try:
+                                parsed["answers"] = json.loads(m.group(1))
+                            except Exception:
+                                pass
+                        if parsed:
+                            print(f"  🔧 [OCR] Regex-extracted fields for {os.path.basename(image_path)}: {list(parsed.keys())}")
+                        else:
+                            print(f"  ⚠️ [OCR] JSON parse completely failed for {os.path.basename(image_path)}: raw text={text[:300]}")
+                            last_error = f"JSON parse failed for {os.path.basename(image_path)}"
+                            await asyncio.sleep(1)
+                            continue  # retry only when we got absolutely nothing
+
+                    # Try multiple keys the model might use for the enrollment number
+                    entry = (
+                        parsed.get("entry_number")
+                        or parsed.get("roll_number")
+                        or parsed.get("enrollment_number")
+                        or parsed.get("roll")
+                        or parsed.get("enrollment")
+                        or parsed.get("roll_no")
+                        or parsed.get("enroll")
+                        or parsed.get("id")
+                        or parsed.get("student_id")
+                        or ""
+                    )
                     result = {
-                        "entry_number": parsed.get("entry_number") or "",
-                        "name": parsed.get("name") or "",
+                        "entry_number": str(entry).strip(),
+                        "name": str(parsed.get("name") or parsed.get("student_name") or "").strip(),
                         "comments": parsed.get("comments") or "",
                         "answers": {},
                         "_endpoint": f"{ep['model']}@{ep['region']}",
                     }
+                    # Debug: if entry_number is empty, log ALL keys the model returned
+                    if not str(entry).strip():
+                        non_answer_keys = {k: v for k, v in parsed.items() if k != "answers"}
+                        print(f"  🔍 [OCR DEBUG] Empty entry for {os.path.basename(image_path)}: model returned keys={non_answer_keys}")
                     for k, v in (parsed.get("answers") or {}).items():
                         try:
                             result["answers"][str(int(k))] = str(v).strip().upper()
@@ -275,9 +380,16 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
 
         except asyncio.TimeoutError:
             last_error = f"Timeout on {ep['model']}@{ep['region']} attempt {attempt+1}"
+            backoff = min(2 * (attempt + 1), 30)
+            await asyncio.sleep(backoff)
+        except (ConnectionError, OSError) as e:
+            # Network glitch — retry with backoff (covers ServerDisconnectedError)
+            last_error = f"Connection lost on {ep['model']}@{ep['region']} attempt {attempt+1}: {e}"
+            backoff = min(3 * (attempt + 1), 30)
+            await asyncio.sleep(backoff)
         except Exception as e:
             last_error = str(e)
-            await asyncio.sleep(1 * (attempt + 1))
+            await asyncio.sleep(min(2 * (attempt + 1), 20))
 
     return {"error": last_error or "All retries exhausted"}
 
@@ -377,6 +489,13 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     _processing_stats[processing_id]["start_time"] = start_t
     total = len(student_sheets)
 
+    def _is_valid_cached_entry(entry_val) -> bool:
+        """Return True only if this entry_number is real (not empty, not UNREAD_ placeholder)."""
+        if not entry_val:
+            return False
+        s = str(entry_val).strip()
+        return bool(s) and not s.startswith("UNREAD_")
+
     async def _handle(sheet_file: dict, idx: int):
         nonlocal success_count, cache_hit_count  # noqa: E741
         fname = sheet_file["name"]
@@ -385,90 +504,120 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
         eval_cache_key = _make_eval_cache_key(file_id, answer_key_hash, evaluation_id)
         ocr_cache_key = f"ocr:{evaluation_id}:{file_id}"
 
-        # ── STEP 1: Check FULL evaluation cache (OCR + scored result) ──
-        # If hit, we're done — no download, no OCR, no re-evaluation needed.
-        eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
-        if eval_cached and "entry_number" in eval_cached and "total_score" in eval_cached:
-            async with lock:
-                cache_hit_count += 1
-                _processing_stats[processing_id]["cache_hits"] = cache_hit_count
-                # Reconstruct a StudentResult-like dict from cached data
-                student_result = eval_cached  # already fully scored
-                results.append(student_result)
-                success_count += 1
-                processed = len(results) + len(errors)
-                _processing_stats[processing_id]["processed_files"] = processed
-                _log_progress(processing_id, processed, total, success_count,
-                              len(errors), cache_hit_count, start_t, from_cache=True)
-            await db_queue.put(student_result)
-            return
-
-        # ── STEP 2: Check OCR-only cache ──
-        ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
-        if ocr_cached:
-            ocr = ocr_cached
-            async with lock:
-                _processing_stats[processing_id]["ocr_cache_hits"] = \
-                    _processing_stats[processing_id].get("ocr_cache_hits", 0) + 1
-        else:
-            async with lock:
-                _processing_stats[processing_id]["cache_misses"] = \
-                    _processing_stats[processing_id].get("cache_misses", 0) + 1
-
-            # ── STEP 3: Download ──
-            async with download_sem:
-                ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-            if not ok:
+        try:
+            # ── STEP 1: Check FULL evaluation cache (OCR + scored result) ──
+            # If hit, we're done — no download, no OCR, no re-evaluation needed.
+            # IMPORTANT: Reject cached results with empty/UNREAD_ entry_number (network-failure garbage).
+            eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
+            cached_entry = (eval_cached or {}).get("entry_number", "") if eval_cached else ""
+            if eval_cached and _is_valid_cached_entry(cached_entry) and "total_score" in eval_cached:
                 async with lock:
-                    errors.append({"file": fname, "error": "Download failed"})
+                    cache_hit_count += 1
+                    _processing_stats[processing_id]["cache_hits"] = cache_hit_count
+                    student_result = eval_cached  # already fully scored
+                    results.append(student_result)
+                    success_count += 1
+                    processed = len(results) + len(errors)
+                    _processing_stats[processing_id]["processed_files"] = processed
+                    _log_progress(processing_id, processed, total, success_count,
+                                  len(errors), cache_hit_count, start_t, from_cache=True)
+                await db_queue.put(student_result)
+                return
+            elif eval_cached and not _is_valid_cached_entry(cached_entry):
+                print(f"  🔄 Skipping incomplete eval cache for {fname} (entry='{cached_entry}') — re-processing")
+
+            # ── STEP 2: Check OCR-only cache ──
+            # Reject OCR cache if entry_number is empty or UNREAD_ placeholder
+            ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
+            ocr_cached_entry = (ocr_cached or {}).get("entry_number", "") if ocr_cached else ""
+            if ocr_cached and _is_valid_cached_entry(ocr_cached_entry):
+                ocr = ocr_cached
+                async with lock:
+                    _processing_stats[processing_id]["ocr_cache_hits"] = \
+                        _processing_stats[processing_id].get("ocr_cache_hits", 0) + 1
+            else:
+                if ocr_cached and not _is_valid_cached_entry(ocr_cached_entry):
+                    print(f"  🔄 Skipping incomplete OCR cache for {fname} (entry='{ocr_cached_entry}') — re-processing")
+                async with lock:
+                    _processing_stats[processing_id]["cache_misses"] = \
+                        _processing_stats[processing_id].get("cache_misses", 0) + 1
+
+                # ── STEP 3: Download ──
+                async with download_sem:
+                    ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
+                if not ok:
+                    async with lock:
+                        errors.append({"file": fname, "error": "Download failed"})
+                        _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+                    return
+
+                # ── STEP 4: OCR (rate-limited, multi-tier, multi-region) ──
+                ocr = await _ocr_one(session, local_path, _get_headers, project_id)
+                if "error" not in ocr:
+                    # Only cache OCR results with valid entry_number (not empty, not UNREAD_)
+                    if _is_valid_cached_entry(ocr.get("entry_number", "")):
+                        await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
+                    else:
+                        print(f"  ⚠️ OCR returned empty entry_number for {fname} — NOT caching (will retry on next run)")
+
+            if "error" in ocr:
+                async with lock:
+                    errors.append({"file": fname, "error": ocr["error"]})
                     _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+                try:
+                    os.path.exists(local_path) and os.remove(local_path)
+                except Exception:
+                    pass
                 return
 
-            # ── STEP 4: OCR (rate-limited, multi-tier, multi-region) ──
-            ocr = await _ocr_one(session, local_path, _get_headers, project_id)
-            if "error" not in ocr:
-                await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
+            # ── STEP 5: Evaluate ──
+            ocr["index"] = idx
+            ocr["file_name"] = fname
+            # Assign a unique fallback entry_number from the filename if OCR couldn't extract one
+            if not str(ocr.get("entry_number", "")).strip():
+                # Use filename without extension as a unique (but temporary) identifier
+                fallback_id = os.path.splitext(fname)[0]
+                ocr["entry_number"] = f"UNREAD_{fallback_id}"
+            student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
 
-        if "error" in ocr:
+            if isinstance(student_result, dict) and "error" in student_result:
+                async with lock:
+                    errors.append({"file": fname, "error": student_result["error"]})
+                    _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+            else:
+                # ── STEP 6: Cache the fully evaluated result ──
+                # Only cache if entry_number is valid (not empty, not UNREAD_)
+                try:
+                    scored_dict = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
+                    if _is_valid_cached_entry(scored_dict.get("entry_number", "")):
+                        await cache_service.cache_ocr_result("__eval__", scored_dict, file_hash=eval_cache_key)
+                    else:
+                        print(f"  ⚠️ Skipping eval cache for {fname} (entry='{scored_dict.get('entry_number','')}') — will retry on next run")
+                except Exception:
+                    pass
+
+                await db_queue.put(student_result)
+                async with lock:
+                    results.append(student_result)
+                    success_count += 1
+                    processed = len(results) + len(errors)
+                    _processing_stats[processing_id]["processed_files"] = processed
+                    _log_progress(processing_id, processed, total, success_count,
+                                  len(errors), cache_hit_count, start_t, from_cache=False)
+
+        except Exception as exc:
+            # Catch ANY unhandled error (FileNotFoundError, etc.) so it doesn't
+            # crash the entire asyncio.gather pipeline for all students.
             async with lock:
-                errors.append({"file": fname, "error": ocr["error"]})
+                errors.append({"file": fname, "error": str(exc)})
                 _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+            print(f"  ⚠️ Error processing {fname}: {exc}")
+
+        finally:
             try:
                 os.path.exists(local_path) and os.remove(local_path)
             except Exception:
                 pass
-            return
-
-        # ── STEP 5: Evaluate ──
-        ocr["index"] = idx
-        ocr["file_name"] = fname
-        student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
-
-        if isinstance(student_result, dict) and "error" in student_result:
-            async with lock:
-                errors.append({"file": fname, "error": student_result["error"]})
-                _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
-        else:
-            # ── STEP 6: Cache the fully evaluated result ──
-            try:
-                scored_dict = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
-                await cache_service.cache_ocr_result("__eval__", scored_dict, file_hash=eval_cache_key)
-            except Exception:
-                pass
-
-            await db_queue.put(student_result)
-            async with lock:
-                results.append(student_result)
-                success_count += 1
-                processed = len(results) + len(errors)
-                _processing_stats[processing_id]["processed_files"] = processed
-                _log_progress(processing_id, processed, total, success_count,
-                              len(errors), cache_hit_count, start_t, from_cache=False)
-
-        try:
-            os.path.exists(local_path) and os.remove(local_path)
-        except Exception:
-            pass
 
     try:
         _processing_stats[processing_id]["status"] = "streaming_pipeline"
@@ -583,10 +732,42 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
             "success_rate": len(results) / total_sheets if total_sheets else 0,
         })
 
+        # Normalize results: convert StudentResult objects to dicts for consistent serialization
+        normalized_results = []
+        for r in results:
+            if hasattr(r, 'model_dump'):
+                normalized_results.append(r.model_dump())
+            elif isinstance(r, dict):
+                normalized_results.append(r)
+            else:
+                normalized_results.append(dict(r))
+
+        # ── DEBUG: entry_number distribution ──
+        from collections import Counter
+        entry_nums = [r.get("entry_number", "(missing)") for r in normalized_results]
+        unique_count = len(set(entry_nums))
+        freq = Counter(entry_nums)
+        dupes = {k: v for k, v in freq.items() if v > 1}
+        print(f"\n📊 [DEBUG] {len(normalized_results)} results, {unique_count} unique entry_numbers")
+        if dupes:
+            print(f"📊 [DEBUG] Duplicated entry_numbers (>1 occurrence): {dict(list(dupes.items())[:15])}")
+        # ── END DEBUG ──
+
+        # Filter out UNREAD_ entries from the response — they should NOT appear in UI/export
+        # They are kept internally (not cached) so re-runs will re-process them
+        unread_results = [r for r in normalized_results if str(r.get("entry_number", "")).startswith("UNREAD_")]
+        display_results = [r for r in normalized_results if not str(r.get("entry_number", "")).startswith("UNREAD_")]
+        if unread_results:
+            print(f"\n🔄 Filtered {len(unread_results)} UNREAD entries from response (not in UI/export, will be re-processed on next run)")
+            _processing_stats[processing_id]["unread_sheets"] = len(unread_results)
+            _processing_stats[processing_id]["unread_files"] = [
+                str(r.get("entry_number", "")).replace("UNREAD_", "") for r in unread_results
+            ][:10]  # first 10 for reference
+
         return PipelineSummary(
-            total_students_processed=len(results),
+            total_students_processed=len(display_results),
             answer_key_source=_current_answer_key.metadata.get("source_file", "loaded"),
-            results=results,
+            results=display_results,
             errors=errors,
             processing_stats=_processing_stats[processing_id],
         ).model_dump()

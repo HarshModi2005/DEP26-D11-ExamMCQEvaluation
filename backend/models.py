@@ -104,10 +104,12 @@ class FullPipelineRequest(BaseModel):
 
 
 class PipelineSummary(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
     total_students_processed: int
     answer_key_source: str
-    results: List[StudentResult] = []
+    results: List[Any] = []
     errors: List[Dict] = []
+    processing_stats: Dict = {}
 
 
 class SheetUpdateSummary(BaseModel):

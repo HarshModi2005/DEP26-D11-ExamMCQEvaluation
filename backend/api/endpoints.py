@@ -492,7 +492,9 @@ async def process_zip_upload(
                     )
                     continue
 
-                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                from models import StudentResult
+                student_result_dict = EvaluationService.match_and_score(_current_answer_key, extracted)
+                student_result = StudentResult(**student_result_dict)
                 _current_results.append(student_result)
                 processed_count += 1
 
@@ -703,7 +705,9 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
                     )
                     continue
 
-                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                from models import StudentResult
+                student_result_dict = EvaluationService.match_and_score(_current_answer_key, extracted)
+                student_result = StudentResult(**student_result_dict)
                 _current_results.append(student_result)
 
                 # Save to DB immediately (benchmarking: persist as we go)

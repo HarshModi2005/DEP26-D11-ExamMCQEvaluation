@@ -242,7 +242,7 @@ class AnswerKeyService:
         return {"answers": answers}
 
     def _parse_excel(self, file_path: str) -> Dict:
-        """Parse XLSX/XLS file using openpyxl."""
+        """Parse XLSX/XLS file using openpyxl with comprehensive format support."""
         try:
             import openpyxl
         except ImportError:
@@ -258,32 +258,53 @@ class AnswerKeyService:
 
         # Check if first row is header
         first_row = [str(cell).strip().lower() if cell else '' for cell in rows[0]]
-        header_keywords = {'question', 'q', 'number', 'option', 'answer', 'correct', 'marks'}
+        header_keywords = {'question', 'q', 'number', 'option', 'answer', 'correct', 'marks', 'type'}
         has_header = any(kw in cell for cell in first_row for kw in header_keywords)
 
         start_idx = 1 if has_header else 0
         headers = first_row if has_header else None
 
-        q_col, opt_col, marks_col = self._detect_csv_columns(headers)
-        # Default column positions if detection fails
-        if q_col is None:
-            q_col = 0
-        if opt_col is None:
-            opt_col = 1
+        # Use COMPREHENSIVE column detection (supports type, positive/negative marks)
+        col_indices = self._detect_comprehensive_csv_columns(headers)
 
         for row in rows[start_idx:]:
             if not row or all(cell is None for cell in row):
                 continue
             try:
-                q_num = self._parse_question_number(str(row[q_col]).strip())
-                option = str(row[opt_col]).strip().upper()
-                marks = 1.0
-                if marks_col is not None and marks_col < len(row) and row[marks_col]:
+                q_num = self._parse_question_number(str(row[col_indices['question_number']]).strip())
+
+                # Get question type
+                q_type = "SMCQ"  # default
+                if col_indices['type'] is not None and col_indices['type'] < len(row) and row[col_indices['type']]:
+                    q_type = str(row[col_indices['type']]).strip().upper()
+
+                # Get correct answer
+                correct_answer = ""
+                if col_indices['correct_answer'] is not None and col_indices['correct_answer'] < len(row) and row[col_indices['correct_answer']]:
+                    correct_answer = str(row[col_indices['correct_answer']]).strip().upper()
+
+                # Get positive marks
+                positive_marks = 1.0
+                if col_indices['positive_marks'] is not None and col_indices['positive_marks'] < len(row) and row[col_indices['positive_marks']]:
                     try:
-                        marks = float(row[marks_col])
+                        positive_marks = float(row[col_indices['positive_marks']])
                     except (ValueError, TypeError):
-                        marks = 1.0
-                answers[q_num] = {"correct_option": option, "marks": marks}
+                        positive_marks = 1.0
+
+                # Get negative marks
+                negative_marks = 0.0
+                if col_indices['negative_marks'] is not None and col_indices['negative_marks'] < len(row) and row[col_indices['negative_marks']]:
+                    try:
+                        negative_marks = float(row[col_indices['negative_marks']])
+                    except (ValueError, TypeError):
+                        negative_marks = 0.0
+
+                answers[q_num] = {
+                    "question_type": q_type,
+                    "correct_answer": correct_answer,
+                    "positive_marks": positive_marks,
+                    "negative_marks": negative_marks
+                }
             except (ValueError, IndexError):
                 continue
 

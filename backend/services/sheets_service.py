@@ -365,26 +365,39 @@ class SheetsService:
     def _smart_match_score(cls, sheet_entry: str, sheet_name: str,
                            ocr_entry: str, ocr_name: str) -> float:
         """
-        Compute an overall match confidence score (0.0 - 1.0) between a master sheet
-        student and an OCR result, accounting for common OCR errors.
+        Strict fuzzy match: BOTH enrollment number AND name must be within
+        Levenshtein distance ≤ 2 (after normalization).  Returns 0.0 if
+        either field exceeds the threshold, otherwise a confidence 0.6-1.0.
         """
-        entry_sim = cls._entry_number_similarity(sheet_entry, ocr_entry)
-        name_sim = cls._name_similarity(sheet_name, ocr_name)
+        # ── Normalize entry numbers: strip ALL whitespace & punctuation ──
+        e1 = re.sub(r'[\s\-_./]', '', sheet_entry).upper()
+        e2 = re.sub(r'[\s\-_./]', '', ocr_entry).upper()
 
-        # Weighted combination: entry number is more reliable than name for matching
-        # because names are more prone to OCR errors in handwritten sheets
-        if entry_sim >= 0.9:
-            # Entry number is very strong match — trust it heavily
-            return entry_sim * 0.75 + name_sim * 0.25
-        elif entry_sim >= 0.7:
-            # Moderate entry match — balance both signals
-            return entry_sim * 0.55 + name_sim * 0.45
-        elif name_sim >= 0.8:
-            # Strong name match even if entry is weak
-            return entry_sim * 0.3 + name_sim * 0.7
-        else:
-            # Both weak — average with entry slightly higher
-            return entry_sim * 0.5 + name_sim * 0.5
+        if not e1 or not e2:
+            return 0.0
+
+        entry_dist = cls._levenshtein_distance(e1, e2)
+        if entry_dist > 2:          # hard gate: enrollment must be very close
+            return 0.0
+
+        # ── Normalize names: lowercase, strip ──
+        n1 = sheet_name.strip().lower()
+        n2 = ocr_name.strip().lower()
+
+        if not n1 or not n2:
+            return 0.0
+
+        name_dist = cls._levenshtein_distance(n1, n2)
+        if name_dist > 2:           # hard gate: name must be very close
+            return 0.0
+
+        # Both passed — compute a confidence score (higher = closer match)
+        max_entry_len = max(len(e1), len(e2), 1)
+        max_name_len  = max(len(n1), len(n2), 1)
+        entry_sim = 1.0 - (entry_dist / max_entry_len)
+        name_sim  = 1.0 - (name_dist / max_name_len)
+
+        return entry_sim * 0.6 + name_sim * 0.4
 
     # ──────────────────────────────────────
     #  Name Cross-Verification
@@ -612,9 +625,27 @@ class SheetsService:
                 is_fuzzy_match = False
 
                 if normalized and normalized in results_map:
-                    result = results_map[normalized]
-                    matched_results.add(normalized)
-                elif raw_entry:
+                    # Entry number matches exactly — but ALSO verify name is close
+                    candidate = results_map[normalized]
+                    sheet_name_str = student.get('name', '').strip().lower()
+                    ocr_name_str = str(candidate.get('name', '')).strip().lower()
+
+                    if sheet_name_str and ocr_name_str:
+                        name_dist = self._levenshtein_distance(sheet_name_str, ocr_name_str)
+                        if name_dist <= 2:
+                            # Both entry number and name match — accept
+                            result = candidate
+                            matched_results.add(normalized)
+                        else:
+                            # Entry number matches but name is way off — reject this match
+                            print(f"  ❌ Rejected direct match: entry='{raw_entry}' (name dist={name_dist}: "
+                                  f"'{student.get('name','')}' vs '{candidate.get('name','')}')")
+                    else:
+                        # One of the names is missing — accept on entry number alone
+                        result = candidate
+                        matched_results.add(normalized)
+
+                if not result and raw_entry:
                     # Fallback to OCR-Aware Smart Fuzzy Matching
                     sheet_name_str = student.get('name', '').strip()
                     sheet_entry_str = str(raw_entry).strip()

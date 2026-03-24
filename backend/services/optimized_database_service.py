@@ -516,13 +516,19 @@ class OptimizedDatabaseService:
         
         return result
     
-    def _batch_add_results_sync(self, student_results: List[StudentResult], exam_id: str) -> int:
-        """Synchronous batch result insertion."""
+    def _batch_add_results_sync(self, student_results: List, exam_id: str) -> int:
+        """Synchronous batch result insertion. Handles both StudentResult objects and dicts."""
         with self.pool.get_connection() as conn:
             c = conn.cursor()
             
             try:
                 current_time = time.time()
+
+                # Helper: access field from either a Pydantic model or a dict
+                def _get(obj, key, default=""):
+                    if isinstance(obj, dict):
+                        return obj.get(key, default)
+                    return getattr(obj, key, default)
                 
                 # Prepare student data
                 student_data = []
@@ -530,38 +536,62 @@ class OptimizedDatabaseService:
                 result_data = []
                 
                 for result in student_results:
+                    entry_number = str(_get(result, "entry_number", "unknown"))
+                    name = str(_get(result, "name", ""))
+                    total_score = float(_get(result, "total_score", 0))
+                    correct_count = int(_get(result, "correct_count", 0))
+                    incorrect_count = int(_get(result, "incorrect_count", 0))
+                    unattempted_count = int(_get(result, "unattempted_count", 0))
+                    details_raw = _get(result, "details", [])
+
                     # Student data
                     student_data.append((
-                        result.entry_number,
-                        result.name,
-                        result.entry_number,
+                        entry_number,
+                        name,
+                        entry_number,
                         current_time,
                         current_time
                     ))
                     
                     # Submission data (using entry_number as submission_id)
-                    submission_id = f"{exam_id}_{result.entry_number}"
+                    submission_id = f"{exam_id}_{entry_number}"
+
+                    # Build answers dict from details (handles both object and dict)
+                    answers = {}
+                    for d in (details_raw or []):
+                        q = _get(d, "question_number", None)
+                        marked = _get(d, "marked", None)
+                        if q is not None and marked:
+                            answers[q] = marked
+
                     submission_data.append((
                         submission_id,
-                        result.entry_number,
+                        entry_number,
                         exam_id,
                         None,  # file_id
                         "evaluated",
                         json.dumps({
-                            "entry_number": result.entry_number,
-                            "name": result.name,
-                            "answers": {d.question_number: d.marked for d in result.details if d.marked}
+                            "entry_number": entry_number,
+                            "name": name,
+                            "answers": answers
                         }),
                         current_time,
                         current_time
                     ))
                     
-                    # Result data
+                    # Result data — serialize the full result
+                    if hasattr(result, "model_dump"):
+                        result_dump = json.dumps(result.model_dump())
+                    elif isinstance(result, dict):
+                        result_dump = json.dumps(result)
+                    else:
+                        result_dump = json.dumps(str(result))
+
                     result_data.append((
                         submission_id,
-                        result.total_score,
-                        f"{result.correct_count} correct, {result.incorrect_count} incorrect, {result.unattempted_count} unattempted",
-                        json.dumps(result.model_dump()),
+                        total_score,
+                        f"{correct_count} correct, {incorrect_count} incorrect, {unattempted_count} unattempted",
+                        result_dump,
                         current_time,
                         current_time
                     ))

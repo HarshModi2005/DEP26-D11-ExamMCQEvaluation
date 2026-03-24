@@ -8,18 +8,31 @@ export const resultsService = {
     async saveResults(evaluationId, courseId, results, gradedById) {
         if (!results || results.length === 0) return;
 
+        // ── Helper: batch a Supabase .in() query into chunks ──
+        const BATCH = 50;  // safe chunk size for Supabase URL limits
+
+        async function batchIn(table, selectCols, column, values) {
+            const all = [];
+            for (let i = 0; i < values.length; i += BATCH) {
+                const chunk = values.slice(i, i + BATCH);
+                const { data, error } = await supabase
+                    .from(table)
+                    .select(selectCols)
+                    .in(column, chunk);
+                if (error) throw error;
+                if (data) all.push(...data);
+            }
+            return all;
+        }
+
         // 1. Get unique roll numbers from results
         const uniqueRollNos = [...new Set(results.map(r => r.entry_number).filter(Boolean))];
+        console.log(`[saveResults] incoming results: ${results.length}, unique roll numbers: ${uniqueRollNos.length}`);
 
-        // 2. Fetch existing students
-        const { data: existingStudents, error: fetchErr } = await supabase
-            .from('students')
-            .select('id, roll_number')
-            .in('roll_number', uniqueRollNos);
-
-        if (fetchErr) throw fetchErr;
-
-        const existingRollNos = new Set((existingStudents || []).map(s => s.roll_number));
+        // 2. Fetch existing students (batched)
+        const existingStudents = await batchIn('students', 'id, roll_number', 'roll_number', uniqueRollNos);
+        const existingRollNos = new Set(existingStudents.map(s => s.roll_number));
+        console.log(`[saveResults] existing students found: ${existingStudents.length}, missing to insert: ${uniqueRollNos.length - existingRollNos.size}`);
 
         // 3. Prepare missing students for insertion
         const missingStudents = [];
@@ -35,27 +48,23 @@ export const resultsService = {
             }
         }
 
-        // 4. Insert missing students if any
+        // 4. Insert missing students if any (batched)
         if (missingStudents.length > 0) {
-            const { error: insertErr } = await supabase
-                .from('students')
-                .insert(missingStudents);
-
-            if (insertErr) {
-                console.error('Failed to insert missing students:', insertErr);
-                // Proceed anyway, some inserts might be duplicated or fail, we'll fetch again
+            for (let i = 0; i < missingStudents.length; i += BATCH) {
+                const chunk = missingStudents.slice(i, i + BATCH);
+                const { error: insertErr } = await supabase
+                    .from('students')
+                    .insert(chunk);
+                if (insertErr) {
+                    console.error(`Failed to insert student batch ${i}-${i + chunk.length}:`, insertErr);
+                }
             }
         }
 
-        // 5. Fetch all needed students again to get their assigned IDs
-        const { data: allStudents, error: fetchAllErr } = await supabase
-            .from('students')
-            .select('id, roll_number')
-            .in('roll_number', uniqueRollNos);
-
-        if (fetchAllErr) throw fetchAllErr;
-
-        const studentMap = new Map((allStudents || []).map(s => [s.roll_number, s.id]));
+        // 5. Fetch all needed students again to get their assigned IDs (batched)
+        const allStudents = await batchIn('students', 'id, roll_number', 'roll_number', uniqueRollNos);
+        const studentMap = new Map(allStudents.map(s => [s.roll_number, s.id]));
+        console.log(`[saveResults] studentMap size after re-fetch: ${studentMap.size}`);
 
         const insertsMap = new Map();
 
@@ -86,6 +95,7 @@ export const resultsService = {
 
         const inserts = Array.from(insertsMap.values());
 
+        console.log(`[saveResults] insertsMap size: ${insertsMap.size}, inserts array: ${inserts.length}`);
         if (inserts.length === 0) return [];
 
         // 6. True Synchronization: Delete any existing results for this evaluation that are NOT in the new batch
@@ -99,24 +109,32 @@ export const resultsService = {
             const toDelete = existingRecords.map(r => r.student_id).filter(id => !keepSet.has(id));
 
             if (toDelete.length > 0) {
-                const { error: deleteErr } = await supabase
-                    .from('submission_results')
-                    .delete()
-                    .eq('evaluation_id', evaluationId)
-                    .in('student_id', toDelete);
-
-                if (deleteErr) {
-                    console.error('Failed to delete obsolete results during sync:', deleteErr);
+                for (let i = 0; i < toDelete.length; i += BATCH) {
+                    const chunk = toDelete.slice(i, i + BATCH);
+                    const { error: deleteErr } = await supabase
+                        .from('submission_results')
+                        .delete()
+                        .eq('evaluation_id', evaluationId)
+                        .in('student_id', chunk);
+                    if (deleteErr) {
+                        console.error('Failed to delete obsolete results during sync:', deleteErr);
+                    }
                 }
             }
         }
 
-        const { data, error } = await supabase
-            .from('submission_results')
-            .upsert(inserts, { onConflict: 'evaluation_id,student_id' })
-            .select();
-        if (error) throw error;
-        return data;
+        // 7. Upsert results in batches
+        let allData = [];
+        for (let i = 0; i < inserts.length; i += BATCH) {
+            const chunk = inserts.slice(i, i + BATCH);
+            const { data, error } = await supabase
+                .from('submission_results')
+                .upsert(chunk, { onConflict: 'evaluation_id,student_id' })
+                .select();
+            if (error) throw error;
+            if (data) allData.push(...data);
+        }
+        return allData;
     },
 
     /**
