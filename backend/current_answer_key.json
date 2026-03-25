@@ -1,72 +1,42 @@
 {
-  "total_questions": 10,
+  "total_questions": 5,
   "answers": {
     "1": {
-      "question_type": "SMCQ",
-      "correct_answer": "B",
-      "positive_marks": 3.0,
-      "negative_marks": 1.0
-    },
-    "2": {
-      "question_type": "SMCQ",
-      "correct_answer": "C",
-      "positive_marks": 3.0,
-      "negative_marks": 1.0
-    },
-    "3": {
-      "question_type": "MMCQ",
-      "correct_answer": "AC",
-      "positive_marks": 4.0,
-      "negative_marks": 0.0
-    },
-    "4": {
-      "question_type": "SMCQ",
-      "correct_answer": "A",
-      "positive_marks": 3.0,
-      "negative_marks": 1.0
-    },
-    "5": {
-      "question_type": "NCQ",
-      "correct_answer": "2.5",
-      "positive_marks": 4.0,
-      "negative_marks": 1.0
-    },
-    "6": {
       "question_type": "MMCQ",
       "correct_answer": "BCD",
-      "positive_marks": 4.0,
+      "positive_marks": 2.0,
       "negative_marks": 0.0
     },
-    "7": {
+    "2": {
+      "question_type": "NCQ",
+      "correct_answer": "600",
+      "positive_marks": 2.0,
+      "negative_marks": -0.5
+    },
+    "3": {
       "question_type": "SMCQ",
-      "correct_answer": "D",
-      "positive_marks": 3.0,
-      "negative_marks": 1.0
+      "correct_answer": "A",
+      "positive_marks": 2.0,
+      "negative_marks": -0.5
     },
-    "8": {
+    "4": {
       "question_type": "NCQ",
-      "correct_answer": "7.0",
-      "positive_marks": 4.0,
-      "negative_marks": 1.0
+      "correct_answer": "1000",
+      "positive_marks": 2.0,
+      "negative_marks": -0.5
     },
-    "9": {
+    "5": {
       "question_type": "MMCQ",
-      "correct_answer": "ABD",
-      "positive_marks": 4.0,
+      "correct_answer": "BD",
+      "positive_marks": 2.0,
       "negative_marks": 0.0
-    },
-    "10": {
-      "question_type": "NCQ",
-      "correct_answer": "3.5",
-      "positive_marks": 4.0,
-      "negative_marks": 1.0
     }
   },
   "negative_marking": 0.0,
   "metadata": {
-    "source_file": "answer_key (2).xlsx",
-    "raw_question_count": 10,
-    "parsed_question_count": 10,
+    "source_file": "answer_key (2) (1).xlsx",
+    "raw_question_count": 5,
+    "parsed_question_count": 5,
     "format": "comprehensive"
   }
 }

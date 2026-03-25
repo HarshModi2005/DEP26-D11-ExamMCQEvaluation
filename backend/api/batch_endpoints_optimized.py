@@ -46,9 +46,15 @@ batch_eval_service = BatchEvaluationService()
 cache_service = ResultCacheService()
 optimized_db = OptimizedDatabaseService()
 
-# Global state
-_current_answer_key: Optional[Any] = None
+# Global state — answer key is shared with endpoints.py to stay in sync
+import api.endpoints as _endpoints_module
 _processing_stats: Dict[str, Any] = {}
+
+def _get_answer_key():
+    return _endpoints_module._current_answer_key
+
+def _set_answer_key(val):
+    _endpoints_module._current_answer_key = val
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -667,7 +673,7 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
     - 14+ endpoint pool with independent token-bucket rate limiting
     - Streaming pipeline, high concurrency
     """
-    global _current_answer_key, _processing_stats
+    global _processing_stats
 
     start_time = time.time()
     folder_id = DriveService.extract_folder_id(request.folder_url)
@@ -699,6 +705,7 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
         print(f"📂 Discovered {total_sheets} student sheet(s) + {len(answer_key_files)} answer key file(s)")
 
         # Load answer key
+        _current_answer_key = _get_answer_key()
         if _current_answer_key is None or force_reprocess:
             if answer_key_files:
                 _processing_stats[processing_id]["status"] = "loading_answer_key"
@@ -708,10 +715,12 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
                     _current_answer_key = answer_key_service.extract_answer_key(
                         local_ak, answer_key_files[0].get("mimeType", "")
                     )
+                    _set_answer_key(_current_answer_key)
                 finally:
                     shutil.rmtree(tmp, ignore_errors=True)
             else:
                 _current_answer_key = answer_key_service.load_from_disk()
+                _set_answer_key(_current_answer_key)
 
         if not _current_answer_key:
             raise HTTPException(status_code=400, detail="No answer key loaded.")

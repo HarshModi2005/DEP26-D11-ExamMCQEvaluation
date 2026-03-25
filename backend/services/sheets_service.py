@@ -365,9 +365,10 @@ class SheetsService:
     def _smart_match_score(cls, sheet_entry: str, sheet_name: str,
                            ocr_entry: str, ocr_name: str) -> float:
         """
-        Strict fuzzy match: BOTH enrollment number AND name must be within
-        Levenshtein distance ≤ 2 (after normalization).  Returns 0.0 if
-        either field exceeds the threshold, otherwise a confidence 0.6-1.0.
+        Smart fuzzy match with enrollment-first priority:
+        - Exact enrollment match (distance 0) → always accept (sufficient condition)
+        - Fuzzy enrollment match (distance 1-2) → also requires name within distance ≤ 2
+        Returns 0.0 if no match, otherwise a confidence 0.6-1.0.
         """
         # ── Normalize entry numbers: strip ALL whitespace & punctuation ──
         e1 = re.sub(r'[\s\-_./]', '', sheet_entry).upper()
@@ -380,7 +381,11 @@ class SheetsService:
         if entry_dist > 2:          # hard gate: enrollment must be very close
             return 0.0
 
-        # ── Normalize names: lowercase, strip ──
+        # ── Exact enrollment match → sufficient condition, skip name check ──
+        if entry_dist == 0:
+            return 1.0
+
+        # ── Fuzzy enrollment (distance 1-2) → require name within distance ≤ 2 ──
         n1 = sheet_name.strip().lower()
         n2 = ocr_name.strip().lower()
 
@@ -577,7 +582,10 @@ class SheetsService:
             return '' if stripped.lower() in _UNKNOWN_PLACEHOLDERS else stripped
 
         # Build lookup from OCR results (sanitize entry/name on the way in)
-        results_map = {}
+        # Uses lists to handle enrollment number collisions (multiple OCR
+        # results with the same normalized enrollment number).
+        results_map = {}       # normalized_entry -> list of result dicts
+        _placeholder_counter = 0
         for r in results:
             # Sanitize in-place so downstream code sees clean values
             if isinstance(r, dict):
@@ -586,11 +594,12 @@ class SheetsService:
             raw = r.get('entry_number', '') if isinstance(r, dict) else ''
             normalized = self._normalize_entry_number(raw)
             if normalized:
-                results_map[normalized] = r
+                results_map.setdefault(normalized, []).append(r)
             elif r.get('name') or r.get('answers'):
                 # No valid entry number but has other data — still include with a placeholder key
-                placeholder_key = f"__noentry_{len(results_map)}"
-                results_map[placeholder_key] = r
+                placeholder_key = f"__noentry_{_placeholder_counter}"
+                _placeholder_counter += 1
+                results_map.setdefault(placeholder_key, []).append(r)
 
         # Build headers — include OCR-detected name/entry for cross-reference
         headers = ["Entry Number", "Name", "OCR Entry Number", "OCR Name"]
@@ -614,7 +623,7 @@ class SheetsService:
             "statistics": {}
         }
 
-        matched_results = set()
+        matched_results = set()  # set of (normalized_entry, index_in_list) tuples
 
         if master_students:
             # We have a master list to match against
@@ -625,25 +634,35 @@ class SheetsService:
                 is_fuzzy_match = False
 
                 if normalized and normalized in results_map:
-                    # Entry number matches exactly — but ALSO verify name is close
-                    candidate = results_map[normalized]
-                    sheet_name_str = student.get('name', '').strip().lower()
-                    ocr_name_str = str(candidate.get('name', '')).strip().lower()
-
-                    if sheet_name_str and ocr_name_str:
-                        name_dist = self._levenshtein_distance(sheet_name_str, ocr_name_str)
-                        if name_dist <= 2:
-                            # Both entry number and name match — accept
-                            result = candidate
-                            matched_results.add(normalized)
-                        else:
-                            # Entry number matches but name is way off — reject this match
-                            print(f"  ❌ Rejected direct match: entry='{raw_entry}' (name dist={name_dist}: "
-                                  f"'{student.get('name','')}' vs '{candidate.get('name','')}')")
-                    else:
-                        # One of the names is missing — accept on entry number alone
+                    candidates = results_map[normalized]
+                    # Filter out already-matched candidates
+                    available = [(i, c) for i, c in enumerate(candidates)
+                                 if (normalized, i) not in matched_results]
+                    if len(available) == 1:
+                        # Single candidate — always accept
+                        idx, candidate = available[0]
                         result = candidate
-                        matched_results.add(normalized)
+                        matched_results.add((normalized, idx))
+                    elif len(available) > 1:
+                        # Collision: pick the candidate with the closest name
+                        sheet_name_str = student.get('name', '').strip().lower()
+                        best_idx, best_candidate, best_dist = None, None, float('inf')
+                        for idx, c in available:
+                            ocr_name_str = str(c.get('name', '')).strip().lower()
+                            if sheet_name_str and ocr_name_str:
+                                dist = self._levenshtein_distance(sheet_name_str, ocr_name_str)
+                            else:
+                                dist = 0  # if name is missing, treat as neutral
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_idx = idx
+                                best_candidate = c
+                        if best_candidate is not None:
+                            result = best_candidate
+                            matched_results.add((normalized, best_idx))
+                            if len(available) > 1:
+                                print(f"  🔀 Enrollment collision for '{raw_entry}': picked name '{best_candidate.get('name','')}' "
+                                      f"(dist={best_dist}), {len(available)-1} other(s) will be reported as unmatched")
 
                 if not result and raw_entry:
                     # Fallback to OCR-Aware Smart Fuzzy Matching
@@ -654,24 +673,25 @@ class SheetsService:
                     best_match_r = None
                     best_score = 0.0
                     
-                    for norm_id, r in results_map.items():
-                        if norm_id in matched_results:
-                            continue
+                    for norm_id, r_list in results_map.items():
+                        for r_idx, r in enumerate(r_list):
+                            if (norm_id, r_idx) in matched_results:
+                                continue
                             
-                        ocr_name_str = r.get('name', '').strip()
-                        ocr_entry_str = str(r.get('entry_number', '')).strip()
-                        
-                        # Multi-signal OCR-aware smart match
-                        match_score = self._smart_match_score(
-                            sheet_entry_str, sheet_name_str,
-                            ocr_entry_str, ocr_name_str
-                        )
-                        
-                        # Accept matches with confidence >= 0.55
-                        if match_score >= 0.55 and match_score > best_score:
-                            best_score = match_score
-                            best_match_id = norm_id
-                            best_match_r = r
+                            ocr_name_str = r.get('name', '').strip()
+                            ocr_entry_str = str(r.get('entry_number', '')).strip()
+                            
+                            # Multi-signal OCR-aware smart match
+                            match_score = self._smart_match_score(
+                                sheet_entry_str, sheet_name_str,
+                                ocr_entry_str, ocr_name_str
+                            )
+                            
+                            # Accept matches with confidence >= 0.55
+                            if match_score >= 0.55 and match_score > best_score:
+                                best_score = match_score
+                                best_match_id = (norm_id, r_idx)
+                                best_match_r = r
                             
                     if best_match_r:
                         result = best_match_r
@@ -763,8 +783,10 @@ class SheetsService:
                 data_rows.append(row)
 
         # Handle results that weren't matched in the master list, or if NO master list exists
-        for norm_id, r in results_map.items():
-            if norm_id not in matched_results:
+        for norm_id, r_list in results_map.items():
+            for r_idx, r in enumerate(r_list):
+                if (norm_id, r_idx) in matched_results:
+                    continue
                 raw_entry = r.get('entry_number', '')
                 ocr_name_unmatched = r.get('name', '')
                 if master_students:
