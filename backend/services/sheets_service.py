@@ -1052,17 +1052,20 @@ class SheetsService:
 
         # Build final row list and compute formatting indices post-sort
         sorted_rows = []
-        mismatches_to_bold = []   # fuzzy match rows (red text on OCR cols)
-        unmatched_to_red = []     # unmatched rows (red text on all ID cols)
+        confident_rows = []
+        fuzzy_rows = []
+        unmatched_rows = []
         for i, (cat, row_data) in enumerate(data_rows):
             sorted_rows.append(row_data)
-            if cat == 'fuzzy':
-                mismatches_to_bold.append(i)
+            if cat == 'confident':
+                confident_rows.append(i)
+            elif cat == 'fuzzy':
+                fuzzy_rows.append(i)
             elif cat == 'unmatched':
-                unmatched_to_red.append(i)
+                unmatched_rows.append(i)
 
-        print(f"  📊 Row sorting: {len(data_rows) - len(mismatches_to_bold) - len(unmatched_to_red)} confident, "
-              f"{len(mismatches_to_bold)} fuzzy, {len(unmatched_to_red)} unmatched")
+        print(f"  📊 Row sorting: {len(confident_rows)} confident, "
+              f"{len(fuzzy_rows)} fuzzy, {len(unmatched_rows)} unmatched")
 
         # Statistics
         marks_col_idx = len(headers) - 2
@@ -1112,15 +1115,16 @@ class SheetsService:
             body={'values': all_data}
         ).execute()
 
-        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(sorted_rows), len(all_data), mismatches_to_bold, unmatched_to_red)
+        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(sorted_rows), len(all_data), confident_rows, fuzzy_rows, unmatched_rows)
 
-        print(f"✅ Wrote {len(sorted_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Fuzzy: {len(mismatches_to_bold)}, Unmatched: {len(unmatched_to_red)}")
+        print(f"✅ Wrote {len(sorted_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Fuzzy: {len(fuzzy_rows)}, Unmatched: {len(unmatched_rows)}")
         return summary
 
-    def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, mismatches_to_bold: List[int] = None, unmatched_to_red: List[int] = None):
+    def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, confident_rows: List[int] = None, fuzzy_rows: List[int] = None, unmatched_rows: List[int] = None):
         """Apply formatting to the marks sheet — bold header, statistics, and highlights for mismatches."""
-        mismatches_to_bold = mismatches_to_bold or []
-        unmatched_to_red = unmatched_to_red or []
+        confident_rows = confident_rows or []
+        fuzzy_rows = fuzzy_rows or []
+        unmatched_rows = unmatched_rows or []
         
         try:
             spreadsheet = self.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
@@ -1153,51 +1157,75 @@ class SheetsService:
                 }
             })
 
-            # Formatting for mismatched rows (bold and red text on OCR columns only)
-            if mismatches_to_bold:
-                for r_idx in mismatches_to_bold:
-                    real_row = r_idx + 1  # Offset by 1 for the header
-                    # Red text on OCR Entry Number (col 2) and OCR Name (col 3)
+            # Formatting for confident matches (COMPLETE ENTRY NUMBER MATCHES BLACK)
+            if confident_rows:
+                for r_idx in confident_rows:
+                    real_row = r_idx + 1
                     requests.append({
                         'repeatCell': {
                             'range': {
                                 'sheetId': sheet_id,
                                 'startRowIndex': real_row, 'endRowIndex': real_row + 1,
-                                'startColumnIndex': 2, 'endColumnIndex': 4  # OCR Entry Number and OCR Name
+                                'startColumnIndex': 0, 'endColumnIndex': num_cols
                             },
                             'cell': {
                                 'userEnteredFormat': {
+                                    'backgroundColor': {'red': 1.0, 'green': 1.0, 'blue': 1.0},
                                     'textFormat': {
-                                        'bold': True,
-                                        'foregroundColor': {'red': 0.8, 'green': 0.0, 'blue': 0.0}
+                                        'bold': False,
+                                        'foregroundColor': {'red': 0.0, 'green': 0.0, 'blue': 0.0}
                                     }
                                 }
                             },
-                            'fields': 'userEnteredFormat(textFormat)'
+                            'fields': 'userEnteredFormat(backgroundColor,textFormat)'
                         }
                     })
 
-            # Formatting for unmatched rows (bold and red text on ALL identification columns - Master & OCR)
-            if unmatched_to_red:
-                for r_idx in unmatched_to_red:
-                    real_row = r_idx + 1  # Offset by 1 for the header
-                    # Red text on Master Entry, Master Name, OCR Entry, OCR Name (cols 0 to 3)
+            # Formatting for fuzzy matches (FUZZY MATCHES RED)
+            if fuzzy_rows:
+                for r_idx in fuzzy_rows:
+                    real_row = r_idx + 1
                     requests.append({
                         'repeatCell': {
                             'range': {
                                 'sheetId': sheet_id,
                                 'startRowIndex': real_row, 'endRowIndex': real_row + 1,
-                                'startColumnIndex': 0, 'endColumnIndex': 4
+                                'startColumnIndex': 0, 'endColumnIndex': num_cols
                             },
                             'cell': {
                                 'userEnteredFormat': {
+                                    'backgroundColor': {'red': 1.0, 'green': 0.9, 'blue': 0.9},
                                     'textFormat': {
                                         'bold': True,
                                         'foregroundColor': {'red': 0.8, 'green': 0.0, 'blue': 0.0}
                                     }
                                 }
                             },
-                            'fields': 'userEnteredFormat(textFormat)'
+                            'fields': 'userEnteredFormat(backgroundColor,textFormat)'
+                        }
+                    })
+
+            # Formatting for unmatched rows (Different color)
+            if unmatched_rows:
+                for r_idx in unmatched_rows:
+                    real_row = r_idx + 1
+                    requests.append({
+                        'repeatCell': {
+                            'range': {
+                                'sheetId': sheet_id,
+                                'startRowIndex': real_row, 'endRowIndex': real_row + 1,
+                                'startColumnIndex': 0, 'endColumnIndex': num_cols
+                            },
+                            'cell': {
+                                'userEnteredFormat': {
+                                    'backgroundColor': {'red': 1.0, 'green': 0.95, 'blue': 0.8},
+                                    'textFormat': {
+                                        'bold': True,
+                                        'foregroundColor': {'red': 0.9, 'green': 0.4, 'blue': 0.0}
+                                    }
+                                }
+                            },
+                            'fields': 'userEnteredFormat(backgroundColor,textFormat)'
                         }
                     })
 
