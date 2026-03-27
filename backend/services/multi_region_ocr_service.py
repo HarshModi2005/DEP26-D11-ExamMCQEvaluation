@@ -19,6 +19,7 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from google.oauth2 import service_account
 import google.auth.transport.requests
+from services.image_preprocessing import preprocess_for_ocr
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -335,17 +336,15 @@ class MultiRegionOCRService:
             return {"Content-Type": "application/json"}
     
     def _create_ocr_payload(self, image_path: str) -> Dict:
-        """Create OCR request payload"""
-        # Encode image
-        with open(image_path, "rb") as image_file:
-            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-        
-        # Determine mime type
-        mime_type = "image/png"
-        if image_path.lower().endswith(('.jpg', '.jpeg')):
-            mime_type = "image/jpeg"
-        elif image_path.lower().endswith('.pdf'):
-            mime_type = "application/pdf"
+        """
+        Create OCR request payload.
+        The image is preprocessed (white-paper region detected, cropped,
+        resized and compressed) before encoding to save bandwidth and improve
+        OCR accuracy by removing non-paper background noise.
+        """
+        # Preprocess: crop to paper region, resize, JPEG-compress
+        image_bytes, mime_type = preprocess_for_ocr(image_path)
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
         
         return {
             "contents": [

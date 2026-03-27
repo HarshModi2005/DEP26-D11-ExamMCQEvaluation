@@ -26,6 +26,7 @@ from google.oauth2 import service_account
 import google.auth.transport.requests
 from PIL import Image
 import io
+from services.image_preprocessing import preprocess_for_ocr
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -100,60 +101,18 @@ class OptimizedOCRService:
         return endpoints
     
     def _optimize_image(self, image_path: str) -> Tuple[str, str]:
-        """Optimize image size and format for faster upload"""
-        try:
-            with Image.open(image_path) as img:
-                # Convert to RGB if needed
-                if img.mode not in ('RGB', 'L'):
-                    img = img.convert('RGB')
-                
-                # --- INTELLIGENT CROP LOGIC ---
-                # Find the bounding box of non-white content (text, tables, markings)
-                # This crops out excess margins, increasing OCR resolution on the actual content
-                try:
-                    import numpy as np
-                    img_arr = np.array(img.convert('L'))
-                    
-                    # Threshold for "dark" pixels (adjusting for light shadows/scanner noise)
-                    dark_pixels = np.where(img_arr < 240)
-                    
-                    if len(dark_pixels[0]) > 0 and len(dark_pixels[1]) > 0:
-                        y_min, y_max = np.min(dark_pixels[0]), np.max(dark_pixels[0])
-                        x_min, x_max = np.min(dark_pixels[1]), np.max(dark_pixels[1])
-                        
-                        # Add a padding boundary (approx 0.5 inches depending on DPI)
-                        pad = 40
-                        y_min = max(0, int(y_min) - pad)
-                        y_max = min(img_arr.shape[0], int(y_max) + pad)
-                        x_min = max(0, int(x_min) - pad)
-                        x_max = min(img_arr.shape[1], int(x_max) + pad)
-                        
-                        # Crop to content box
-                        img = img.crop((x_min, y_min, x_max, y_max))
-                except Exception as e:
-                    logger.warning(f"Intelligent crop failed, continuing with full image: {e}")
-                # ------------------------------
-                
-                # Resize if still too large
-                if img.size[0] > self.max_image_size[0] or img.size[1] > self.max_image_size[1]:
-                    img.thumbnail(self.max_image_size, Image.Resampling.LANCZOS)
-                
-                # Compress to JPEG
-                buffer = io.BytesIO()
-                img.save(buffer, format='JPEG', quality=self.jpeg_quality, optimize=True)
-                buffer.seek(0)
-                
-                base64_image = base64.b64encode(buffer.read()).decode('utf-8')
-                return base64_image, "image/jpeg"
-                
-        except Exception as e:
-            logger.warning(f"Image optimization failed, using original: {e}")
-            # Fallback to original
-            with open(image_path, "rb") as f:
-                base64_image = base64.b64encode(f.read()).decode('utf-8')
-            
-            mime_type = "image/jpeg" if image_path.lower().endswith(('.jpg', '.jpeg')) else "image/png"
-            return base64_image, mime_type
+        """
+        Preprocess image for OCR: intelligently crop the white answer-sheet
+        from the background, resize, and compress to JPEG.
+        Delegates to the shared image_preprocessing utility.
+        """
+        image_bytes, mime_type = preprocess_for_ocr(
+            image_path,
+            max_size=self.max_image_size,
+            jpeg_quality=self.jpeg_quality,
+        )
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        return base64_image, mime_type
     
     async def process_batch_optimized(self, image_paths: List[str], 
                                      target_time_minutes: float = 5.0) -> List[Dict]:
