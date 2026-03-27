@@ -51,6 +51,173 @@ class SheetsService:
     ENTRY_NUMBER_PATTERN = re.compile(
         r'(\d{4})\s*([A-Za-z]{2,4})\s*(\d{2,5})',
     )
+
+    # ─────────────────────────────────────────────────
+    #  OCR Correction Constants
+    # ─────────────────────────────────────────────────
+    KNOWN_DEPT_CODES = {'CS', 'AI', 'MC', 'EE', 'EP', 'CH', 'CE', 'MM', 'IC', 'DA'}
+    KNOWN_DEGREE_TYPES = {'B', 'M'}  # B.Tech, M.Tech
+
+    # Similar-looking characters: digit → letter (for branch section LLL)
+    _DIGIT_TO_LETTER = {
+        '0': 'O', '1': 'I', '2': 'Z', '3': 'E', '4': 'A',
+        '5': 'S', '6': 'C', '7': 'T', '8': 'B', '9': 'G',
+    }
+
+    # Similar-looking characters: letter → digit (for YYYY and NNNN)
+    _LETTER_TO_DIGIT = {
+        'O': '0', 'I': '1', 'L': '1', 'Z': '2', 'E': '3',
+        'A': '4', 'S': '5', 'G': '6', 'T': '7', 'B': '8',
+        'Q': '0', 'D': '0', 'R': '2', 'J': '1',
+    }
+
+    # Similar-looking characters: letter → letter (for dept code fix)
+    # These are letters OCR might confuse with known dept letters
+    _LETTER_TO_LETTER = {
+        'K': 'C', 'U': 'C', 'G': 'C', 'Q': 'C', 'O': 'C',  # look like C
+        'H': 'M', 'N': 'M', 'W': 'M',             # look like M
+        'J': 'I', 'L': 'I',                         # look like I
+        'R': 'B', 'P': 'B',                         # look like B (for degree)
+        'V': 'E', 'E': 'C',                         # V→E, E→C (OCR confuses E/C)
+        'F': 'E', 'X': 'E',                         # stretch but OCR confuses
+    }
+
+    # Similar-looking degree chars → B or M
+    _DEGREE_FIX = {
+        '8': 'B', 'R': 'B', 'P': 'B', 'D': 'B', 'E': 'B', 'H': 'B',
+        'N': 'M', 'W': 'M', 'H': 'M',  # H can be M too; B takes priority
+    }
+
+    # Special OCR chars → alphanumeric before stripping
+    _SPECIAL_CHAR_MAP = {
+        '(': 'C', ')': 'J', '{': 'C', '}': 'J', '[': 'C', ']': 'J',
+        '|': '1', '!': '1', '$': 'S', '@': 'A', '#': 'H', '&': '8',
+        '?': '7', '/': '1', '\\': '1',
+    }
+
+    @classmethod
+    def _correct_entry_number_ocr(cls, raw: str) -> str:
+        """
+        Correct OCR'd entry number to YYYYLLLNNNN format.
+
+        YYYY = 4 digits (year like 2023, 2024, 2025)
+        LL   = 2 letters (dept: CS, MC, EE, AI, etc.)
+        L    = 1 letter  (degree: B or M)
+        NNNN = 4 digits  (roll number)
+
+        Workflow:
+        1. Replace special OCR chars (like '(' → 'C')
+        2. Strip all remaining non-alphanumeric chars (dots, spaces, dashes)
+        3. Handle length anomalies (11 chars → fix extra char)
+        4. YYYY: force to digits using similar-looking char map
+        5. LLL first 2 chars: force to letters, then fix to known dept (CS/MC/...)
+        6. LLL 3rd char: force to B or M using similar-looking char map
+        7. NNNN: force to digits using similar-looking char map
+        """
+        if not raw:
+            return raw
+
+        # Step 1: Replace special OCR chars with likely alphanumeric equivalents
+        mapped = raw
+        for special_ch, replacement in cls._SPECIAL_CHAR_MAP.items():
+            mapped = mapped.replace(special_ch, replacement)
+
+        # Step 2: Strip ALL non-alphanumeric characters (dots, spaces, dashes, etc.)
+        clean = re.sub(r'[^A-Za-z0-9]', '', mapped).upper()
+
+        if len(clean) < 8:
+            return clean  # Too short, can't be an entry number
+
+        # Step 3: Handle length anomalies
+        # Expected: YYYYLLLNNNN = 4 + 3 + 4 = 11 characters
+        if len(clean) == 12:
+            # Extra char crept in — try to identify and fix it
+            possible_dept = clean[4:6]
+            if possible_dept in cls.KNOWN_DEPT_CODES and clean[6].isdigit():
+                # Extra digit between dept and roll: e.g. '2025CS112034'
+                degree_fix = cls._DIGIT_TO_LETTER.get(clean[6], 'B')
+                if degree_fix not in cls.KNOWN_DEGREE_TYPES:
+                    degree_fix = 'B'
+                clean = clean[:6] + degree_fix + clean[7:11]
+            else:
+                clean = clean[:11]  # Truncate to 11
+        elif len(clean) > 12:
+            clean = clean[:11]
+
+        # Step 4: Fix YYYY (positions 0-3) — MUST be digits
+        year_chars = list(clean[:4])
+        for i in range(len(year_chars)):
+            if not year_chars[i].isdigit():
+                year_chars[i] = cls._LETTER_TO_DIGIT.get(year_chars[i], year_chars[i])
+        year_str = ''.join(year_chars)
+
+        # Step 5: Fix dept code (positions 4-5) — MUST be letters
+        dept_chars = list(clean[4:6]) if len(clean) >= 6 else list(clean[4:])
+        for i in range(len(dept_chars)):
+            ch = dept_chars[i]
+            if ch.isdigit():
+                dept_chars[i] = cls._DIGIT_TO_LETTER.get(ch, ch)
+        dept_str = ''.join(dept_chars).upper()
+
+        # Try to fix dept to a known code using letter-to-letter confusables
+        if dept_str not in cls.KNOWN_DEPT_CODES:
+            # Try fixing each char independently
+            for i in range(len(dept_str)):
+                ch = dept_str[i]
+                if ch in cls._LETTER_TO_LETTER:
+                    candidate = dept_str[:i] + cls._LETTER_TO_LETTER[ch] + dept_str[i+1:]
+                    if candidate in cls.KNOWN_DEPT_CODES:
+                        dept_str = candidate
+                        break
+            # Try fixing both chars
+            if dept_str not in cls.KNOWN_DEPT_CODES:
+                for i in range(len(dept_str)):
+                    for j in range(len(dept_str)):
+                        if i == j:
+                            continue
+                        ch_i = dept_str[i]
+                        ch_j = dept_str[j]
+                        fix_i = cls._LETTER_TO_LETTER.get(ch_i, ch_i)
+                        fix_j = cls._LETTER_TO_LETTER.get(ch_j, ch_j)
+                        candidate = ''
+                        for k in range(len(dept_str)):
+                            if k == i:
+                                candidate += fix_i
+                            elif k == j:
+                                candidate += fix_j
+                            else:
+                                candidate += dept_str[k]
+                        if candidate in cls.KNOWN_DEPT_CODES:
+                            dept_str = candidate
+                            break
+                    if dept_str in cls.KNOWN_DEPT_CODES:
+                        break
+
+        # Step 6: Fix degree char (position 6) — MUST be B or M
+        if len(clean) >= 7:
+            degree_ch = clean[6]
+        else:
+            degree_ch = 'B'  # Default
+
+        if degree_ch.isdigit():
+            degree_ch = cls._DIGIT_TO_LETTER.get(degree_ch, 'B')
+        if degree_ch not in cls.KNOWN_DEGREE_TYPES:
+            degree_ch = cls._DEGREE_FIX.get(degree_ch, 'B')
+        if degree_ch not in cls.KNOWN_DEGREE_TYPES:
+            degree_ch = 'B'  # Final fallback
+
+        # Step 7: Fix NNNN (positions 7-10) — MUST be digits
+        tail_chars = list(clean[7:11]) if len(clean) >= 8 else []
+        for i in range(len(tail_chars)):
+            if not tail_chars[i].isdigit():
+                tail_chars[i] = cls._LETTER_TO_DIGIT.get(tail_chars[i], tail_chars[i])
+        tail_str = ''.join(tail_chars).ljust(4, '0')[:4]
+
+        corrected = year_str + dept_str + degree_ch + tail_str
+        original_clean = re.sub(r'[^A-Za-z0-9]', '', raw).upper()
+        if corrected != original_clean:
+            print(f"  🔧 [Entry Correction] '{raw}' → '{corrected}'")
+        return corrected
     
     # Regex for question columns: "1", "Q1", "Q 1", "Question 1", "1a" (if simple digit)
     # We will support simple integers for now as per current pipeline.
@@ -140,19 +307,21 @@ class SheetsService:
 
     @classmethod
     def _normalize_entry_number(cls, raw: str) -> Optional[str]:
-        """Normalize to YYYYBBBNNNN."""
+        """Normalize to YYYYLLLNNNN using domain-aware OCR correction."""
         if not raw or raw.lower() in ('unknown', 'none', 'n/a', ''):
             return None
 
-        clean = raw.strip()
-        m = cls.ENTRY_NUMBER_PATTERN.search(clean)
+        # Apply domain-aware OCR correction first
+        corrected = cls._correct_entry_number_ocr(raw)
+
+        m = cls.ENTRY_NUMBER_PATTERN.search(corrected)
         if m:
             year = m.group(1)
             branch = m.group(2).upper()
             number = m.group(3)
             return f"{year}{branch}{number}"
 
-        fallback = re.sub(r'[\s\-_./]', '', clean).upper()
+        fallback = re.sub(r'[\s\-_./]', '', corrected).upper()
         if len(fallback) >= 6:
             return fallback
         return None
@@ -362,47 +531,80 @@ class SheetsService:
         return min(combined, 1.0)
 
     @classmethod
+    def _name_similarity(cls, name1: str, name2: str) -> float:
+        """Compute normalized name similarity between 0.0 and 1.0."""
+        n1 = re.sub(r'[^a-z ]', '', name1.strip().lower())
+        n2 = re.sub(r'[^a-z ]', '', name2.strip().lower())
+        if not n1 or not n2:
+            return 0.0
+        dist = cls._levenshtein_distance(n1, n2)
+        max_len = max(len(n1), len(n2), 1)
+        return 1.0 - (dist / max_len)
+
+    @classmethod
     def _smart_match_score(cls, sheet_entry: str, sheet_name: str,
                            ocr_entry: str, ocr_name: str) -> float:
         """
-        Smart fuzzy match with enrollment-first priority:
-        - Exact enrollment match (distance 0) → always accept (sufficient condition)
-        - Fuzzy enrollment match (distance 1-2) → also requires name within distance ≤ 2
-        Returns 0.0 if no match, otherwise a confidence 0.6-1.0.
+        Final 3-stage matching workflow:
+
+        Stage 1: Exact corrected entry number match.
+                 Correct OCR output → YYYYLLLNNNN. If exact match AND
+                 name_sim >= 0.40 → confident match (score 1.0).
+                 Pure exact entry with no name → score 0.98.
+
+        Stage 2: Year-sliding.
+                 Same branch+roll but different year (±3).
+                 Requires name_sim >= 0.50 → score 0.95.
+
+        Stage 3: Combined entry Levenshtein + name similarity.
+                 Entry distance ≤ 2 AND name_sim >= 0.60 → weighted score.
+                 This catches cases where OCR mangled 1-2 chars in entry AND
+                 the name is clearly the same student.
         """
-        # ── Normalize entry numbers: strip ALL whitespace & punctuation ──
-        e1 = re.sub(r'[\s\-_./]', '', sheet_entry).upper()
-        e2 = re.sub(r'[\s\-_./]', '', ocr_entry).upper()
+        # Correct both entry numbers using domain knowledge
+        e1 = cls._correct_entry_number_ocr(sheet_entry)
+        e2 = cls._correct_entry_number_ocr(ocr_entry)
+        e1 = re.sub(r'[^A-Za-z0-9]', '', e1).upper()
+        e2 = re.sub(r'[^A-Za-z0-9]', '', e2).upper()
 
-        if not e1 or not e2:
-            return 0.0
+        name_sim = cls._name_similarity(sheet_name, ocr_name)
 
-        entry_dist = cls._levenshtein_distance(e1, e2)
-        if entry_dist > 2:          # hard gate: enrollment must be very close
-            return 0.0
+        # ── Stage 1: Exact corrected entry number match ──
+        if e1 and e2 and e1 == e2:
+            # Entry matches exactly after correction.
+            # Name check is a soft sanity check — if no name data, still accept.
+            if name_sim >= 0.40 or not ocr_name.strip():
+                return 1.0
+            # Entry matches but names are very different — could be a collision.
+            # Still return high score since entry was exact.
+            return 0.98
 
-        # ── Exact enrollment match → sufficient condition, skip name check ──
-        if entry_dist == 0:
-            return 1.0
+        # ── Stage 2: Year-sliding ──
+        # Same branch (LLL) + same roll (NNNN), only year (YYYY) differs.
+        # e.g. master has 2025CSB1454, OCR read 2024CSB1454.
+        if len(e1) >= 10 and len(e2) >= 10 and e1[4:] == e2[4:]:
+            # Branch+roll match, year differs
+            try:
+                y1, y2 = int(e1[:4]), int(e2[:4])
+                if abs(y1 - y2) <= 3 and name_sim >= 0.50:
+                    return 0.95
+            except ValueError:
+                pass
 
-        # ── Fuzzy enrollment (distance 1-2) → require name within distance ≤ 2 ──
-        n1 = sheet_name.strip().lower()
-        n2 = ocr_name.strip().lower()
+        # ── Stage 3: Combined entry Levenshtein + name similarity ──
+        # Entry is close (1-2 edits) AND name clearly matches.
+        # This catches OCR errors that the corrector couldn't fix.
+        if e1 and e2:
+            entry_dist = cls._levenshtein_distance(e1, e2)
+            if entry_dist <= 2 and name_sim >= 0.60:
+                # Both entry and name are close — weighted combination.
+                max_elen = max(len(e1), len(e2), 1)
+                entry_sim = 1.0 - (entry_dist / max_elen)
+                # Weight: entry number 40%, name 60% (name is more reliable here)
+                score = entry_sim * 0.40 + name_sim * 0.60
+                return round(min(score, 0.89), 4)  # Cap at 0.89 to rank below exact/year-slid
 
-        if not n1 or not n2:
-            return 0.0
-
-        name_dist = cls._levenshtein_distance(n1, n2)
-        if name_dist > 2:           # hard gate: name must be very close
-            return 0.0
-
-        # Both passed — compute a confidence score (higher = closer match)
-        max_entry_len = max(len(e1), len(e2), 1)
-        max_name_len  = max(len(n1), len(n2), 1)
-        entry_sim = 1.0 - (entry_dist / max_entry_len)
-        name_sim  = 1.0 - (name_dist / max_name_len)
-
-        return entry_sim * 0.6 + name_sim * 0.4
+        return 0.0
 
     # ──────────────────────────────────────
     #  Name Cross-Verification
@@ -608,10 +810,8 @@ class SheetsService:
         headers.append("Marks")
         headers.append("Comments")
 
-        data_rows = []
+        data_rows = []       # Each entry: (category, row_data)  category: 'confident', 'fuzzy', 'unmatched'
         all_scores = []
-        mismatches_to_bold = []
-        unmatched_to_red = []
         
         summary = {
             "updated": 0,
@@ -633,71 +833,101 @@ class SheetsService:
                 result = None
                 is_fuzzy_match = False
 
+                # ═══ STAGE 1: Exact corrected entry number lookup ═══
                 if normalized and normalized in results_map:
                     candidates = results_map[normalized]
-                    # Filter out already-matched candidates
                     available = [(i, c) for i, c in enumerate(candidates)
                                  if (normalized, i) not in matched_results]
                     if len(available) == 1:
-                        # Single candidate — always accept
                         idx, candidate = available[0]
                         result = candidate
                         matched_results.add((normalized, idx))
                     elif len(available) > 1:
                         # Collision: pick the candidate with the closest name
-                        sheet_name_str = student.get('name', '').strip().lower()
-                        best_idx, best_candidate, best_dist = None, None, float('inf')
+                        sheet_name_str = student.get('name', '').strip()
+                        best_idx, best_candidate, best_sim = None, None, -1.0
                         for idx, c in available:
-                            ocr_name_str = str(c.get('name', '')).strip().lower()
-                            if sheet_name_str and ocr_name_str:
-                                dist = self._levenshtein_distance(sheet_name_str, ocr_name_str)
-                            else:
-                                dist = 0  # if name is missing, treat as neutral
-                            if dist < best_dist:
-                                best_dist = dist
+                            ocr_name_str = str(c.get('name', '')).strip()
+                            sim = self._name_similarity(sheet_name_str, ocr_name_str)
+                            if sim > best_sim:
+                                best_sim = sim
                                 best_idx = idx
                                 best_candidate = c
                         if best_candidate is not None:
                             result = best_candidate
                             matched_results.add((normalized, best_idx))
                             if len(available) > 1:
-                                print(f"  🔀 Enrollment collision for '{raw_entry}': picked name '{best_candidate.get('name','')}' "
-                                      f"(dist={best_dist}), {len(available)-1} other(s) will be reported as unmatched")
+                                print(f"  🔀 Collision for '{raw_entry}': picked '{best_candidate.get('name','')}' "
+                                      f"(sim={best_sim:.2f}), {len(available)-1} other(s) remain")
 
+                # ═══ STAGE 2: Year-sliding lookup ═══
+                if not result and normalized and len(normalized) >= 10:
+                    sheet_name_str = student.get('name', '').strip()
+                    try:
+                        base_year = int(normalized[:4])
+                        for offset in [-1, 1, -2, 2, -3, 3]:
+                            slid_key = str(base_year + offset) + normalized[4:]
+                            if slid_key not in results_map:
+                                continue
+                            candidates = results_map[slid_key]
+                            available = [(i, c) for i, c in enumerate(candidates)
+                                         if (slid_key, i) not in matched_results]
+                            if not available:
+                                continue
+                            # Pick best by name similarity, require >= 0.50
+                            best_idx, best_candidate, best_sim = None, None, -1.0
+                            for idx, c in available:
+                                ocr_name_str = str(c.get('name', '')).strip()
+                                sim = self._name_similarity(sheet_name_str, ocr_name_str)
+                                if sim > best_sim:
+                                    best_sim = sim
+                                    best_idx = idx
+                                    best_candidate = c
+                            if best_candidate is not None and best_sim >= 0.50:
+                                result = best_candidate
+                                is_fuzzy_match = True
+                                matched_results.add((slid_key, best_idx))
+                                print(f"  📅 Year-slid: '{raw_entry}' → '{slid_key}' name '{best_candidate.get('name','')}'")
+                                break
+                    except ValueError:
+                        pass
+
+                # ═══ STAGE 3: Combined entry Levenshtein + name matching ═══
                 if not result and raw_entry:
-                    # Fallback to OCR-Aware Smart Fuzzy Matching
                     sheet_name_str = student.get('name', '').strip()
                     sheet_entry_str = str(raw_entry).strip()
-                    
+
                     best_match_id = None
                     best_match_r = None
                     best_score = 0.0
-                    
+
                     for norm_id, r_list in results_map.items():
                         for r_idx, r in enumerate(r_list):
                             if (norm_id, r_idx) in matched_results:
                                 continue
-                            
+
                             ocr_name_str = r.get('name', '').strip()
                             ocr_entry_str = str(r.get('entry_number', '')).strip()
-                            
-                            # Multi-signal OCR-aware smart match
+
                             match_score = self._smart_match_score(
                                 sheet_entry_str, sheet_name_str,
                                 ocr_entry_str, ocr_name_str
                             )
-                            
-                            # Accept matches with confidence >= 0.55
+
                             if match_score >= 0.55 and match_score > best_score:
                                 best_score = match_score
                                 best_match_id = (norm_id, r_idx)
                                 best_match_r = r
-                            
+
                     if best_match_r:
                         result = best_match_r
                         is_fuzzy_match = True
                         matched_results.add(best_match_id)
-                        print(f"  🔗 Smart match: '{sheet_entry_str}' → '{best_match_r.get('entry_number', '')}' (confidence: {best_score:.2f})")
+                        print(f"  🔗 Smart match: '{sheet_entry_str}' → '{best_match_r.get('entry_number', '')}' "
+                              f"(score: {best_score:.2f})")
+                        # If multiple candidates had the same best score with
+                        # different names, the first found wins. The collision
+                        # resolution above (Stage 1) handles same-key dups.
 
                 row = [
                     raw_entry,
@@ -710,7 +940,7 @@ class SheetsService:
                     for q in all_q_nums: row.append('')
                     row.append('') # Marks
                     row.append('Absent / No Answer Sheet Found')
-                    data_rows.append(row)
+                    data_rows.append(('unmatched', row))
                     continue
 
                 # Add OCR-detected entry number and name
@@ -731,12 +961,6 @@ class SheetsService:
                     0
                 )
 
-                # Check if OCR entry number differs from master
-                entry_sim = self._entry_number_similarity(raw_entry, ocr_entry)
-                entry_mismatch = entry_sim < 0.95
-
-                is_mismatch = bool(mismatch_msg) or is_fuzzy_match or entry_mismatch
-
                 if is_fuzzy_match:
                     final_comments.append(f"Fuzzy Match: OCR ID='{ocr_entry}', OCR Name='{ocr_name}'")
                     summary['name_mismatches'].append({
@@ -746,11 +970,8 @@ class SheetsService:
                         "ocr_entry": ocr_entry,
                         "type": "fuzzy_match"
                     })
-                elif mismatch_msg or entry_mismatch:
-                    if mismatch_msg:
-                        final_comments.append(mismatch_msg)
-                    if entry_mismatch:
-                        final_comments.append(f"Entry mismatch: Sheet='{raw_entry}' vs OCR='{ocr_entry}'")
+                elif mismatch_msg:
+                    final_comments.append(mismatch_msg)
                     summary['name_mismatches'].append({
                         "entry_number": raw_entry,
                         "sheet_name": student.get('name', ''),
@@ -758,9 +979,6 @@ class SheetsService:
                         "ocr_entry": ocr_entry,
                         "type": "mismatch"
                     })
-
-                if is_mismatch:
-                    mismatches_to_bold.append(len(data_rows))
                 
                 # Per-question scores
                 d_map = {}
@@ -780,7 +998,10 @@ class SheetsService:
                 all_scores.append(total)
                 
                 row.append("; ".join(final_comments))
-                data_rows.append(row)
+
+                # Categorize: confident (exact match) vs fuzzy
+                category = 'fuzzy' if is_fuzzy_match else 'confident'
+                data_rows.append((category, row))
 
         # Handle results that weren't matched in the master list, or if NO master list exists
         for norm_id, r_list in results_map.items():
@@ -821,10 +1042,27 @@ class SheetsService:
                 if r.get('comments'): final_comments.append(r.get('comments'))
                 if master_students:
                     final_comments.append("Not found in Master Student List")
-                    unmatched_to_red.append(len(data_rows))
                 
                 row.append("; ".join(final_comments))
-                data_rows.append(row)
+                data_rows.append(('unmatched', row))
+
+        # ── SORT: confident first, then fuzzy, then unmatched ──
+        category_order = {'confident': 0, 'fuzzy': 1, 'unmatched': 2}
+        data_rows.sort(key=lambda x: (category_order.get(x[0], 3), x[1][0]))  # secondary sort by entry number
+
+        # Build final row list and compute formatting indices post-sort
+        sorted_rows = []
+        mismatches_to_bold = []   # fuzzy match rows (red text on OCR cols)
+        unmatched_to_red = []     # unmatched rows (red text on all ID cols)
+        for i, (cat, row_data) in enumerate(data_rows):
+            sorted_rows.append(row_data)
+            if cat == 'fuzzy':
+                mismatches_to_bold.append(i)
+            elif cat == 'unmatched':
+                unmatched_to_red.append(i)
+
+        print(f"  📊 Row sorting: {len(data_rows) - len(mismatches_to_bold) - len(unmatched_to_red)} confident, "
+              f"{len(mismatches_to_bold)} fuzzy, {len(unmatched_to_red)} unmatched")
 
         # Statistics
         marks_col_idx = len(headers) - 2
@@ -865,7 +1103,7 @@ class SheetsService:
         lowest_row[1] = 'Lowest'
         lowest_row[marks_col_idx] = lowest_val
 
-        all_data = [headers] + data_rows + [empty_row, stats_label_row, mean_row, median_row, highest_row, lowest_row]
+        all_data = [headers] + sorted_rows + [empty_row, stats_label_row, mean_row, median_row, highest_row, lowest_row]
 
         self.service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
@@ -874,9 +1112,9 @@ class SheetsService:
             body={'values': all_data}
         ).execute()
 
-        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(data_rows), len(all_data), mismatches_to_bold, unmatched_to_red)
+        self._format_marks_sheet(spreadsheet_id, target_sheet, len(headers), len(sorted_rows), len(all_data), mismatches_to_bold, unmatched_to_red)
 
-        print(f"✅ Wrote {len(data_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Mismatches: {len(mismatches_to_bold)}")
+        print(f"✅ Wrote {len(sorted_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Fuzzy: {len(mismatches_to_bold)}, Unmatched: {len(unmatched_to_red)}")
         return summary
 
     def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, mismatches_to_bold: List[int] = None, unmatched_to_red: List[int] = None):

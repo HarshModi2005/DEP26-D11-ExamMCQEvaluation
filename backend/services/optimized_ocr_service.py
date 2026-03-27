@@ -107,7 +107,34 @@ class OptimizedOCRService:
                 if img.mode not in ('RGB', 'L'):
                     img = img.convert('RGB')
                 
-                # Resize if too large
+                # --- INTELLIGENT CROP LOGIC ---
+                # Find the bounding box of non-white content (text, tables, markings)
+                # This crops out excess margins, increasing OCR resolution on the actual content
+                try:
+                    import numpy as np
+                    img_arr = np.array(img.convert('L'))
+                    
+                    # Threshold for "dark" pixels (adjusting for light shadows/scanner noise)
+                    dark_pixels = np.where(img_arr < 240)
+                    
+                    if len(dark_pixels[0]) > 0 and len(dark_pixels[1]) > 0:
+                        y_min, y_max = np.min(dark_pixels[0]), np.max(dark_pixels[0])
+                        x_min, x_max = np.min(dark_pixels[1]), np.max(dark_pixels[1])
+                        
+                        # Add a padding boundary (approx 0.5 inches depending on DPI)
+                        pad = 40
+                        y_min = max(0, int(y_min) - pad)
+                        y_max = min(img_arr.shape[0], int(y_max) + pad)
+                        x_min = max(0, int(x_min) - pad)
+                        x_max = min(img_arr.shape[1], int(x_max) + pad)
+                        
+                        # Crop to content box
+                        img = img.crop((x_min, y_min, x_max, y_max))
+                except Exception as e:
+                    logger.warning(f"Intelligent crop failed, continuing with full image: {e}")
+                # ------------------------------
+                
+                # Resize if still too large
                 if img.size[0] > self.max_image_size[0] or img.size[1] > self.max_image_size[1]:
                     img.thumbnail(self.max_image_size, Image.Resampling.LANCZOS)
                 
