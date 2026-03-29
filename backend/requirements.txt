@@ -8,6 +8,7 @@ google-generativeai
 pydantic
 python-multipart
 requests
+beautifulsoup4
 openai
 uvloop
 openpyxl

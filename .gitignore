@@ -50,3 +50,7 @@ Thumbs.db
 
 # Extracted text
 extracted_text_output.txt
+
+# C code evaluator outputs
+c_code_evaluator/output/
+c_code_evaluator/output_*/
