@@ -455,7 +455,20 @@ Return ONLY valid JSON, no explanation, no markdown.
                     option = str(v).strip().upper()
                     if "OPTION" in option:
                         option = option.replace("OPTION", "").strip()
-                    result["answers"][q_num] = option
+                    # Handle 'X' or other unattempted markers — keep in dict so
+                    # evaluation can explicitly categorize them as unattempted
+                    if option in ('X', 'NONE', '-', 'NA', 'N/A', 'BLANK',
+                                  'NOT ATTEMPTED', 'UNATTEMPTED'):
+                        result["answers"][q_num] = option
+                    else:
+                        # Clean up patterns like "1 (A)", "(A)", "ANS 1 (A) 3"
+                        import re
+                        paren_match = re.search(r'\(\s*([A-Da-d]+)\s*\)', option)
+                        if paren_match:
+                            option = paren_match.group(1).upper()
+                        elif re.match(r'^\d+[\s.,:;\-]+([A-Da-d])\s*$', option):
+                            option = re.match(r'^\d+[\s.,:;\-]+([A-Da-d])\s*$', option).group(1).upper()
+                        result["answers"][q_num] = option
                 except (ValueError, TypeError):
                     continue
         
