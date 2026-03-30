@@ -794,7 +794,7 @@ class SheetsService:
                 results_map.setdefault(placeholder_key, []).append(r)
 
         # Build headers — include OCR-detected name/entry for cross-reference
-        headers = ["Entry Number", "Name", "OCR Entry Number", "OCR Name"]
+        headers = ["Entry Number", "Name", "OCR Entry Number", "Processed Entry Number", "OCR Name"]
         for q in all_q_nums:
             headers.append(f"Q{q}")
         headers.append("Marks")
@@ -926,7 +926,7 @@ class SheetsService:
 
                 if not result:
                     summary['not_found_in_results'].append(raw_entry)
-                    row.extend(['', ''])  # OCR Entry, OCR Name
+                    row.extend(['', '', ''])  # OCR Entry, Processed Entry, OCR Name
                     for q in all_q_nums: row.append('')
                     row.append('') # Marks
                     row.append('Absent / No Answer Sheet Found')
@@ -935,8 +935,9 @@ class SheetsService:
 
                 # Add OCR-detected entry number and name
                 ocr_entry = str(result.get('entry_number', '')).strip()
+                processed_entry = self._correct_entry_number_ocr(ocr_entry)
                 ocr_name = str(result.get('name', '')).strip()
-                row.extend([ocr_entry, ocr_name])
+                row.extend([ocr_entry, processed_entry, ocr_name])
 
                 summary['updated'] += 1
 
@@ -999,18 +1000,29 @@ class SheetsService:
                 if (norm_id, r_idx) in matched_results:
                     continue
                 raw_entry = r.get('entry_number', '')
+                processed_entry = self._correct_entry_number_ocr(raw_entry)
                 ocr_name_unmatched = r.get('name', '')
                 if master_students:
                     # Only report as not found if there was a master list to check against
                     summary['not_found_in_sheet'].append(raw_entry)
                 summary['updated'] += 1
                 
-                row = [
-                    raw_entry,
-                    ocr_name_unmatched,
-                    raw_entry,       # OCR Entry Number (same as raw since no master to compare)
-                    ocr_name_unmatched,  # OCR Name
-                ]
+                if master_students:
+                    row = [
+                        "",              # Master Entry Number
+                        "",              # Master Name
+                        raw_entry,       # OCR Entry Number
+                        processed_entry, # Processed Entry Number
+                        ocr_name_unmatched,  # OCR Name
+                    ]
+                else:
+                    row = [
+                        raw_entry,
+                        ocr_name_unmatched,
+                        raw_entry,       # OCR Entry Number
+                        processed_entry, # Processed Entry Number
+                        ocr_name_unmatched,  # OCR Name
+                    ]
                 
                 d_map = {}
                 for d in r.get('details', []):
