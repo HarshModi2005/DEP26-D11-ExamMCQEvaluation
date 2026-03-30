@@ -189,6 +189,33 @@ _OCR_PROMPT = (
     'entry_number/roll number is REQUIRED — look for it carefully in corners, margins, and headers.'
 )
 
+# Enhanced retry prompt — used when the first pass returned empty answers.
+# Much more explicit about finding the answer grid and checking all sections.
+_OCR_RETRY_PROMPT = (
+    'IMPORTANT: A previous OCR attempt on this answer sheet returned EMPTY ANSWERS. '
+    'The student HAS written answers — look MORE carefully.\n\n'
+    'This is a student answer sheet for an objective (MCQ) exam. It typically has:\n'
+    '1. Printed questions at the TOP (ignore these).\n'
+    '2. A student-written "Name" and "Entry No." field.\n'
+    '3. An ANSWER GRID below the questions where students write their answers '
+    '   — this may be in ONE or TWO COLUMNS (e.g. Q1-5 on left, Q6-10 on right).\n'
+    '4. Answers might be circled options (A/B/C/D), written letters, or tick marks.\n\n'
+    'The image may be rotated, upside-down, or at an angle. '
+    'Try reading it in ALL orientations until you find the answer grid.\n\n'
+    'Look for ANY pattern that could be answers: numbers followed by letters, '
+    'circled options, table grids, handwritten A/B/C/D marks, etc.\n\n'
+    'Return JSON ONLY:\n'
+    '{"entry_number":"roll number","name":"student name",'
+    '"answers":{"1":"A","2":"C",...}}\n'
+    'answers: dict of question_number(str)->answer(str). '
+    'Single letter (A/B/C/D), multi-letter (AC/BCD), or number (2.5). '
+    'Omit only truly blank questions.'
+)
+
+# Minimum expected answers — if OCR returns fewer than this many, it suggests
+# the model failed to read the answer grid and we should retry.
+_MIN_EXPECTED_ANSWERS = 3
+
 # Maximum retries per single OCR pass — we wait as long as needed on Pro.
 _OCR_MAX_RETRIES = 20
 # 429 backoff cap (seconds): will wait up to 2 min before cycling to next region.
@@ -218,6 +245,50 @@ def _prepare_image_payload(image_path: str) -> tuple:
             b64 = base64.b64encode(f.read()).decode()
         mime = "image/jpeg" if image_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
         return b64, mime
+
+
+def _prepare_image_enhanced(image_path: str) -> tuple:
+    """
+    Contrast-enhanced image encoding for retry attempts.
+
+    When the model returns empty answers on the default encoding, the handwriting
+    may be too faint or washed out.  This variant applies:
+      - Auto-contrast (stretches histogram to full range)
+      - Mild sharpening
+      - Slight brightness boost
+    """
+    try:
+        from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+        with Image.open(image_path) as img:
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+
+            # Auto-contrast: stretch histogram per-channel
+            img = ImageOps.autocontrast(img, cutoff=1)
+
+            # Sharpen
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(1.8)
+
+            # Contrast boost
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.4)
+
+            w, h = img.size
+            if h > w * 1.5:
+                img = img.rotate(90, expand=True)
+            img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
+
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=90, optimize=True)
+            return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
+    except Exception:
+        # Fall back to normal encoding
+        return _prepare_image_payload(image_path)
 
 
 def _parse_ocr_text(text: str, image_path: str) -> Optional[dict]:
@@ -322,11 +393,23 @@ async def _ocr_single_pass(
       a DIFFERENT healthy region without sleeping (no blocking delay).
     - b64/mime can be pre-computed and shared across concurrent passes.
     - exclude_regions: list of regions to avoid (for cross-region verification).
+    - On empty entry_number: retry up to _OCR_MAX_RETRIES on fresh regions.
+    - On empty/sparse answers (<_MIN_EXPECTED_ANSWERS): retry with enhanced
+      prompt and contrast-boosted image to catch faint handwriting.
     """
     last_error = None
+    fname = os.path.basename(image_path)
+    empty_answers_retries = 0   # track how many times we got empty answers
+    used_enhanced_image = False  # whether we've switched to contrast-boosted encoding
+    active_prompt = _OCR_PROMPT  # start with normal prompt, escalate if needed
+
     # Pre-encode image once (caller may pass it in to avoid redundant work)
     if b64 is None or mime is None:
         b64, mime = _prepare_image_payload(image_path)
+
+    # Keep the enhanced encoding handy — computed lazily only if needed
+    enhanced_b64: Optional[str] = None
+    enhanced_mime: Optional[str] = None
 
     for attempt in range(_OCR_MAX_RETRIES + 1):
         ep = await _pick_endpoint(exclude_regions=exclude_regions)
@@ -341,10 +424,24 @@ async def _ocr_single_pass(
         )
         headers = await get_headers()
 
+        # After several empty-answers retries, switch to enhanced image + retry prompt
+        current_b64 = b64
+        current_mime = mime
+        if empty_answers_retries >= 5 and not used_enhanced_image:
+            # Lazy-compute enhanced encoding
+            if enhanced_b64 is None:
+                enhanced_b64, enhanced_mime = _prepare_image_enhanced(image_path)
+                print(f"  🔬 [OCR] Switching to contrast-enhanced image for {fname}")
+            current_b64 = enhanced_b64
+            current_mime = enhanced_mime
+            used_enhanced_image = True
+        if empty_answers_retries >= 3:
+            active_prompt = _OCR_RETRY_PROMPT
+
         payload = {
             "contents": [{"role": "user", "parts": [
-                {"text": _OCR_PROMPT},
-                {"inline_data": {"mime_type": mime, "data": b64}},
+                {"text": active_prompt},
+                {"inline_data": {"mime_type": current_mime, "data": current_b64}},
             ]}],
             "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.0},
         }
@@ -366,17 +463,69 @@ async def _ocr_single_pass(
                     if not text.strip():
                         candidates = data.get("candidates", [])
                         if not candidates:
-                            last_error = f"No candidates for {os.path.basename(image_path)}"
+                            last_error = f"No candidates for {fname}"
                         else:
                             fr = candidates[0].get("finishReason", "UNKNOWN")
-                            last_error = f"Empty text for {os.path.basename(image_path)} (finishReason={fr})"
+                            last_error = f"Empty text for {fname} (finishReason={fr})"
                         print(f"  ⚠️ [OCR] {last_error}")
+                        empty_answers_retries += 1
                         await asyncio.sleep(1)
                         continue
 
                     parsed = _parse_ocr_text(text, image_path)
                     if parsed is None:
-                        last_error = f"JSON parse failed for {os.path.basename(image_path)}"
+                        last_error = f"JSON parse failed for {fname}"
+                        await asyncio.sleep(1)
+                        continue
+
+                    # FIX 1: Retry if entry_number is empty — the model parsed
+                    # JSON successfully but couldn't extract the roll number.
+                    # This is a soft failure: treat it like a bad response and
+                    # burn another retry slot (possibly on a different region).
+                    if not str(parsed.get("entry_number", "")).strip():
+                        last_error = (
+                            f"Empty entry_number for {fname} "
+                            f"on {ep['model']}@{ep['region']} — retrying on different region"
+                        )
+                        print(f"  🔄 [OCR] {last_error}")
+                        await asyncio.sleep(1)
+                        continue
+
+                    # FIX 3: Retry if answers dict is empty or suspiciously sparse.
+                    # The student has written answers but the model couldn't read them.
+                    # After multiple retries, escalate to enhanced image + retry prompt.
+                    answer_count = len(parsed.get("answers", {}))
+                    if answer_count < _MIN_EXPECTED_ANSWERS:
+                        empty_answers_retries += 1
+                        last_error = (
+                            f"Sparse/empty answers ({answer_count} answers) for {fname} "
+                            f"on {ep['model']}@{ep['region']} — "
+                            f"retry #{empty_answers_retries} on different region"
+                        )
+                        print(f"  🔄 [OCR] {last_error}")
+                        if empty_answers_retries >= 3:
+                            print(
+                                f"  📝 [OCR] Escalating to enhanced retry prompt for {fname} "
+                                f"(empty answers retry #{empty_answers_retries})"
+                            )
+                        if empty_answers_retries >= 5:
+                            print(
+                                f"  🔬 [OCR] Will use contrast-enhanced image on next attempt for {fname}"
+                            )
+                        # After many empty-answers retries, accept whatever we got
+                        # — the sheet may genuinely be blank or illegible.
+                        if empty_answers_retries > 8:
+                            print(
+                                f"  ⚠️ [OCR] Giving up after {empty_answers_retries} empty-answers retries "
+                                f"for {fname} — accepting {answer_count} answers as final result"
+                            )
+                            parsed["_endpoint"] = f"{ep['model']}@{ep['region']}"
+                            parsed["comments"] = (
+                                f"[WARNING: only {answer_count} answer(s) detected after "
+                                f"{empty_answers_retries} retries — possible handwriting issue] "
+                                + (parsed.get("comments") or "")
+                            )
+                            return parsed
                         await asyncio.sleep(1)
                         continue
 
@@ -573,13 +722,26 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
 #  TRUE STREAMING PIPELINE
 # ─────────────────────────────────────────────────────────────────────
 
-def _make_eval_cache_key(file_id: str, answer_key_hash: str, evaluation_id: str = "default") -> str:
-    """Stable cache key for a fully evaluated result (OCR + scoring), namespaced by evaluation."""
-    raw = f"eval:{evaluation_id}:{file_id}:{answer_key_hash}"
+def _make_eval_cache_key(
+    file_id: str, answer_key_hash: str,
+    evaluation_id: str = "default",
+    run_ts: str = ""
+) -> str:
+    """
+    Stable cache key for a fully evaluated result (OCR + scoring).
+
+    FIX 2: Include `run_ts` (a per-run timestamp string) so that each fresh
+    pipeline run gets its own namespace and never serves stale evaluations
+    from a previous run.  When force_reprocess=False and you want to reuse
+    prior results, pass run_ts="" (the default) — that restores the old
+    behaviour.  When force_reprocess=True (or a new run is started), the
+    caller passes run_ts=processing_id so every key is unique.
+    """
+    raw = f"eval:{evaluation_id}:{run_ts}:{file_id}:{answer_key_hash}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default", force_reprocess: bool = False):
+async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default", force_reprocess: bool = False, run_ts: str = ""):
     """
     Streaming pipeline:
       - Cache check (OCR + evaluation) BEFORE downloading anything
@@ -651,7 +813,9 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
         fname = sheet_file["name"]
         file_id = sheet_file["id"]
         local_path = os.path.join(temp_dir, f"{idx}_{fname}")
-        eval_cache_key = _make_eval_cache_key(file_id, answer_key_hash, evaluation_id)
+        # FIX 2: Pass run_ts so each independent run gets a fresh eval cache
+        # namespace and never replays stale scores from a prior run.
+        eval_cache_key = _make_eval_cache_key(file_id, answer_key_hash, evaluation_id, run_ts)
         ocr_cache_key = f"ocr:{evaluation_id}:{file_id}"
 
         try:
@@ -881,7 +1045,12 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
 
         # Run pipeline
         eval_id = request.evaluation_id or "default"
-        results, errors = await _process_sheets_optimized(student_sheets, _current_answer_key, processing_id, eval_id, force_reprocess)
+        # FIX 2: Pass processing_id as run_ts — every run gets its own eval
+        # cache namespace so stale evaluations from previous runs are never served.
+        results, errors = await _process_sheets_optimized(
+            student_sheets, _current_answer_key, processing_id,
+            eval_id, force_reprocess, run_ts=processing_id
+        )
 
         total_time = time.time() - start_time
         _processing_stats[processing_id].update({

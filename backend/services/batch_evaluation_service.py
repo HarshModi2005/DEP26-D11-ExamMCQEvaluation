@@ -110,7 +110,8 @@ class BatchEvaluationService:
             'answers': {
                 q_num: {
                     'correct_option': entry.correct_option.strip().upper(),
-                    'marks': entry.marks
+                    'marks': entry.marks,
+                    'question_type': entry.question_type.strip().upper() if hasattr(entry, 'question_type') and entry.question_type else 'SMCQ',
                 }
                 for q_num, entry in answer_key.answers.items()
             },
@@ -208,6 +209,11 @@ class BatchEvaluationService:
                 try:
                     q_num = int(k)
                     option = EvaluationService._normalize_student_answer(str(v))
+                    # Apply answer-key-aware sanitization if question type is known
+                    key_data = optimized_key['answers'].get(q_num)
+                    if key_data and option and option not in EvaluationService.UNATTEMPTED_MARKERS:
+                        q_type = key_data.get('question_type', 'SMCQ')
+                        option = EvaluationService._sanitize_by_question_type(option, q_type)
                     student_ans[q_num] = option
                 except (ValueError, TypeError):
                     continue
@@ -270,8 +276,12 @@ class BatchEvaluationService:
                             score=marks
                         ))
                     
-                    elif EvaluationService._ocr_correct_mcq_answer(marked) == correct_option:
-                        # OCR digit-to-letter correction matched (e.g. '8' → 'B')
+                    elif EvaluationService._is_answer_correct(
+                        marked, correct_option,
+                        key_data.get('question_type', 'SMCQ')
+                    ):
+                        # OCR correction matched (digit→letter, letter→digit,
+                        # MMCQ cleaning, or NCQ fuzzy number matching)
                         correct_count += 1
                         total_score += marks
                         details.append(QuestionResult(

@@ -130,7 +130,29 @@ class SheetsService:
 
         # Step 3: Handle length anomalies
         # Expected: YYYYLLLNNNN = 4 + 3 + 4 = 11 characters
-        if len(clean) == 12:
+        if len(clean) == 10:
+            # Missing one char — could be:
+            # a) Missing degree char: YYYYLLNNNN → insert B at pos 6
+            # b) Short roll number: YYYYLLLNNN → pad roll in step 7
+            possible_dept = clean[4:6]
+            dept_fixed = possible_dept
+            for i in range(len(dept_fixed)):
+                if dept_fixed[i].isdigit():
+                    dept_fixed = dept_fixed[:i] + cls._DIGIT_TO_LETTER.get(dept_fixed[i], dept_fixed[i]) + dept_fixed[i+1:]
+            
+            # Check if position 6 is already a valid degree char (B or M)
+            pos6 = clean[6] if len(clean) > 6 else ''
+            if pos6.upper() in cls.KNOWN_DEGREE_TYPES:
+                # Already has degree char at correct position
+                # This is YYYYLLLNNN with a 3-digit roll — don't insert anything
+                pass
+            elif dept_fixed in cls.KNOWN_DEPT_CODES:
+                # Dept code looks valid but no degree char → insert 'B'
+                clean = clean[:6] + 'B' + clean[6:]
+            elif clean[6:].isdigit() and len(clean[6:]) == 4:
+                # Tail is 4 digits but dept is garbled — still insert B
+                clean = clean[:6] + 'B' + clean[6:]
+        elif len(clean) == 12:
             # Extra char crept in — try to identify and fix it
             possible_dept = clean[4:6]
             if possible_dept in cls.KNOWN_DEPT_CODES and clean[6].isdigit():
@@ -207,11 +229,21 @@ class SheetsService:
             degree_ch = 'B'  # Final fallback
 
         # Step 7: Fix NNNN (positions 7-10) — MUST be digits
+        # Apply aggressive letter→digit correction for ALL tail characters
         tail_chars = list(clean[7:11]) if len(clean) >= 8 else []
         for i in range(len(tail_chars)):
             if not tail_chars[i].isdigit():
                 tail_chars[i] = cls._LETTER_TO_DIGIT.get(tail_chars[i], tail_chars[i])
-        tail_str = ''.join(tail_chars).ljust(4, '0')[:4]
+                # If still not a digit after primary map, try harder
+                if not tail_chars[i].isdigit():
+                    # Secondary corrections for uncommon confusions
+                    secondary = {'C': '0', 'P': '9', 'F': '7', 'H': '4', 'K': '1', 'N': '4', 'U': '0', 'V': '0', 'W': '0', 'X': '8', 'Y': '4'}
+                    tail_chars[i] = secondary.get(tail_chars[i], '0')
+        tail_str = ''.join(tail_chars)
+        # Handle short tails (3 digits): try prepending '1' for common 1xxx range
+        if len(tail_str) == 3 and tail_str.isdigit():
+            tail_str = '1' + tail_str
+        tail_str = tail_str.ljust(4, '0')[:4]
 
         corrected = year_str + dept_str + degree_ch + tail_str
         original_clean = re.sub(r'[^A-Za-z0-9]', '', raw).upper()

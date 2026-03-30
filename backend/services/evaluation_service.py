@@ -46,6 +46,12 @@ class EvaluationService:
             try:
                 q_num = int(k)
                 option = EvaluationService._normalize_student_answer(str(v))
+                # Apply answer-key-aware sanitization if question type is known
+                key_entry = answer_key.answers.get(q_num)
+                if key_entry and option and option not in EvaluationService.UNATTEMPTED_MARKERS:
+                    option = EvaluationService._sanitize_by_question_type(
+                        option, key_entry.question_type.strip().upper()
+                    )
                 student_ans[q_num] = option
             except (ValueError, TypeError):
                 continue
@@ -215,6 +221,20 @@ class EvaluationService:
         '8': 'B', '9': 'G',
     }
 
+    # Letter-to-digit OCR confusion map (when OCR reads a letter instead of a number)
+    # Used for NCQ (Numerical Choice Questions) where the answer should be a number.
+    OCR_LETTER_TO_DIGIT = {
+        'O': '0', 'o': '0', 'D': '0',          # O/o/D → 0
+        'l': '1', 'L': '1', 'I': '1', 'i': '1', # l/L/I/i → 1
+        'Z': '2', 'z': '2',                     # Z → 2
+        'S': '5', 's': '5',                     # S → 5
+        'G': '6', 'g': '6', 'b': '6', 'B': '6', # G/g/b/B → 6  (NOTE: B→6 not B→8 because
+                                                  # 6/B confusion is more common in handwriting
+                                                  # for NCQ answers. For MCQ, _ocr_correct_mcq_answer
+                                                  # uses B→8 which is the right mapping there.)
+        'q': '9',                                # q → 9
+    }
+
     @staticmethod
     def _ocr_correct_mcq_answer(answer: str) -> str:
         """
@@ -234,6 +254,169 @@ class EvaluationService:
                 else:
                     corrected.append(c)
             return ''.join(corrected)
+        return answer
+
+    @staticmethod
+    def _ocr_correct_ncq_answer(answer: str) -> str:
+        """
+        Apply OCR letter→digit corrections for numerical (NCQ) answers.
+        
+        Handles common OCR confusions where the model reads a number as letters:
+          - "GOO" → "600"  (G→6, O→0)
+          - "l000" → "1000" (l→1)
+          - "6OO" → "600"  (O→0)
+          - "boo" → "600"  (b→6, o→0)
+          - "S76" → "576"  (S→5)
+        """
+        # Strip spaces, commas, and other noise
+        cleaned = re.sub(r'[\s,]+', '', answer)
+        
+        # If it's already a valid number, return as-is
+        try:
+            float(cleaned)
+            return cleaned
+        except ValueError:
+            pass
+        
+        # Apply letter→digit corrections
+        corrected = []
+        for c in cleaned:
+            if c in EvaluationService.OCR_LETTER_TO_DIGIT:
+                corrected.append(EvaluationService.OCR_LETTER_TO_DIGIT[c])
+            elif c.isdigit() or c in ('.', '-', '+'):
+                corrected.append(c)
+            else:
+                corrected.append(c)  # keep unknown chars
+        result = ''.join(corrected)
+        
+        # Try parsing the corrected result
+        try:
+            float(result)
+            return result
+        except ValueError:
+            return answer  # couldn't fix it, return original
+
+    @staticmethod
+    def _clean_mmcq_answer(answer: str) -> str:
+        """
+        Clean MMCQ answer: extract only A-D letters, sort, deduplicate.
+        Handles OCR artifacts like spaces, periods, dashes between letters:
+          - "B CD" → "BCD"
+          - "A, C, D" → "ACD"
+          - "B.C.D" → "BCD"
+        """
+        # Extract only A-D letters
+        letters = set()
+        for c in answer.upper():
+            if c in 'ABCD':
+                letters.add(c)
+        return ''.join(sorted(letters)) if letters else answer
+
+    # ─────────────────────────────────────────────────
+    #  MCQ-specific: digit/letter → valid ABCD option
+    # ─────────────────────────────────────────────────
+    # In MCQ context (only A–D valid), different corrections apply vs. generic
+    # digit→letter. E.g. '3' in general OCR maps to 'E', but 'E' isn't a valid
+    # option — the real confusion is B↔3 (mirror image in handwriting).
+    MCQ_DIGIT_TO_OPTION = {
+        '0': 'D',  # 0 → round → D
+        '1': 'A',  # 1 → vertical stroke → A (contextual)
+        '3': 'B',  # 3 mirrored = B (classic handwriting confusion)
+        '4': 'A',  # 4 → A (triangle/pointed shape)
+        '5': 'C',  # 5 → S → curved → C (best ABCD match for rounded char)
+        '6': 'C',  # 6 → open curve → C
+        '8': 'B',  # 8 → B (classic confusion)
+        '9': 'D',  # 9 → round bottom → D
+    }
+
+    # Non-ABCD letter → closest valid ABCD option
+    MCQ_LETTER_TO_OPTION = {
+        'E': 'B',  # E ↔ B (horizontal bars; 3→E→B chain)
+        'G': 'C',  # G ↔ C (open curve)
+        'I': 'A',  # I → 1 → A (vertical stroke context)
+        'O': 'D',  # O ↔ D (round shape)
+        'P': 'B',  # P → half-circle top like B
+        'Q': 'D',  # Q → round like D
+        'R': 'B',  # R → vertical + bowl like B
+        'S': 'C',  # S → curved like C
+        'T': 'A',  # T → 7 → pointed/angular → A
+        'Z': 'D',  # Z → 2 → fallback; rare
+    }
+
+    @staticmethod
+    def _sanitize_by_question_type(answer: str, question_type: str) -> str:
+        """
+        Sanitize a student answer based on the expected question type.
+
+        For MCQ (SMCQ/MMCQ):  ensure answer only contains valid options A-D.
+          - Digits → MCQ_DIGIT_TO_OPTION (e.g. '8' → 'B', '3' → 'B')
+          - Non-ABCD letters → MCQ_LETTER_TO_OPTION (e.g. 'E' → 'B')
+
+        For NCQ:  ensure answer is numeric.
+          - Letters → OCR_LETTER_TO_DIGIT (e.g. 'O' → '0', 'S' → '5')
+          - Strip remaining non-numeric characters.
+        """
+        if not answer:
+            return answer
+
+        # Preserve special markers
+        if answer in EvaluationService.UNATTEMPTED_MARKERS or answer == 'MULTIPLE':
+            return answer
+
+        q_type = question_type.upper().strip()
+
+        if q_type == 'SMCQ':
+            ans = answer.strip().upper()
+            # Already a valid option?
+            if ans in 'ABCD' and len(ans) == 1:
+                return ans
+            # Single digit → MCQ digit→option map
+            if len(ans) == 1 and ans.isdigit():
+                return EvaluationService.MCQ_DIGIT_TO_OPTION.get(ans, ans)
+            # Single non-ABCD letter → MCQ letter→option map
+            if len(ans) == 1 and ans.isalpha():
+                return EvaluationService.MCQ_LETTER_TO_OPTION.get(ans, ans)
+            # Multi-char — try to extract a single valid option
+            for c in ans:
+                if c in 'ABCD':
+                    return c
+            # Still nothing — try digit→option on first char
+            if ans and ans[0].isdigit():
+                return EvaluationService.MCQ_DIGIT_TO_OPTION.get(ans[0], ans)
+            return ans
+
+        elif q_type == 'MMCQ':
+            ans = answer.strip().upper()
+            result_letters = set()
+            for c in ans:
+                if c in 'ABCD':
+                    result_letters.add(c)
+                elif c.isdigit() and c in EvaluationService.MCQ_DIGIT_TO_OPTION:
+                    result_letters.add(EvaluationService.MCQ_DIGIT_TO_OPTION[c])
+                elif c.isalpha() and c in EvaluationService.MCQ_LETTER_TO_OPTION:
+                    result_letters.add(EvaluationService.MCQ_LETTER_TO_OPTION[c])
+            return ''.join(sorted(result_letters)) if result_letters else answer
+
+        elif q_type == 'NCQ':
+            # Apply letter→digit OCR correction
+            corrected = EvaluationService._ocr_correct_ncq_answer(answer)
+            # If that produced a valid number, use it
+            try:
+                float(corrected)
+                return corrected
+            except ValueError:
+                pass
+            # Strip non-numeric chars as fallback
+            digits_only = re.sub(r'[^0-9.\-+]', '', answer)
+            if digits_only:
+                try:
+                    float(digits_only)
+                    return digits_only
+                except ValueError:
+                    pass
+            return corrected  # return best-effort
+
+        # Unknown question type — no sanitization
         return answer
 
     @staticmethod
@@ -263,27 +446,67 @@ class EvaluationService:
             return corrected == correct_answer
             
         elif question_type == "MMCQ":
-            # Sort both to handle different ordering (e.g., "AC" vs "CA")
-            student_sorted = ''.join(sorted(student_answer))
-            correct_sorted = ''.join(sorted(correct_answer))
-            if student_sorted == correct_sorted:
+            # Clean and sort both answers: extract only A-D letters
+            student_cleaned = EvaluationService._clean_mmcq_answer(student_answer)
+            correct_cleaned = EvaluationService._clean_mmcq_answer(correct_answer)
+            if student_cleaned == correct_cleaned:
                 return True
-            # Try OCR digit-to-letter correction
+            # Try OCR digit-to-letter correction on original
             corrected = EvaluationService._ocr_correct_mcq_answer(student_answer)
-            corrected_sorted = ''.join(sorted(corrected))
-            return corrected_sorted == correct_sorted
+            corrected_cleaned = EvaluationService._clean_mmcq_answer(corrected)
+            return corrected_cleaned == correct_cleaned
             
         elif question_type == "NCQ":
-            # Numerical Choice Question - handle floating point comparison
-            # NO fuzzy matching — exact numerical comparison only
+            # Numerical Choice Question — multi-stage matching:
+            # 1. Direct float comparison
+            # 2. OCR letter→digit corrected float comparison
+            # 3. Normalized string comparison
+            correct_val = None
+            try:
+                correct_val = float(correct_answer)
+            except ValueError:
+                pass
+            
+            # Stage 1: Direct float parse
             try:
                 student_val = float(student_answer)
-                correct_val = float(correct_answer)
-                # Allow small floating point tolerance
-                return abs(student_val - correct_val) < 1e-6
+                if correct_val is not None and abs(student_val - correct_val) < 1e-6:
+                    return True
             except ValueError:
-                # If can't convert to float, fall back to string comparison
-                return student_answer == correct_answer
+                pass
+            
+            # Stage 2: Apply OCR letter→digit correction, then try float
+            corrected = EvaluationService._ocr_correct_ncq_answer(student_answer)
+            try:
+                corrected_val = float(corrected)
+                if correct_val is not None and abs(corrected_val - correct_val) < 1e-6:
+                    return True
+            except ValueError:
+                pass
+            
+            # Stage 3: Normalized string comparison (strip leading zeros, spaces)
+            student_norm = re.sub(r'[\s,]+', '', student_answer).lstrip('0') or '0'
+            correct_norm = re.sub(r'[\s,]+', '', correct_answer).lstrip('0') or '0'
+            if student_norm == correct_norm:
+                return True
+            
+            # Stage 4: Corrected string comparison
+            corrected_norm = re.sub(r'[\s,]+', '', corrected).lstrip('0') or '0'
+            if corrected_norm == correct_norm:
+                return True
+            
+            # Stage 5: Strip all non-digit chars from student answer (handles "6M" → "6")
+            # Only accept if resulting digits match correct answer after stripping too
+            digits_only = re.sub(r'[^0-9.\-+]', '', student_answer)
+            if digits_only:
+                try:
+                    digits_val = float(digits_only)
+                    if correct_val is not None and abs(digits_val - correct_val) < 1e-6:
+                        return True
+                except ValueError:
+                    pass
+            
+            return False
                 
         else:
             # Unknown question type, default to exact match
