@@ -530,16 +530,6 @@ class SheetsService:
 
         return min(combined, 1.0)
 
-    @classmethod
-    def _name_similarity(cls, name1: str, name2: str) -> float:
-        """Compute normalized name similarity between 0.0 and 1.0."""
-        n1 = re.sub(r'[^a-z ]', '', name1.strip().lower())
-        n2 = re.sub(r'[^a-z ]', '', name2.strip().lower())
-        if not n1 or not n2:
-            return 0.0
-        dist = cls._levenshtein_distance(n1, n2)
-        max_len = max(len(n1), len(n2), 1)
-        return 1.0 - (dist / max_len)
 
     @classmethod
     def _smart_match_score(cls, sheet_entry: str, sheet_name: str,
