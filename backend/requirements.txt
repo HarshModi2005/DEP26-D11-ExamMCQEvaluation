@@ -10,7 +10,8 @@ python-multipart
 requests
 beautifulsoup4
 openai
-uvloop
+# uvloop (Not supported on Windows)
+Pillow
 openpyxl
 python-docx
 httpx
