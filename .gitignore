@@ -58,3 +58,7 @@ extracted_text_output.txt
 # C code evaluator outputs
 c_code_evaluator/output/
 c_code_evaluator/output_*/
+-e 
+# Environment files
+*.env
+*.env.*
