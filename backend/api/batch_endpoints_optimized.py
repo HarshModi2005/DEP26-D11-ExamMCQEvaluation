@@ -15,7 +15,7 @@ Token-bucket rate limiting prevents 429s proactively.
 Evaluation results are FULLY CACHED — cache hits skip OCR AND evaluation entirely.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from models import ProcessFolderRequest, PipelineSummary
 from services.drive_service import DriveService
 from services.optimized_ocr_service import OptimizedOCRService
@@ -57,6 +57,22 @@ def _get_answer_key():
 
 def _set_answer_key(val):
     _endpoints_module._current_answer_key = val
+
+
+def _initialize_processing_stats(processing_id: str, start_time: float):
+    _processing_stats[processing_id] = {
+        "processing_id": processing_id,
+        "start_time": start_time,
+        "status": "initializing",
+        "total_files": 0,
+        "processed_files": 0,
+        "cache_hits": 0,
+        "ocr_cache_hits": 0,
+        "cache_misses": 0,
+        "errors": [],
+        "results": [],
+        "log_line": "",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -814,8 +830,7 @@ def _log_progress(processing_id: str, processed: int, total: int, success: int,
 #  ENDPOINT
 # ─────────────────────────────────────────────────────────────────────
 
-@router.post("/batch/process-folder-optimized")
-async def process_folder_optimized(request: ProcessFolderRequest, force_reprocess: bool = False):
+async def _run_process_folder_optimized(processing_id: str, request: ProcessFolderRequest, force_reprocess: bool = False):
     """
     Ultra-optimized folder processing.
     - Full evaluation cache: cache hits skip download, OCR AND re-evaluation
@@ -823,23 +838,8 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
     - 14+ endpoint pool with independent token-bucket rate limiting
     - Streaming pipeline, high concurrency
     """
-    global _processing_stats
-
-    start_time = time.time()
+    start_time = _processing_stats.get(processing_id, {}).get("start_time", time.time())
     folder_id = DriveService.extract_folder_id(request.folder_url)
-
-    processing_id = f"batch_{int(start_time)}"
-    _processing_stats[processing_id] = {
-        "start_time": start_time,
-        "status": "initializing",
-        "total_files": 0,
-        "processed_files": 0,
-        "cache_hits": 0,
-        "ocr_cache_hits": 0,
-        "cache_misses": 0,
-        "errors": [],
-        "log_line": "",
-    }
 
     try:
         # Discover files
@@ -923,6 +923,12 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
                 str(r.get("entry_number", "")).replace("UNREAD_", "") for r in unread_results
             ][:10]  # first 10 for reference
 
+        _processing_stats[processing_id].update({
+            "results": display_results,
+            "errors": errors,
+            "answer_key_source": _current_answer_key.metadata.get("source_file", "loaded"),
+        })
+
         return PipelineSummary(
             total_students_processed=len(display_results),
             answer_key_source=_current_answer_key.metadata.get("source_file", "loaded"),
@@ -943,6 +949,35 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
 # ─────────────────────────────────────────────────────────────────────
 #  STATUS + UTILITIES
 # ─────────────────────────────────────────────────────────────────────
+
+@router.post("/batch/process-folder-optimized")
+async def process_folder_optimized(request: ProcessFolderRequest, force_reprocess: bool = False):
+    """
+    Ultra-optimized folder processing.
+    - Full evaluation cache: cache hits skip download, OCR AND re-evaluation
+    - Tier-1 Pro â†’ Tier-2 Flash â†’ Tier-3 Lite failover
+    - 14+ endpoint pool with independent token-bucket rate limiting
+    - Streaming pipeline, high concurrency
+    """
+    start_time = time.time()
+    processing_id = f"batch_{int(start_time)}"
+    _initialize_processing_stats(processing_id, start_time)
+    return await _run_process_folder_optimized(processing_id, request, force_reprocess)
+
+
+@router.post("/batch/process-folder-optimized/start")
+async def start_process_folder_optimized(request: ProcessFolderRequest, background_tasks: BackgroundTasks, force_reprocess: bool = False):
+    """Start optimized Drive processing in the background and return a polling id immediately."""
+    start_time = time.time()
+    processing_id = f"batch_{int(start_time * 1000)}"
+    _initialize_processing_stats(processing_id, start_time)
+    background_tasks.add_task(_run_process_folder_optimized, processing_id, request, force_reprocess)
+    return {
+        "processing_id": processing_id,
+        "status": "started",
+        "status_url": f"/api/batch/processing-status/{processing_id}",
+    }
+
 
 @router.get("/batch/processing-status/{processing_id}")
 async def get_processing_status(processing_id: str):

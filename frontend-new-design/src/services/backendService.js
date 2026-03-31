@@ -70,6 +70,14 @@ export const backendService = {
         });
     },
 
+    async startDriveFolderProcessing(driveFolderUrl, evaluationId, forceReprocess = false) {
+        const url = forceReprocess ? '/batch/process-folder-optimized/start?force_reprocess=true' : '/batch/process-folder-optimized/start';
+        return api(url, {
+            method: 'POST',
+            body: JSON.stringify({ folder_url: driveFolderUrl, evaluation_id: evaluationId }),
+        });
+    },
+
     /**
      * Upload and process a ZIP file containing answer sheets
      */
@@ -84,6 +92,27 @@ export const backendService = {
 
         const url = `/process-zip${params.toString() ? '?' + params.toString() : ''}`;
 
+        const res = await fetch(`${BACKEND_URL}/api${url}`, {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'ZIP processing failed');
+        }
+        return res.json();
+    },
+
+    async startZipProcessing(file, evaluationId, forceReprocess = false, extractAnswerKey = true) {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (evaluationId) formData.append('evaluation_id', evaluationId);
+
+        const params = new URLSearchParams();
+        if (forceReprocess) params.append('force_reprocess', 'true');
+        if (!extractAnswerKey) params.append('extract_answer_key', 'false');
+
+        const url = `/process-zip/start${params.toString() ? '?' + params.toString() : ''}`;
         const res = await fetch(`${BACKEND_URL}/api${url}`, {
             method: 'POST',
             body: formData,
@@ -179,7 +208,11 @@ export const backendService = {
     /**
      * Get processing status
      */
-    async getProcessingStatus() {
-        return api('/processing/status');
+    async getProcessingStatus(processingId) {
+        return api(`/batch/processing-status/${processingId}`);
+    },
+
+    async getPipelineRunStatus(runId) {
+        return api(`/pipeline-runs/${runId}/status`);
     },
 };

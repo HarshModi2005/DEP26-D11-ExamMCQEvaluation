@@ -53,6 +53,230 @@ _current_answer_key: Optional[AnswerKey] = None
 _current_results: list[StudentResult] = []
 
 
+async def _process_zip_archive(
+    zip_path: str,
+    zip_filename: str,
+    force_reprocess: bool = False,
+    extract_answer_key: bool = True,
+    preferred_run_id: Optional[str] = None,
+    allow_resume: bool = True,
+):
+    """Shared ZIP processing implementation for synchronous and background flows."""
+    global _current_answer_key, _current_results
+
+    temp_dir = tempfile.mkdtemp(prefix="zip_upload_")
+    extract_dir = os.path.join(temp_dir, "extracted")
+
+    try:
+        os.makedirs(extract_dir, exist_ok=True)
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+
+        all_files = []
+        for root, dirs, files in os.walk(extract_dir):
+            for filename in files:
+                if not filename.startswith('.') and not filename.startswith('__'):
+                    file_path = os.path.join(root, filename)
+                    all_files.append({
+                        "id": file_path,
+                        "name": filename,
+                        "mimeType": _guess_mime_type(filename),
+                        "local_path": file_path
+                    })
+
+        if not all_files:
+            raise HTTPException(status_code=404, detail="No valid files found in ZIP archive")
+
+        answer_key_files, student_sheets = drive_service.separate_files(all_files)
+
+        if extract_answer_key and (_current_answer_key is None or force_reprocess):
+            if not answer_key_files:
+                if _current_answer_key is not None and not force_reprocess:
+                    print("ℹ️  No answer key found in ZIP — using currently loaded answer key.")
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "No answer key file found in ZIP. Either:\n"
+                            "- include a file with 'answer_key' in the name, OR\n"
+                            "- load an answer key first (Drive/manual/upload), OR\n"
+                            "- call /api/process-zip with extract_answer_key=false to skip ZIP key extraction."
+                        )
+                    )
+
+            if answer_key_files:
+                ak_file = answer_key_files[0]
+                if len(answer_key_files) > 1:
+                    print(f"⚠️  Multiple answer key files found, using: {ak_file['name']}")
+                try:
+                    local_path = ak_file["local_path"]
+                    mime_type = ak_file.get("mimeType", "")
+                    _current_answer_key = answer_key_service.extract_answer_key(local_path, mime_type)
+                    print(f"✅ Answer key extracted from ZIP: {_current_answer_key.total_questions} questions")
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Failed to extract answer key: {str(e)}")
+
+        if not _current_answer_key:
+            raise HTTPException(
+                status_code=400,
+                detail="No answer key loaded. Set extract_answer_key=true or upload answer key separately."
+            )
+
+        if not student_sheets:
+            raise HTTPException(
+                status_code=404,
+                detail="No student answer sheets found in ZIP (only answer key found)."
+            )
+
+        existing_run = None
+        if allow_resume:
+            existing_run = await optimized_db.find_incomplete_run("zip", zip_filename)
+
+        if existing_run and not force_reprocess:
+            run_id = existing_run["run_id"]
+            print(f"🔄 Resuming run {run_id} — {existing_run.get('processed_files', 0)} already done")
+        else:
+            run_id = preferred_run_id or str(uuid.uuid4())
+            await optimized_db.create_pipeline_run(
+                run_id=run_id,
+                source_type="zip",
+                source_ref=zip_filename,
+                total_files=len(student_sheets),
+            )
+
+        already_done = {}
+        if existing_run and not force_reprocess:
+            items = await optimized_db.list_pipeline_run_items(run_id)
+            for it in items:
+                if it.get("status") in ("processed", "cached") and it.get("result_json"):
+                    try:
+                        rj = it["result_json"]
+                        if isinstance(rj, str):
+                            rj = json.loads(rj)
+                        already_done[it["file_name"]] = rj
+                    except Exception:
+                        pass
+
+        _current_results = []
+        errors = []
+        resumed_count = len(already_done)
+        processed_count = 0
+
+        print(f"\n🚀 Processing {len(student_sheets)} student sheets from ZIP...")
+        if resumed_count:
+            print(f"   Resuming: {resumed_count} already saved in DB")
+
+        for idx, sheet_file in enumerate(student_sheets):
+            file_name = sheet_file["name"]
+            local_path = sheet_file["local_path"]
+
+            if file_name in already_done:
+                _current_results.append(StudentResult(**already_done[file_name]))
+                continue
+
+            print(f"\n📄 Processing [{idx+1}/{len(student_sheets)}]: {file_name}")
+
+            try:
+                extracted = await asyncio.to_thread(ocr_service.extract_objective_sheet, local_path)
+                if "error" in extracted:
+                    errors.append({"file": file_name, "error": extracted["error"]})
+                    await optimized_db.upsert_pipeline_run_item(
+                        run_id=run_id, file_name=file_name, status="error", error=extracted.get("error")
+                    )
+                    await optimized_db.update_pipeline_run_progress(
+                        run_id=run_id,
+                        processed_files=len(_current_results) + len(errors),
+                        cache_hits=resumed_count,
+                        errors=errors,
+                    )
+                    continue
+
+                student_result_dict = EvaluationService.match_and_score(_current_answer_key, extracted)
+                student_result = StudentResult(**student_result_dict)
+                _current_results.append(student_result)
+                processed_count += 1
+
+                await batch_write_student_results([student_result], optimized_db, exam_id=f"zip_{run_id[:8]}")
+                await optimized_db.upsert_pipeline_run_item(
+                    run_id=run_id,
+                    file_name=file_name,
+                    status="processed",
+                    entry_number=student_result.entry_number,
+                    ocr_json=extracted,
+                    result_json=student_result.model_dump(),
+                )
+                await optimized_db.update_pipeline_run_progress(
+                    run_id=run_id,
+                    processed_files=len(_current_results),
+                    cache_hits=resumed_count,
+                    errors=errors,
+                )
+
+                print(f"  ✅ {student_result.entry_number} — {student_result.name}: {student_result.total_score}/{student_result.max_score} (saved)")
+
+            except Exception as e:
+                errors.append({"file": file_name, "error": str(e)})
+                await optimized_db.upsert_pipeline_run_item(
+                    run_id=run_id, file_name=file_name, status="error", error=str(e)
+                )
+                await optimized_db.update_pipeline_run_progress(
+                    run_id=run_id,
+                    processed_files=len(_current_results) + len(errors),
+                    cache_hits=resumed_count,
+                    errors=errors,
+                )
+                print(f"  ❌ Error: {e}")
+
+        await optimized_db.update_pipeline_run_progress(
+            run_id=run_id,
+            processed_files=len(_current_results),
+            cache_hits=resumed_count,
+            errors=errors,
+            status="completed",
+        )
+
+        return PipelineSummary(
+            total_students_processed=len(_current_results),
+            answer_key_source=_current_answer_key.metadata.get("source_file", "zip_upload"),
+            results=_current_results,
+            errors=errors,
+            processing_stats={
+                "run_id": run_id,
+                "resumed": resumed_count,
+                "newly_processed": processed_count,
+                "force_reprocess": force_reprocess,
+                "zip_filename": zip_filename,
+                "total_files": len(student_sheets),
+            }
+        ).model_dump()
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            os.path.exists(zip_path) and os.remove(zip_path)
+        except Exception:
+            pass
+
+
+async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_id: str, force_reprocess: bool, extract_answer_key: bool):
+    try:
+        await _process_zip_archive(
+            zip_path,
+            zip_filename,
+            force_reprocess=force_reprocess,
+            extract_answer_key=extract_answer_key,
+            preferred_run_id=run_id,
+            allow_resume=False,
+        )
+    except Exception as e:
+        await optimized_db.update_pipeline_run_progress(
+            run_id=run_id,
+            processed_files=0,
+            cache_hits=0,
+            errors=[{"file": zip_filename, "error": str(e)}],
+            status="failed",
+        )
+
+
 # ═══════════════════════════════════════
 #  HEALTH & STATUS
 # ═══════════════════════════════════════
@@ -552,6 +776,52 @@ async def process_zip_upload(
     finally:
         # Cleanup temp directory
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@router.post("/process-zip/start")
+async def start_process_zip_upload(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    force_reprocess: bool = False,
+    extract_answer_key: bool = True
+):
+    """Start ZIP processing in the background and return a run id for polling."""
+    if not file.filename.lower().endswith('.zip'):
+        raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+
+    temp_dir = tempfile.mkdtemp(prefix="zip_upload_bg_")
+    zip_path = os.path.join(temp_dir, file.filename)
+    run_id = str(uuid.uuid4())
+
+    try:
+        with open(zip_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        await optimized_db.create_pipeline_run(
+            run_id=run_id,
+            source_type="zip",
+            source_ref=file.filename,
+            total_files=0,
+        )
+
+        background_tasks.add_task(
+            _process_zip_archive_background,
+            zip_path,
+            file.filename,
+            run_id,
+            force_reprocess,
+            extract_answer_key,
+        )
+
+        return {
+            "run_id": run_id,
+            "status": "started",
+            "status_url": f"/pipeline-runs/{run_id}/status",
+        }
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
 
 
 def _guess_mime_type(filename: str) -> str:
@@ -1316,6 +1586,45 @@ async def get_pipeline_run(run_id: str):
     except Exception:
         pass
     return run
+
+
+@router.get("/pipeline-runs/{run_id}/status")
+async def get_pipeline_run_status(run_id: str):
+    """Polling-friendly pipeline run status with final results when complete."""
+    run = await optimized_db.get_pipeline_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    try:
+        errors = json.loads(run.get("errors") or "[]")
+    except Exception:
+        errors = []
+
+    items = await optimized_db.list_pipeline_run_items(run_id)
+    results = []
+    for it in items:
+        if it.get("status") in ("processed", "cached") and it.get("result_json"):
+            result_json = it.get("result_json")
+            if isinstance(result_json, str):
+                try:
+                    result_json = json.loads(result_json)
+                except Exception:
+                    continue
+            results.append(result_json)
+
+    total_files = run.get("total_files") or 0
+    processed_files = run.get("processed_files") or 0
+    progress_percentage = round((processed_files / total_files) * 100) if total_files else 0
+    success_count = max(processed_files - len(errors), 0)
+    log_line = f"{processed_files}/{total_files} ({progress_percentage}%) | ✅{success_count} ❌{len(errors)}" if total_files else ""
+
+    return {
+        **run,
+        "errors": errors,
+        "results": results if run.get("status") == "completed" else [],
+        "progress_percentage": progress_percentage,
+        "log_line": log_line,
+    }
 
 
 @router.get("/pipeline-runs/{run_id}/items")

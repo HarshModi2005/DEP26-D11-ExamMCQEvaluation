@@ -7,6 +7,14 @@ import { evaluationService } from '../../services/evaluationService';
 import { resultsService } from '../../services/resultsService';
 import { backendService } from '../../services/backendService';
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const formatLiveProgressLine = ({ processed = 0, total = 0, errors = 0 }) => {
+    const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+    const success = Math.max(processed - errors, 0);
+    return `[Live] ${processed}/${total} (${pct}%) | ✅${success} ❌${errors}`;
+};
+
 // ── Status Badge ──────────────────────────
 const StatusBadge = ({ status }) => {
     const map = {
@@ -364,6 +372,7 @@ const EvaluatePage = () => {
     const [forceReprocess, setForceReprocess] = useState(false);
     const [cacheStatus, setCacheStatus] = useState(null);
     const logEndRef = React.useRef(null);
+    const lastProgressLogRef = React.useRef('');
 
     const fetchData = useCallback(async () => {
         setPageLoading(true);
@@ -394,6 +403,17 @@ const EvaluatePage = () => {
         }
     };
 
+    const appendPipelineLog = useCallback((line) => {
+        if (!line) return;
+        setPipelineLog(prev => [...prev, line]);
+    }, []);
+
+    const appendProgressLog = useCallback((line) => {
+        if (!line || lastProgressLogRef.current === line) return;
+        lastProgressLogRef.current = line;
+        setPipelineLog(prev => [...prev, line]);
+    }, []);
+
     const handleKeyLoaded = (keyData) => {
         setEvaluation(prev => ({ ...prev, answer_key_data: keyData }));
         setPipelineLog(prev => [...prev, `Answer key loaded — ${keyData.total_questions || '?'} questions`]);
@@ -411,8 +431,9 @@ const EvaluatePage = () => {
 
         setPipelineLoading(true);
         setError('');
-        setPipelineProgress(10);
+        setPipelineProgress(0);
         setPipelineSheetCount(null);
+        lastProgressLogRef.current = '';
 
         const modeText = processingMode === 'zip' ? 'ZIP file' : 'Drive folder';
         const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
@@ -420,12 +441,13 @@ const EvaluatePage = () => {
         setPipelineLog(prev => [...prev,
             `Starting OCR pipeline (${modeText})...`,
             `Source: ${sourceText}`,
-            forceReprocess ? 'Force reprocess enabled (bypassing cache)' : 'Evaluation cache active — cached sheets skip OCR entirely',
+            forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.',
         ]);
 
         try {
             let pipelineResult;
             const startTime = Date.now();
+            const speed = "0.00";
 
             if (processingMode === 'drive') {
                 const url = driveFolderUrl || evaluation?.drive_folder_url;
@@ -434,16 +456,14 @@ const EvaluatePage = () => {
                     setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
                 }
 
-                setPipelineProgress(25);
+                setPipelineProgress(0);
                 setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
                 pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
             } else {
-                setPipelineProgress(25);
+                setPipelineProgress(0);
                 setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
                 pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
             }
-
-            setPipelineProgress(85);
 
             const processedResults = pipelineResult.results || [];
             const stats = pipelineResult.processing_stats || {};
@@ -459,20 +479,18 @@ const EvaluatePage = () => {
                 errors: pipelineResult.errors?.length || 0,
             });
 
-            const endTime = Date.now();
-            const timeSeconds = (endTime - startTime) / 1000;
-            const speed = timeSeconds > 0 ? (totalSheets / timeSeconds).toFixed(2) : "0.00";
             const processedPct = totalSheets > 0 ? Math.round((processedResults.length / totalSheets) * 100) : 0;
             const errorCount = pipelineResult.errors?.length || 0;
 
             const logLine = `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✓${processedResults.length} ✗${errorCount} ${cacheHits} cached | ${speed}/s`;
             
-            setPipelineLog(prev => [...prev, logLine]);
+            setPipelineProgress(processedResults.length > 0 ? 99 : processedPct);
+            setPipelineLog(prev => [...prev, `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✅${processedResults.length} ❌${errorCount}`]);
 
             if (processedResults.length > 0) {
                 setPipelineLog(prev => [...prev, 'Saving results to database...']);
                 await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
-                setPipelineProgress(95);
+                setPipelineProgress(99);
 
                 await evaluationService.updateStatus(evaluationId, 'grading');
                 setEvaluation(prev => ({ ...prev, status: 'grading' }));
@@ -490,6 +508,127 @@ const EvaluatePage = () => {
         } catch (err) {
             setError('Pipeline failed: ' + err.message);
             setPipelineLog(prev => [...prev, `Error: ${err.message}`]);
+        } finally {
+            setPipelineLoading(false);
+            loadCacheStatus();
+        }
+    };
+
+    const handleRunPipelineLive = async () => {
+        const isZipMode = processingMode === 'zip';
+        const url = driveFolderUrl || evaluation?.drive_folder_url;
+        if (isZipMode) {
+            if (!zipFile) { setError('Please select a ZIP file containing student answer sheets.'); return; }
+        } else if (!url) {
+            setError('Please enter the Google Drive folder URL containing student answer sheets.'); return;
+        }
+        if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
+
+        setPipelineLoading(true);
+        setError('');
+        setPipelineProgress(0);
+        setPipelineSheetCount(null);
+        lastProgressLogRef.current = '';
+
+        appendPipelineLog(`Starting OCR pipeline (${isZipMode ? 'ZIP file' : 'Drive folder'})...`);
+        appendPipelineLog(`Source: ${isZipMode ? zipFile.name : url}`);
+        appendPipelineLog(forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.');
+
+        try {
+            if (!isZipMode && url !== evaluation.drive_folder_url) {
+                await evaluationService.updateDriveFolderUrl(evaluationId, url);
+                setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+            }
+
+            setPipelineProgress(0);
+            appendPipelineLog(isZipMode ? 'Processing ZIP file...' : 'Scanning Drive folder for sheets...');
+
+            const startTime = Date.now();
+            const started = isZipMode
+                ? await backendService.startZipProcessing(zipFile, evaluationId, forceReprocess, true)
+                : await backendService.startDriveFolderProcessing(url, evaluationId, forceReprocess);
+            appendPipelineLog(`Live tracking started for ${started.run_id || started.processing_id}`);
+
+            let pipelineResult = null;
+            while (true) {
+                const status = isZipMode
+                    ? await backendService.getPipelineRunStatus(started.run_id)
+                    : await backendService.getProcessingStatus(started.processing_id);
+                const totalSheets = status.total_files || 0;
+                const processedSheets = status.processed_files || 0;
+                const cacheHits = (status.cache_hits || 0) + (status.ocr_cache_hits || 0);
+                const errorCount = Array.isArray(status.errors) ? status.errors.length : 0;
+                const liveProgress = totalSheets > 0 ? Math.round((processedSheets / totalSheets) * 100) : Math.round(status.progress_percentage || 0);
+
+                setPipelineProgress(Math.min(liveProgress, 99));
+                setPipelineSheetCount({
+                    total: totalSheets,
+                    processed: processedSheets,
+                    cached: cacheHits,
+                    newOcr: Math.max(totalSheets - cacheHits, 0),
+                    errors: errorCount,
+                });
+
+                appendProgressLog(formatLiveProgressLine({
+                    processed: processedSheets,
+                    total: totalSheets,
+                    errors: errorCount,
+                }));
+
+                    if (status.status === 'completed') {
+                        pipelineResult = {
+                            results: status.results || [],
+                            errors: status.errors || [],
+                            processing_stats: status,
+                    };
+                    break;
+                }
+
+                if (status.status === 'failed') {
+                    throw new Error(status.error || 'Drive processing failed.');
+                }
+
+                await sleep(1200);
+            }
+
+            const processedResults = pipelineResult.results || [];
+            const stats = pipelineResult.processing_stats || {};
+            const totalSheets = stats.total_files || processedResults.length;
+            const cacheHits = (stats.cache_hits || 0) + (stats.ocr_cache_hits || 0);
+
+            setPipelineSheetCount({
+                total: totalSheets,
+                processed: processedResults.length,
+                cached: cacheHits,
+                newOcr: Math.max(totalSheets - cacheHits, 0),
+                errors: pipelineResult.errors?.length || 0,
+            });
+
+            const processedPct = totalSheets > 0 ? Math.round((processedResults.length / totalSheets) * 100) : 0;
+            const errorCount = pipelineResult.errors?.length || 0;
+
+            setPipelineProgress(processedResults.length > 0 ? 99 : processedPct);
+            appendPipelineLog(`[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✅${processedResults.length} ❌${errorCount}`);
+
+            if (processedResults.length > 0) {
+                appendPipelineLog('Saving results to database...');
+                await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
+                setPipelineProgress(99);
+
+                await evaluationService.updateStatus(evaluationId, 'grading');
+                setEvaluation(prev => ({ ...prev, status: 'grading' }));
+                setRawOcrResults(processedResults);
+
+                const fresh = await resultsService.getResultsByEvaluation(evaluationId);
+                setResults(fresh || []);
+                setPipelineProgress(100);
+                appendPipelineLog(`Done! ${fresh.length} student results saved.`);
+            } else {
+                appendPipelineLog('No results returned. Check the source folder or file.');
+            }
+        } catch (err) {
+            setError('Pipeline failed: ' + err.message);
+            appendPipelineLog(`Error: ${err.message}`);
         } finally {
             setPipelineLoading(false);
             loadCacheStatus();
@@ -790,7 +929,7 @@ const EvaluatePage = () => {
                                         </div>
                                     )}
 
-                                    <button onClick={handleRunPipeline} disabled={pipelineLoading}
+                                    <button onClick={handleRunPipelineLive} disabled={pipelineLoading}
                                         className="w-full py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                                         {pipelineLoading
                                             ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Running OCR Pipeline...</>
