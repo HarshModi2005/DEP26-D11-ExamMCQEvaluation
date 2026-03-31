@@ -594,6 +594,18 @@ class SheetsService:
                 score = entry_sim * 0.40 + name_sim * 0.60
                 return round(min(score, 0.89), 4)  # Cap at 0.89 to rank below exact/year-slid
 
+        # ── Stage 4: High Name Similarity Fallback ──
+        # If the name is a very strong match (>= 0.85), trust it even if entry number is garbled or missing.
+        if name_sim >= 0.85:
+            return 0.90
+            
+        # ── Stage 5: Partial Name + Weak Entry Fallback ──
+        if name_sim >= 0.70 and e1 and e2:
+             max_elen = max(len(e1), len(e2), 1)
+             entry_sim = 1.0 - (cls._levenshtein_distance(e1, e2) / max_elen)
+             if entry_sim >= 0.30: # At least 30% similar entry
+                 return 0.82
+
         return 0.0
 
     # ──────────────────────────────────────
@@ -799,6 +811,7 @@ class SheetsService:
             headers.append(f"Q{q}")
         headers.append("Marks")
         headers.append("Comments")
+        headers.append("Record ID")
 
         data_rows = []       # Each entry: (category, row_data)  category: 'confident', 'fuzzy', 'unmatched'
         all_scores = []
@@ -987,6 +1000,9 @@ class SheetsService:
                 all_scores.append(total)
                 
                 row.append("; ".join(final_comments))
+                
+                # Append Record ID for syncing later
+                row.append(str(result.get('id', '')))
 
                 # Categorize: confident (exact match) vs fuzzy
                 category = 'fuzzy' if is_fuzzy_match else 'confident'
@@ -1038,10 +1054,17 @@ class SheetsService:
                 
                 final_comments = []
                 if r.get('comments'): final_comments.append(r.get('comments'))
+                total = r.get('total_score', 0)
+                row.append(total)
+                all_scores.append(total)
+                
+                final_comments = []
+                if r.get('comments'): final_comments.append(r.get('comments'))
                 if master_students:
                     final_comments.append("Not found in Master Student List")
                 
                 row.append("; ".join(final_comments))
+                row.append(str(r.get('id', '')))
                 data_rows.append(('unmatched', row))
 
         # ── SORT: confident first, then fuzzy, then unmatched ──
@@ -1117,6 +1140,75 @@ class SheetsService:
 
         print(f"✅ Wrote {len(sorted_rows)} students to '{target_sheet}'. Matches: {summary['updated']}, Fuzzy: {len(fuzzy_rows)}, Unmatched: {len(unmatched_rows)}")
         return summary
+
+    def parse_marks_sheet(self, sheet_url: str, sheet_tab_name: str) -> list:
+        """
+        Reads an exported Marks sheet and returns structured data for syncing.
+        Stops when it hits the STATISTICS divider.
+        """
+        if not self.service:
+            raise RuntimeError("Sheets service not initialized. Check credentials.")
+
+        spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
+        result = self.service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{sheet_tab_name}'"
+        ).execute()
+        
+        values = result.get('values', [])
+        if not values or len(values) < 2:
+            return []
+            
+        headers = values[0]
+        parsed = []
+        
+        for row in values[1:]:
+            if not row or len(row) < 2: 
+                continue
+            if len(row) > 1 and row[1] == 'STATISTICS': 
+                break  
+                
+            def get_col(name):
+                try: 
+                    idx = headers.index(name)
+                    return str(row[idx]).strip() if idx < len(row) else ''
+                except ValueError:
+                    return ''
+            
+            ocr_entry = get_col("OCR Entry Number")
+            if not ocr_entry:
+                continue
+                
+            entry = get_col("Entry Number")
+            name = get_col("Name")
+            marks = get_col("Marks")
+            comments = get_col("Comments")
+            
+            # Extract Q1..Qn scores
+            q_scores = {}
+            for idx, h in enumerate(headers):
+                if h.startswith("Q") and h[1:].isdigit():
+                    val = str(row[idx]).strip() if idx < len(row) else ''
+                    try:
+                        q_scores[h] = float(val) if val else 0.0
+                    except ValueError:
+                        q_scores[h] = 0.0
+            
+            try:
+                total_marks = float(marks) if marks else 0.0
+            except ValueError:
+                total_marks = sum(q_scores.values())
+
+            parsed.append({
+                "supabase_roll_key": ocr_entry,
+                "new_roll_number": entry,
+                "new_name": name,
+                "total_score": total_marks,
+                "comments": comments,
+                "q_scores": q_scores
+            })
+            
+        return parsed
 
     def _format_marks_sheet(self, spreadsheet_id: str, sheet_name: str, num_cols: int, num_data_rows: int, total_rows: int, confident_rows: List[int] = None, fuzzy_rows: List[int] = None, unmatched_rows: List[int] = None):
         """Apply formatting to the marks sheet — bold header, statistics, and highlights for mismatches."""

@@ -353,6 +353,7 @@ const EvaluatePage = () => {
     const [pageLoading, setPageLoading] = useState(true);
     const [pipelineLoading, setPipelineLoading] = useState(false);
     const [exportLoading, setExportLoading] = useState(false);
+    const [syncLoading, setSyncLoading] = useState(false);
     const [pipelineLog, setPipelineLog] = useState([]);
     const [pipelineProgress, setPipelineProgress] = useState(0);
     const [pipelineSheetCount, setPipelineSheetCount] = useState(null); // {total, processed, cached, new}
@@ -436,11 +437,11 @@ const EvaluatePage = () => {
 
                 setPipelineProgress(25);
                 setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
-                pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+                pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess, evaluation?.courses?.master_sheet_url);
             } else {
                 setPipelineProgress(25);
                 setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
-                pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
+                pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true, evaluation?.courses?.master_sheet_url);
             }
 
             setPipelineProgress(85);
@@ -560,6 +561,38 @@ const EvaluatePage = () => {
         }
     };
 
+    const handleSyncFromSheet = async () => {
+        const course = evaluation?.courses;
+        if (!course?.master_sheet_url) {
+            setExportMsg('Error: No master Google Sheet URL set for this course.');
+            return;
+        }
+        setSyncLoading(true);
+        setExportMsg('');
+        try {
+            const evalName = evaluation.subsheet_name || evaluation.name;
+            const parsedData = await backendService.syncFromSheets(course.master_sheet_url, evalName);
+            
+            if (!parsedData || parsedData.length === 0) {
+                setExportMsg('Error: Could not find or parse the sheet data. Make sure it was exported first.');
+                return;
+            }
+
+            // Sync using the parsed data
+            await resultsService.syncFromSheetData(evaluationId, parsedData, results);
+            
+            // Re-fetch everything
+            const fresh = await resultsService.getResultsByEvaluation(evaluationId);
+            setResults(fresh || []);
+            
+            setExportMsg(`Successfully synced data from Google Sheet ("${evalName}").`);
+        } catch (err) {
+            setExportMsg('Sync failed: ' + err.message);
+        } finally {
+            setSyncLoading(false);
+        }
+    };
+
     const handleCommentUpdate = (id, comment) => {
         setResults(prev => prev.map(r => r.id === id ? { ...r, comments: comment } : r));
     };
@@ -619,13 +652,22 @@ const EvaluatePage = () => {
                         </div>
                         <div className="flex items-center gap-3">
                             {results.length > 0 && (
-                                <button onClick={handleExportToSheet} disabled={exportLoading}
-                                    className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
-                                    {exportLoading
-                                        ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
-                                        : <Icon name="FileSpreadsheet" size={16} />}
-                                    Export to Sheet
-                                </button>
+                                <>
+                                    <button onClick={handleSyncFromSheet} disabled={syncLoading || exportLoading}
+                                        className="px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {syncLoading
+                                            ? <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="RefreshCw" size={16} />}
+                                        Sync from Sheet
+                                    </button>
+                                    <button onClick={handleExportToSheet} disabled={exportLoading || syncLoading}
+                                        className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {exportLoading
+                                            ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="FileSpreadsheet" size={16} />}
+                                        Export to Sheet
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>

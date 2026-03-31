@@ -923,6 +923,41 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
                 str(r.get("entry_number", "")).replace("UNREAD_", "") for r in unread_results
             ][:10]  # first 10 for reference
 
+        if request.master_sheet_url:
+            try:
+                from services.sheets_service import SheetsService
+                sheets_svc = SheetsService()
+                master_data = sheets_svc.read_student_list(request.master_sheet_url)
+                master_students = master_data.get('students', [])
+                if master_students:
+                    print(f"🔄 Cross-matching {len(display_results)} OCR results against {len(master_students)} master students...")
+                    for r in display_results:
+                        ocr_entry = str(r.get("entry_number", ""))
+                        ocr_name = str(r.get("name", ""))
+                        
+                        best_score = 0
+                        best_match = None
+                        
+                        # Find the best match
+                        for m_student in master_students:
+                            sheet_entry = str(m_student.get("entry_number", ""))
+                            sheet_name = str(m_student.get("name", ""))
+                            score = sheets_svc._smart_match_score(sheet_entry, sheet_name, ocr_entry, ocr_name)
+                            if score > best_score:
+                                best_score = score
+                                best_match = m_student
+                                
+                        if best_score > 0.8 and best_match:  # Confidence threshold
+                            r["entry_number"] = str(best_match.get("entry_number", ""))
+                            if best_match.get("name"):
+                                r["name"] = str(best_match.get("name", ""))
+                            
+                            # Log match in comments
+                            msg = f"Match={best_score:.2f}"
+                            r["comments"] = f"{r.get('comments', '')}; [{msg}]".strip("; ")
+            except Exception as e:
+                print(f"⚠️ Failed to proactively match against master sheet: {e}")
+
         return PipelineSummary(
             total_students_processed=len(display_results),
             answer_key_source=_current_answer_key.metadata.get("source_file", "loaded"),

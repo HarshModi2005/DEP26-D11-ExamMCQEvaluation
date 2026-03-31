@@ -90,6 +90,7 @@ class StudentResult(BaseModel):
 class ProcessFolderRequest(BaseModel):
     folder_url: str
     evaluation_id: Optional[str] = None
+    master_sheet_url: Optional[str] = None
 
 
 class ExportToSheetsRequest(BaseModel):

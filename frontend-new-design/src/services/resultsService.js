@@ -138,6 +138,107 @@ export const resultsService = {
     },
 
     /**
+     * Syncs manual changes from an exported Google Sheet back to the database.
+     */
+    async syncFromSheetData(evaluationId, parsedSheetRows, currentResults) {
+        if (!parsedSheetRows || parsedSheetRows.length === 0) return;
+
+        const BATCH = 50;
+        async function batchIn(table, selectCols, column, values) {
+            const all = [];
+            for (let i = 0; i < values.length; i += BATCH) {
+                const chunk = values.slice(i, i + BATCH);
+                const { data, error } = await supabase.from(table).select(selectCols).in(column, chunk);
+                if (error) throw error;
+                if (data) all.push(...data);
+            }
+            return all;
+        }
+
+        // 1. Process new students
+        const uniqueRollNos = [...new Set(parsedSheetRows.map(r => r.new_roll_number).filter(Boolean))];
+        if (uniqueRollNos.length === 0) return;
+
+        const existingStudents = await batchIn('students', 'id, roll_number', 'roll_number', uniqueRollNos);
+        const existingRollNos = new Set(existingStudents.map(s => s.roll_number));
+
+        const missingStudents = [];
+        const seenRollNos = new Set();
+        
+        for (const r of parsedSheetRows) {
+            if (r.new_roll_number && !existingRollNos.has(r.new_roll_number) && !seenRollNos.has(r.new_roll_number)) {
+                missingStudents.push({ roll_number: r.new_roll_number, name: r.new_name || '' });
+                seenRollNos.add(r.new_roll_number);
+            }
+        }
+
+        if (missingStudents.length > 0) {
+            for (let i = 0; i < missingStudents.length; i += BATCH) {
+                const chunk = missingStudents.slice(i, i + BATCH);
+                const { error } = await supabase.from('students').insert(chunk);
+                if (error) console.error("Sync insert student error:", error);
+            }
+        }
+
+        // 2. Fetch all student IDs
+        const allStudents = await batchIn('students', 'id, roll_number, name', 'roll_number', uniqueRollNos);
+        const studentMap = new Map(allStudents.map(s => [s.roll_number, s.id]));
+
+        // Update student names if they were fixed in the sheet
+        const studentNameUpdates = [];
+        for (const s of allStudents) {
+            const sheetRow = parsedSheetRows.find(r => r.new_roll_number === s.roll_number);
+            if (sheetRow && sheetRow.new_name && sheetRow.new_name !== s.name) {
+                studentNameUpdates.push({ id: s.id, roll_number: s.roll_number, name: sheetRow.new_name });
+            }
+        }
+        if (studentNameUpdates.length > 0) {
+             for (let i = 0; i < studentNameUpdates.length; i += BATCH) {
+                const chunk = studentNameUpdates.slice(i, i + BATCH);
+                await supabase.from('students').upsert(chunk);
+            }
+        }
+
+        // 3. Update submission_results
+        const updates = [];
+        for (const cr of currentResults) {
+            const currentRoll = cr.students?.roll_number;
+            const sheetRow = parsedSheetRows.find(r => r.supabase_roll_key === currentRoll);
+            
+            if (sheetRow && sheetRow.new_roll_number) {
+                const targetStudentId = studentMap.get(sheetRow.new_roll_number);
+                if (!targetStudentId) continue;
+                
+                let updatedDetails = cr.details ? [...cr.details] : [];
+                if (sheetRow.q_scores) {
+                    updatedDetails = updatedDetails.map(d => {
+                        const qStr = `Q${d.question_number}`;
+                        if (sheetRow.q_scores[qStr] !== undefined) {
+                            return { ...d, score: sheetRow.q_scores[qStr] };
+                        }
+                        return d;
+                    });
+                }
+
+                updates.push({
+                    id: cr.id,
+                    evaluation_id: cr.evaluation_id,
+                    student_id: targetStudentId,
+                    total_score: sheetRow.total_score,
+                    comments: sheetRow.comments || cr.comments,
+                    details: updatedDetails
+                });
+            }
+        }
+
+        for (let i = 0; i < updates.length; i += BATCH) {
+            const chunk = updates.slice(i, i + BATCH);
+            const { error } = await supabase.from('submission_results').upsert(chunk);
+            if (error) console.error("Sync upsert results error:", error);
+        }
+    },
+
+    /**
      * Get all results for an evaluation, joined with student info
      */
     async getResultsByEvaluation(evaluationId) {

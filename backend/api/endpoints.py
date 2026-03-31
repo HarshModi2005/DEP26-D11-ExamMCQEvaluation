@@ -5,7 +5,7 @@ Routes for the objective answer sheet evaluation pipeline.
 Auth is handled entirely by Supabase on the frontend.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import Response
 from models import (
     Student, Submission, EvaluationResult,
@@ -330,7 +330,8 @@ def set_answer_key_manual(answers: dict):
 async def process_zip_upload(
     file: UploadFile = File(...), 
     force_reprocess: bool = False,
-    extract_answer_key: bool = True
+    extract_answer_key: bool = True,
+    master_sheet_url: str = Form(None)
 ):
     """
     Upload and process a ZIP file containing answer key and student answer sheets.
@@ -535,10 +536,44 @@ async def process_zip_upload(
             status="completed",
         )
 
+        display_results = [r.model_dump() for r in _current_results]
+
+        if master_sheet_url:
+            try:
+                sheets_svc = SheetsService()
+                master_data = sheets_svc.read_student_list(master_sheet_url)
+                master_students = master_data.get('students', [])
+                if master_students:
+                    print(f"🔄 Cross-matching {len(display_results)} OCR results against {len(master_students)} master students...")
+                    for r in display_results:
+                        ocr_entry = str(r.get("entry_number", ""))
+                        ocr_name = str(r.get("name", ""))
+                        
+                        best_score = 0
+                        best_match = None
+                        
+                        for m_student in master_students:
+                            sheet_entry = str(m_student.get("entry_number", ""))
+                            sheet_name = str(m_student.get("name", ""))
+                            score = sheets_svc._smart_match_score(sheet_entry, sheet_name, ocr_entry, ocr_name)
+                            if score > best_score:
+                                best_score = score
+                                best_match = m_student
+                                
+                        if best_score > 0.8 and best_match:
+                            r["entry_number"] = str(best_match.get("entry_number", ""))
+                            if best_match.get("name"):
+                                r["name"] = str(best_match.get("name", ""))
+                            
+                            msg = f"Match={best_score:.2f}"
+                            r["comments"] = f"{r.get('comments', '')}; [{msg}]".strip("; ")
+            except Exception as e:
+                print(f"⚠️ Failed to proactively match against master sheet: {e}")
+
         return PipelineSummary(
-            total_students_processed=len(_current_results),
+            total_students_processed=len(display_results),
             answer_key_source=_current_answer_key.metadata.get("source_file", "zip_upload"),
-            results=_current_results,
+            results=display_results,
             errors=errors,
             processing_stats={
                 "run_id": run_id,
@@ -767,6 +802,25 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
 # ═══════════════════════════════════════
 #  PHASE 3 — GOOGLE SHEETS EXPORT
 # ═══════════════════════════════════════
+
+class ExportToSheetsRequest(BaseModel):
+    results: Optional[List[Dict]] = None
+    sheet_url: str
+    answer_key: Optional[Dict] = None
+
+class SyncSheetRequest(BaseModel):
+    sheet_url: str
+    sheet_tab_name: str
+
+@router.post("/sync-from-sheets")
+def sync_from_sheets(request: SyncSheetRequest):
+    try:
+        from services.sheets_service import SheetsService
+        sheets_svc = SheetsService()
+        data = sheets_svc.parse_marks_sheet(request.sheet_url, request.sheet_tab_name)
+        return {"data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 @router.post("/export-to-sheets")
 def export_to_sheets(request: ExportToSheetsRequest, subsheet_name: str = None, evaluation_name: str = None):

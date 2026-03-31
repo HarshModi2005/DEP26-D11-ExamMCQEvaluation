@@ -61,22 +61,27 @@ export const backendService = {
         return api('/answer-key');
     },
 
-    async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false) {
+    async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false, masterSheetUrl = null) {
         // Updated to use the ultra-optimized parallel pipelined endpoint
         const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
-            body: JSON.stringify({ folder_url: driveFolderUrl, evaluation_id: evaluationId }),
+            body: JSON.stringify({ 
+                folder_url: driveFolderUrl, 
+                evaluation_id: evaluationId,
+                master_sheet_url: masterSheetUrl 
+            }),
         });
     },
 
     /**
      * Upload and process a ZIP file containing answer sheets
      */
-    async processZipFile(file, evaluationId, forceReprocess = false, extractAnswerKey = true) {
+    async processZipFile(file, evaluationId, forceReprocess = false, extractAnswerKey = true, masterSheetUrl = null) {
         const formData = new FormData();
         formData.append('file', file);
         if (evaluationId) formData.append('evaluation_id', evaluationId);
+        if (masterSheetUrl) formData.append('master_sheet_url', masterSheetUrl);
 
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
@@ -181,5 +186,16 @@ export const backendService = {
      */
     async getProcessingStatus() {
         return api('/processing/status');
+    },
+
+    async syncFromSheets(sheetUrl, sheetTabName) {
+        const res = await api('/sync-from-sheets', {
+            method: 'POST',
+            body: JSON.stringify({
+                sheet_url: sheetUrl,
+                sheet_tab_name: sheetTabName
+            }),
+        });
+        return res.data;
     },
 };
