@@ -980,8 +980,6 @@ class SheetsService:
                 for q in all_q_nums:
                     d = d_map.get(q, {})
                     val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
-                    st = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
-                    if st in ['multiple', 'unattempted', 'incorrect']: val = 0
                     row.append(val)
                 
                 total = result.get('total_score', 0)
@@ -1032,8 +1030,6 @@ class SheetsService:
                 for q in all_q_nums:
                     d = d_map.get(q, {})
                     val = d.get('score', 0) if isinstance(d, dict) else getattr(d, 'score', 0)
-                    st = d.get('result', '') if isinstance(d, dict) else getattr(d, 'result', '')
-                    if st in ['multiple', 'unattempted', 'incorrect']: val = 0
                     row.append(val)
                 
                 total = r.get('total_score', 0)

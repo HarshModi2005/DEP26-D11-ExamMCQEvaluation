@@ -207,9 +207,7 @@ class BatchEvaluationService:
             for k, v in raw_answers.items():
                 try:
                     q_num = int(k)
-                    option = str(v).strip().upper()
-                    if "OPTION" in option:
-                        option = option.replace("OPTION", "").strip()
+                    option = EvaluationService._normalize_student_answer(str(v))
                     student_ans[q_num] = option
                 except (ValueError, TypeError):
                     continue
@@ -236,7 +234,18 @@ class BatchEvaluationService:
                 if q_num in student_ans:
                     marked = student_ans[q_num]
                     
-                    if marked == "MULTIPLE":
+                    # Check if student marked "X" — treat as unattempted (no negative)
+                    if marked in EvaluationService.UNATTEMPTED_MARKERS:
+                        unattempted_count += 1
+                        details.append(QuestionResult(
+                            question_number=q_num,
+                            marked=marked,
+                            correct=correct_option,
+                            result="unattempted",
+                            score=0.0
+                        ))
+                    
+                    elif marked == "MULTIPLE":
                         # Multiple options marked -> Incorrect
                         incorrect_count += 1
                         negative_deduction += negative_marking
@@ -300,7 +309,7 @@ class BatchEvaluationService:
             return StudentResult(
                 entry_number=entry_number,
                 name=name,
-                total_score=max(total_score, 0),
+                total_score=total_score,  # Allow negative scores
                 max_score=max_score,
                 correct_count=correct_count,
                 incorrect_count=incorrect_count,

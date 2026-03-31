@@ -45,9 +45,7 @@ class EvaluationService:
         for k, v in raw_answers.items():
             try:
                 q_num = int(k)
-                option = str(v).strip().upper()
-                if "OPTION" in option:
-                    option = option.replace("OPTION", "").strip()
+                option = EvaluationService._normalize_student_answer(str(v))
                 student_ans[q_num] = option
             except (ValueError, TypeError):
                 continue
@@ -72,7 +70,18 @@ class EvaluationService:
             if q_num in student_ans:
                 marked = student_ans[q_num]
 
-                if marked == "MULTIPLE":
+                # Check if student marked "X" — treat as unattempted (no negative)
+                if marked in ('X', 'x', 'NONE', '-', 'NA', 'N/A'):
+                    unattempted_count += 1
+                    details.append(QuestionResult(
+                        question_number=q_num,
+                        marked=marked,
+                        correct=correct_answer,
+                        result="unattempted",
+                        score=0.0
+                    ))
+
+                elif marked == "MULTIPLE":
                     # Multiple options marked -> Incorrect
                     incorrect_count += 1
                     negative_deduction += negative_marks
@@ -124,7 +133,7 @@ class EvaluationService:
         return StudentResult(
             entry_number=entry_number,
             name=name,
-            total_score=max(total_score, 0),
+            total_score=total_score,  # Allow negative scores
             max_score=max_score,
             correct_count=correct_count,
             incorrect_count=incorrect_count,
@@ -133,6 +142,71 @@ class EvaluationService:
             details=details,
             comments="; ".join(comments_list) if comments_list else ""
         )
+
+    # Patterns that indicate an unattempted question
+    UNATTEMPTED_MARKERS = frozenset({'X', 'NONE', '-', 'NA', 'N/A', 'BLANK', 'NOT ATTEMPTED', 'UNATTEMPTED'})
+
+    @staticmethod
+    def _normalize_student_answer(raw: str) -> str:
+        """
+        Normalize a student's raw OCR answer to extract just the option letter(s).
+        
+        Handles patterns like:
+          - "A"           → "A"
+          - "Option A"    → "A"  
+          - "1 (A)"       → "A"
+          - "(A)"         → "A"
+          - "A)"          → "A"
+          - "ANS 1 (A) 3" → "A"
+          - "X"           → "X" (unattempted marker)
+          - "MULTIPLE"    → "MULTIPLE"
+          - "2.5"         → "2.5" (numerical answer, kept as-is)
+        """
+        option = raw.strip().upper()
+        if not option:
+            return option
+        
+        # Preserve special markers
+        if option in ('MULTIPLE', 'X', 'NONE', '-', 'NA', 'N/A', 'BLANK',
+                       'NOT ATTEMPTED', 'UNATTEMPTED'):
+            return option
+        
+        # Strip "OPTION" prefix
+        if "OPTION" in option:
+            option = option.replace("OPTION", "").strip()
+        
+        # Strip "ANS" / "ANSWER" prefix
+        option = re.sub(r'^(?:ANS(?:WER)?)[\s.:)\-]*', '', option).strip()
+        
+        # Try to extract letter(s) from parenthesized patterns:
+        #   "1 (A)", "(A)", "1(A)3", "ANS 1 (A) 3", "Q1 (B)"
+        paren_match = re.search(r'\(\s*([A-Da-d]+)\s*\)', option)
+        if paren_match:
+            return paren_match.group(1).upper()
+        
+        # Pattern: "A)" or "1 A)" — option letter followed by closing paren
+        close_paren = re.search(r'(?:^|\s)([A-Da-d])\s*\)', option)
+        if close_paren:
+            return close_paren.group(1).upper()
+        
+        # Pattern: digit(s) followed by space(s) then a single letter: "1 A", "12 B"
+        # But NOT if it looks like a numerical answer (e.g. "2.5")
+        num_letter = re.match(r'^\d+[\s.,:;\-]+([A-Da-d])\s*$', option)
+        if num_letter:
+            return num_letter.group(1).upper()
+        
+        # Pattern: just digits with optional decimal — numerical answer, keep as-is
+        if re.match(r'^[\-]?\d+\.?\d*$', option):
+            return option
+        
+        # Pattern: single letter possibly with trailing noise: "A 3", "B 1"
+        single_letter = re.match(r'^([A-Da-d])(?:\s+\d+)?\s*$', option)
+        if single_letter:
+            return single_letter.group(1).upper()
+        
+        # Final cleanup: strip any non-alphanumeric except period (for NCQ)
+        cleaned = re.sub(r'[^A-Za-z0-9.]', '', option).upper()
+        return cleaned if cleaned else option
 
     # Digit-to-letter OCR confusion map (when OCR reads a number instead of a letter)
     OCR_DIGIT_TO_LETTER = {

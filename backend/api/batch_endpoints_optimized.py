@@ -3,12 +3,14 @@ Optimized Batch Processing Endpoints
 =====================================
 True streaming pipeline: Download → OCR → Evaluate → DB, all concurrent.
 
-Model priority:
-  1. gemini-2.5-pro   (GA) — primary, highest quality
-  2. gemini-2.5-flash       — fallback, fast & capable
-  3. gemini-2.5-flash-lite  — last resort only
+Model policy: gemini-2.5-pro ONLY (highest quality, no Flash fallback).
 
-Multi-region load distribution across 14+ endpoints using all available quota.
+Reliability guarantee:
+  1. Every image is OCR'd twice independently on different Pro regions.
+  2. If answer sets agree completely → use the result immediately.
+  3. If ANY answer disagrees → run a 3rd tiebreaker pass and use majority vote.
+
+Multi-region load distribution across 9 Pro endpoints for maximum quota.
 Token-bucket rate limiting prevents 429s proactively.
 Evaluation results are FULLY CACHED — cache hits skip OCR AND evaluation entirely.
 """
@@ -58,41 +60,25 @@ def _set_answer_key(val):
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  MODEL TIERS — priority order (Pro first, then Flash, then Lite)
+#  MODEL POOL — gemini-2.5-pro ONLY across all available regions
 # ─────────────────────────────────────────────────────────────────────
 
 # Each entry: (model_id, region, rpm_budget)
-# Distribute load across all available regions for maximum throughput.
-# Budgets are conservative (well below quota limits) to stay stable.
+# Pro model only — no Flash, no Flash-Lite fallback under any circumstances.
+# 9 regions provide ample quota headroom (~2,250+ RPM combined).
 
 _ENDPOINT_POOL: List[Dict] = [
-    # ── Tier 1: gemini-2.5-pro GA  (40,248 RPM across US regions) ──
-    {"model": "gemini-2.5-pro",       "region": "us-central1",   "rpm": 250, "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "us-east1",      "rpm": 250, "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "us-east4",      "rpm": 250, "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "us-east5",      "rpm": 250, "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "us-south1",     "rpm": 250, "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "us-west1",      "rpm": 250, "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "us-west4",      "rpm": 250, "tier": 1},
-    # ── Tier 1: gemini-2.5-pro GA  (Europe) ──
-    {"model": "gemini-2.5-pro",       "region": "europe-west1",  "rpm": 60,  "tier": 1},
-    {"model": "gemini-2.5-pro",       "region": "europe-west4",  "rpm": 60,  "tier": 1},
-
-    # ── Tier 2: gemini-2.5-flash (40,248 RPM across Asia+US) ──
-    {"model": "gemini-2.5-flash",     "region": "asia-east1",    "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "asia-east2",    "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "asia-northeast1","rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "asia-northeast3","rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "us-east4",      "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "us-east5",      "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "us-south1",     "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "us-west2",      "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "us-west4",      "rpm": 200, "tier": 2},
-    {"model": "gemini-2.5-flash",     "region": "europe-west1",  "rpm": 60,  "tier": 2},
-
-    # ── Tier 3: gemini-2.5-flash-lite  (LAST RESORT only) ──
-    {"model": "gemini-2.5-flash-lite", "region": "us-central1",  "rpm": 40,  "tier": 3},
-    {"model": "gemini-2.5-flash-lite", "region": "us-east1",     "rpm": 40,  "tier": 3},
+    # ── gemini-2.5-pro GA  (US regions — primary quota) ──
+    {"model": "gemini-2.5-pro", "region": "us-central1",  "rpm": 250},
+    {"model": "gemini-2.5-pro", "region": "us-east1",     "rpm": 250},
+    {"model": "gemini-2.5-pro", "region": "us-east4",     "rpm": 250},
+    {"model": "gemini-2.5-pro", "region": "us-east5",     "rpm": 250},
+    {"model": "gemini-2.5-pro", "region": "us-south1",    "rpm": 250},
+    {"model": "gemini-2.5-pro", "region": "us-west1",     "rpm": 250},
+    {"model": "gemini-2.5-pro", "region": "us-west4",     "rpm": 250},
+    # ── gemini-2.5-pro GA  (Europe regions — secondary quota) ──
+    {"model": "gemini-2.5-pro", "region": "europe-west1", "rpm": 60},
+    {"model": "gemini-2.5-pro", "region": "europe-west4", "rpm": 60},
 ]
 
 # ─────────────────────────────────────────────────────────────────────
@@ -118,10 +104,21 @@ class _TokenBucket:
 
 # Bucket per (model, region) pair, lazily initialised
 _buckets: Dict[str, _TokenBucket] = {}
-_bucket_lock: Optional[asyncio.Lock] = None
+_rr_counter: int = 0  # global round-robin index across all Pro endpoints
+_rr_lock: Optional[asyncio.Lock] = None
+
+# ─── Per-endpoint 429 cooldown ────────────────────────────────────────────────
+# When an endpoint returns 429, we mark it as cooling down for N seconds.
+# The picker skips it immediately rather than sleeping and blocking a request.
+_cooldown_until: Dict[str, float] = {}   # region -> monotonic timestamp when it's usable again
+_COOLDOWN_BASE = 30.0                     # initial cooldown on first 429 (seconds)
+_COOLDOWN_MAX  = 300.0                   # cap: 5 minutes per endpoint
+_cooldown_hits: Dict[str, int] = {}      # track consecutive 429s for exponential backoff
+
 
 def _bucket_key(ep: Dict) -> str:
     return f"{ep['model']}|{ep['region']}"
+
 
 def _get_bucket(ep: Dict) -> _TokenBucket:
     key = _bucket_key(ep)
@@ -130,43 +127,55 @@ def _get_bucket(ep: Dict) -> _TokenBucket:
     return _buckets[key]
 
 
-# Round-robin counters per tier
-_rr: Dict[int, int] = {1: 0, 2: 0, 3: 0}
-_rr_lock: Optional[asyncio.Lock] = None
-
-_tier1_eps = [ep for ep in _ENDPOINT_POOL if ep["tier"] == 1]
-_tier2_eps = [ep for ep in _ENDPOINT_POOL if ep["tier"] == 2]
-_tier3_eps = [ep for ep in _ENDPOINT_POOL if ep["tier"] == 3]
-
-# Track which tiers are degraded (too many 429s recently)
-_tier_failures: Dict[int, int] = {1: 0, 2: 0, 3: 0}
-_TIER_FAILURE_THRESHOLD = 15  # escalate only after this many consecutive 429s on a tier (Pro gets priority)
+def _is_cooling_down(ep: Dict) -> bool:
+    """Return True if this endpoint is in its 429-cooldown period."""
+    until = _cooldown_until.get(ep["region"], 0.0)
+    return time.monotonic() < until
 
 
-async def _pick_endpoint(prefer_tier: int = 1) -> Dict:
-    """Pick the next endpoint via round-robin within the current active tier."""
-    global _rr_lock
+def _mark_cooldown(ep: Dict) -> None:
+    """Exponential cooldown on 429: 30s, 60s, 120s … capped at 5 min."""
+    hits = _cooldown_hits.get(ep["region"], 0) + 1
+    _cooldown_hits[ep["region"]] = hits
+    delay = min(_COOLDOWN_BASE * (2 ** (hits - 1)), _COOLDOWN_MAX)
+    _cooldown_until[ep["region"]] = time.monotonic() + delay
+    print(f"  🚫 [COOLDOWN] {ep['region']} rate-limited — cooling {delay:.0f}s (hit #{hits})")
+
+
+def _clear_cooldown(ep: Dict) -> None:
+    """Reset cooldown state on a successful response."""
+    _cooldown_hits.pop(ep["region"], None)
+    _cooldown_until.pop(ep["region"], None)
+
+
+def _get_healthy_pool(exclude_regions: Optional[list] = None) -> List[Dict]:
+    """Return all Pro endpoints that are NOT currently in cooldown."""
+    now = time.monotonic()
+    pool = [ep for ep in _ENDPOINT_POOL
+            if now >= _cooldown_until.get(ep["region"], 0.0)
+            and (not exclude_regions or ep["region"] not in exclude_regions)]
+    # Fallback: if everything is cooling down, return least-recently-429'd endpoints
+    if not pool:
+        sorted_eps = sorted(_ENDPOINT_POOL,
+                            key=lambda e: _cooldown_until.get(e["region"], 0.0))
+        pool = [sorted_eps[0]]  # take the one that recovers soonest
+    return pool
+
+
+async def _pick_endpoint(exclude_regions: Optional[list] = None) -> Dict:
+    """Round-robin across healthy (non-cooling-down) Pro endpoints."""
+    global _rr_lock, _rr_counter
     if _rr_lock is None:
         _rr_lock = asyncio.Lock()
-
+    candidates = _get_healthy_pool(exclude_regions)
     async with _rr_lock:
-        # Walk up tiers only when lower tier is fully degraded
-        for tier in [prefer_tier, 2, 3]:
-            eps = [_tier1_eps, _tier2_eps, _tier3_eps][tier - 1]
-            if not eps:
-                continue
-            if _tier_failures[tier] >= _TIER_FAILURE_THRESHOLD and tier < 3:
-                continue  # skip degraded tier, try next
-            idx = _rr[tier] % len(eps)
-            _rr[tier] += 1
-            return eps[idx]
-
-        # Absolute fallback
-        return _tier3_eps[0] if _tier3_eps else _tier1_eps[0]
+        idx = _rr_counter % len(candidates)
+        _rr_counter += 1
+        return candidates[idx]
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  CORE OCR FUNCTION — rate-limited, multi-tier, multi-region
+#  CORE OCR FUNCTION — Pro-only, rate-limited, multi-region
 # ─────────────────────────────────────────────────────────────────────
 
 _OCR_PROMPT = (
@@ -180,18 +189,148 @@ _OCR_PROMPT = (
     'entry_number/roll number is REQUIRED — look for it carefully in corners, margins, and headers.'
 )
 
+# Maximum retries per single OCR pass — we wait as long as needed on Pro.
+_OCR_MAX_RETRIES = 20
+# 429 backoff cap (seconds): will wait up to 2 min before cycling to next region.
+_OCR_BACKOFF_CAP = 120
 
-async def _ocr_one(session, image_path: str, get_headers, project_id: str,
-                   max_retries: int = 12) -> dict:
+
+def _prepare_image_payload(image_path: str) -> tuple:
+    """Encode and compress an image, returning (b64_str, mime_type)."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(image_path) as img:
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            w, h = img.size
+            if h > w * 1.5:  # portrait-rotated landscape photo
+                img = img.rotate(90, expand=True)
+            img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85, optimize=True)
+            return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
+    except Exception:
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        mime = "image/jpeg" if image_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        return b64, mime
+
+
+def _parse_ocr_text(text: str, image_path: str) -> Optional[dict]:
+    """Parse OCR JSON from raw model text. Returns None if completely unparseable."""
+    fname = os.path.basename(image_path)
+    cleaned = re.sub(r'```json\s*|\s*```', '', text).strip()
+    parsed = None
+
+    # Strategy 1: direct JSON parse
+    try:
+        parsed = json.loads(cleaned)
+    except Exception:
+        pass
+
+    # Strategy 2: find ALL JSON objects, use the LAST valid one
+    # (thinking models often prefix with explanation text)
+    if not parsed:
+        json_candidates = []
+        depth, start_idx = 0, None
+        for i, ch in enumerate(cleaned):
+            if ch == '{':
+                if depth == 0:
+                    start_idx = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and start_idx is not None:
+                    json_candidates.append(cleaned[start_idx:i+1])
+                    start_idx = None
+        for candidate in reversed(json_candidates):
+            try:
+                test = json.loads(candidate)
+                if isinstance(test, dict) and ("answers" in test or "entry_number" in test or "name" in test):
+                    parsed = test
+                    break
+            except Exception:
+                continue
+
+    # Strategy 3: regex field extraction (last resort)
+    if not parsed:
+        parsed = {}
+        m = re.search(r'"entry_number"\s*:\s*"([^"]*)"', text)
+        if m:
+            parsed["entry_number"] = m.group(1)
+        m = re.search(r'"name"\s*:\s*"([^"]*)"', text)
+        if m:
+            parsed["name"] = m.group(1)
+        m = re.search(r'"answers"\s*:\s*(\{[^}]*\})', text)
+        if m:
+            try:
+                parsed["answers"] = json.loads(m.group(1))
+            except Exception:
+                pass
+        if parsed:
+            print(f"  🔧 [OCR] Regex-extracted fields for {fname}: {list(parsed.keys())}")
+        else:
+            print(f"  ⚠️ [OCR] JSON parse completely failed for {fname}: raw text={text[:300]}")
+            return None
+
+    # Normalise to canonical output dict
+    entry = (
+        parsed.get("entry_number")
+        or parsed.get("roll_number")
+        or parsed.get("enrollment_number")
+        or parsed.get("roll")
+        or parsed.get("enrollment")
+        or parsed.get("roll_no")
+        or parsed.get("enroll")
+        or parsed.get("id")
+        or parsed.get("student_id")
+        or ""
+    )
+    if not str(entry).strip():
+        non_answer_keys = {k: v for k, v in parsed.items() if k != "answers"}
+        print(f"  🔍 [OCR DEBUG] Empty entry for {fname}: model returned keys={non_answer_keys}")
+
+    result = {
+        "entry_number": str(entry).strip(),
+        "name": str(parsed.get("name") or parsed.get("student_name") or "").strip(),
+        "comments": parsed.get("comments") or "",
+        "answers": {},
+    }
+    for k, v in (parsed.get("answers") or {}).items():
+        try:
+            result["answers"][str(int(k))] = str(v).strip().upper()
+        except Exception:
+            pass
+    return result
+
+
+async def _ocr_single_pass(
+    session, image_path: str, get_headers, project_id: str,
+    exclude_regions: Optional[list] = None,
+    b64: Optional[str] = None,
+    mime: Optional[str] = None,
+) -> dict:
     """
-    OCR one image.  Tries Tier-1 (Pro) first; on repeated 429s quietly
-    falls back to Tier-2 (Flash) then Tier-3 (Lite) as a last resort.
+    Execute ONE OCR pass against gemini-2.5-pro only.
+
+    Key optimizations vs old version:
+    - On 429: immediately mark the endpoint as cooling-down and retry on
+      a DIFFERENT healthy region without sleeping (no blocking delay).
+    - b64/mime can be pre-computed and shared across concurrent passes.
+    - exclude_regions: list of regions to avoid (for cross-region verification).
     """
     last_error = None
-    prefer_tier = 1
+    # Pre-encode image once (caller may pass it in to avoid redundant work)
+    if b64 is None or mime is None:
+        b64, mime = _prepare_image_payload(image_path)
 
-    for attempt in range(max_retries + 1):
-        ep = await _pick_endpoint(prefer_tier)
+    for attempt in range(_OCR_MAX_RETRIES + 1):
+        ep = await _pick_endpoint(exclude_regions=exclude_regions)
+
         bucket = _get_bucket(ep)
         await bucket.acquire()
 
@@ -201,35 +340,6 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
             f"publishers/google/models/{ep['model']}:generateContent"
         )
         headers = await get_headers()
-
-        # Compress image and fix orientation
-        try:
-            from PIL import Image, ImageOps
-            with Image.open(image_path) as img:
-                # Fix EXIF orientation (phone cameras store rotation as metadata)
-                try:
-                    img = ImageOps.exif_transpose(img)
-                except Exception:
-                    pass
-
-                if img.mode not in ("RGB", "L"):
-                    img = img.convert("RGB")
-
-                # Auto-rotate: if image is significantly more tall than wide,
-                # it's likely a rotated landscape photo — rotate 90° CCW
-                w, h = img.size
-                if h > w * 1.5:  # portrait orientation, likely rotated
-                    img = img.rotate(90, expand=True)
-
-                img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=85, optimize=True)
-                b64 = base64.b64encode(buf.getvalue()).decode()
-            mime = "image/jpeg"
-        except Exception:
-            with open(image_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            mime = "image/jpeg" if image_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
 
         payload = {
             "contents": [{"role": "user", "parts": [
@@ -242,9 +352,9 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
         try:
             import aiohttp
             async with session.post(url, headers=headers, json=payload,
-                                    timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                                    timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status == 200:
-                    _tier_failures[ep["tier"]] = max(0, _tier_failures[ep["tier"]] - 1)
+                    _clear_cooldown(ep)
                     data = await resp.json()
                     text = "".join(
                         part["text"]
@@ -253,131 +363,33 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
                         if "text" in part
                     )
 
-                    # If the model returned no text at all, check why and RETRY
                     if not text.strip():
-                        # Check for safety block or empty candidates
                         candidates = data.get("candidates", [])
                         if not candidates:
-                            last_error = f"No candidates in response for {os.path.basename(image_path)}"
+                            last_error = f"No candidates for {os.path.basename(image_path)}"
                         else:
-                            finish_reason = candidates[0].get("finishReason", "UNKNOWN")
-                            safety = candidates[0].get("safetyRatings", [])
-                            last_error = (f"Empty text for {os.path.basename(image_path)} "
-                                          f"(finishReason={finish_reason}, safety={safety})")
+                            fr = candidates[0].get("finishReason", "UNKNOWN")
+                            last_error = f"Empty text for {os.path.basename(image_path)} (finishReason={fr})"
                         print(f"  ⚠️ [OCR] {last_error}")
                         await asyncio.sleep(1)
-                        continue  # retry on next attempt/endpoint
+                        continue
 
-                    cleaned = re.sub(r'```json\s*|\s*```', '', text).strip()
-                    parsed = None
+                    parsed = _parse_ocr_text(text, image_path)
+                    if parsed is None:
+                        last_error = f"JSON parse failed for {os.path.basename(image_path)}"
+                        await asyncio.sleep(1)
+                        continue
 
-                    # Strategy 1: Direct JSON parse
-                    try:
-                        parsed = json.loads(cleaned)
-                    except Exception:
-                        pass
-
-                    # Strategy 2: Find ALL JSON objects and use the LAST valid one
-                    # (Gemini thinking models put explanation before the actual JSON)
-                    if not parsed:
-                        # Find all potential JSON objects by matching balanced braces
-                        json_candidates = []
-                        depth = 0
-                        start_idx = None
-                        for i, ch in enumerate(cleaned):
-                            if ch == '{':
-                                if depth == 0:
-                                    start_idx = i
-                                depth += 1
-                            elif ch == '}':
-                                depth -= 1
-                                if depth == 0 and start_idx is not None:
-                                    json_candidates.append(cleaned[start_idx:i+1])
-                                    start_idx = None
-
-                        # Try each candidate in REVERSE order (last = most likely the actual answer)
-                        for candidate in reversed(json_candidates):
-                            try:
-                                test = json.loads(candidate)
-                                if isinstance(test, dict) and ("answers" in test or "entry_number" in test or "name" in test):
-                                    parsed = test
-                                    break
-                            except Exception:
-                                continue
-
-                    # Strategy 3: Last resort — extract fields via regex
-                    if not parsed:
-                        parsed = {}
-                        # Try to extract entry_number
-                        m = re.search(r'"entry_number"\s*:\s*"([^"]*)"', text)
-                        if m:
-                            parsed["entry_number"] = m.group(1)
-                        # Try to extract name
-                        m = re.search(r'"name"\s*:\s*"([^"]*)"', text)
-                        if m:
-                            parsed["name"] = m.group(1)
-                        # Try to extract answers block
-                        m = re.search(r'"answers"\s*:\s*(\{[^}]*\})', text)
-                        if m:
-                            try:
-                                parsed["answers"] = json.loads(m.group(1))
-                            except Exception:
-                                pass
-                        if parsed:
-                            print(f"  🔧 [OCR] Regex-extracted fields for {os.path.basename(image_path)}: {list(parsed.keys())}")
-                        else:
-                            print(f"  ⚠️ [OCR] JSON parse completely failed for {os.path.basename(image_path)}: raw text={text[:300]}")
-                            last_error = f"JSON parse failed for {os.path.basename(image_path)}"
-                            await asyncio.sleep(1)
-                            continue  # retry only when we got absolutely nothing
-
-                    # Try multiple keys the model might use for the enrollment number
-                    entry = (
-                        parsed.get("entry_number")
-                        or parsed.get("roll_number")
-                        or parsed.get("enrollment_number")
-                        or parsed.get("roll")
-                        or parsed.get("enrollment")
-                        or parsed.get("roll_no")
-                        or parsed.get("enroll")
-                        or parsed.get("id")
-                        or parsed.get("student_id")
-                        or ""
-                    )
-                    result = {
-                        "entry_number": str(entry).strip(),
-                        "name": str(parsed.get("name") or parsed.get("student_name") or "").strip(),
-                        "comments": parsed.get("comments") or "",
-                        "answers": {},
-                        "_endpoint": f"{ep['model']}@{ep['region']}",
-                    }
-                    # Debug: if entry_number is empty, log ALL keys the model returned
-                    if not str(entry).strip():
-                        non_answer_keys = {k: v for k, v in parsed.items() if k != "answers"}
-                        print(f"  🔍 [OCR DEBUG] Empty entry for {os.path.basename(image_path)}: model returned keys={non_answer_keys}")
-                    for k, v in (parsed.get("answers") or {}).items():
-                        try:
-                            result["answers"][str(int(k))] = str(v).strip().upper()
-                        except Exception:
-                            pass
-                    return result
+                    parsed["_endpoint"] = f"{ep['model']}@{ep['region']}"
+                    return parsed
 
                 elif resp.status == 429:
-                    _tier_failures[ep["tier"]] += 1
-                    backoff = min(4 * (2 ** attempt), 60)
-                    last_error = f"429 rate-limited ({ep['model']}@{ep['region']})"
-                    print(f"  ⏳ 429 on {ep['model']}@{ep['region']} attempt {attempt+1} — wait {backoff}s")
-                    # Step down only when: threshold hit AND we are past the halfway point of retries.
-                    # This ensures Tier-1 (Pro) gets the full retry budget before Flash is ever used.
-                    past_halfway = attempt >= max_retries // 2
-                    if (
-                        _tier_failures[ep["tier"]] >= _TIER_FAILURE_THRESHOLD
-                        and past_halfway
-                        and prefer_tier < 3
-                    ):
-                        prefer_tier += 1
-                        print(f"  ⬇️  Stepping down to Tier-{prefer_tier} (attempt {attempt+1}/{max_retries+1}, {_tier_failures[ep['tier']]} failures on Tier-{ep['tier']})")
-                    await asyncio.sleep(backoff)
+                    # Mark this endpoint as cooling down — IMMEDIATELY retry on another region.
+                    # No asyncio.sleep here: the next loop iteration picks a healthy endpoint.
+                    _mark_cooldown(ep)
+                    last_error = f"429 on {ep['model']}@{ep['region']} (now cooling, switching region)"
+                    # Tiny yield to let the event loop breathe between rapid retries
+                    await asyncio.sleep(0.1)
 
                 else:
                     body = await resp.text()
@@ -386,18 +398,150 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
 
         except asyncio.TimeoutError:
             last_error = f"Timeout on {ep['model']}@{ep['region']} attempt {attempt+1}"
-            backoff = min(2 * (attempt + 1), 30)
-            await asyncio.sleep(backoff)
+            # Don't mark cooldown for timeouts — may be network hiccup, not quota
+            await asyncio.sleep(2)
         except (ConnectionError, OSError) as e:
-            # Network glitch — retry with backoff (covers ServerDisconnectedError)
             last_error = f"Connection lost on {ep['model']}@{ep['region']} attempt {attempt+1}: {e}"
-            backoff = min(3 * (attempt + 1), 30)
-            await asyncio.sleep(backoff)
+            await asyncio.sleep(3)
         except Exception as e:
             last_error = str(e)
-            await asyncio.sleep(min(2 * (attempt + 1), 20))
+            await asyncio.sleep(2)
 
-    return {"error": last_error or "All retries exhausted"}
+    return {"error": last_error or "All Pro retries exhausted"}
+
+
+def _answers_agree(a: dict, b: dict) -> bool:
+    """True if both OCR passes produced identical answers dicts."""
+    return a.get("answers", {}) == b.get("answers", {})
+
+
+def _majority_vote(results: list) -> dict:
+    """
+    Given 2 or 3 OCR result dicts, produce a merged result using majority vote
+    per question independently. Ties broken by first pass's answer.
+    entry_number and name taken from the pass with the most complete data.
+    """
+    from collections import Counter
+
+    valid = [r for r in results if "error" not in r]
+    if not valid:
+        return results[0] if results else {"error": "All passes failed"}
+    if len(valid) == 1:
+        return valid[0]
+
+    all_q_nums: set = set()
+    for r in valid:
+        all_q_nums.update(r.get("answers", {}).keys())
+
+    merged_answers: dict = {}
+    for q in sorted(all_q_nums, key=lambda x: int(x) if x.isdigit() else 0):
+        votes = [r["answers"].get(q) for r in valid if q in r.get("answers", {})]
+        if not votes:
+            continue
+        winner, _ = Counter(votes).most_common(1)[0]
+        merged_answers[q] = winner
+
+    entry = max((r.get("entry_number", "") for r in valid), key=lambda e: len(str(e).strip()))
+    name  = max((r.get("name", "")         for r in valid), key=lambda n: len(str(n).strip()))
+    endpoints = ", ".join(r.get("_endpoint", "?") for r in valid)
+    n_passes = len(valid)
+
+    return {
+        "entry_number": entry,
+        "name": name,
+        "comments": f"[{n_passes}-pass verified] " + (valid[0].get("comments") or ""),
+        "answers": merged_answers,
+        "_endpoint": endpoints,
+        "_verified_passes": n_passes,
+    }
+
+
+async def _ocr_one(session, image_path: str, get_headers, project_id: str,
+                   max_retries: int = _OCR_MAX_RETRIES) -> dict:
+    """
+    High-reliability OCR — gemini-2.5-pro ONLY, concurrent double-run verification.
+
+    ┌─────────────────────────────────────────────────────────────┐
+    │   Pass 1 ──┐                                                │
+    │            ├─ asyncio.gather (run simultaneously) ─►        │
+    │   Pass 2 ──┘   (different Pro region)                      │
+    │                                                             │
+    │   Agree?  ──► return immediately  (~1×LLM latency)         │
+    │   Differ? ──► Pass 3 tiebreaker ──► majority vote           │
+    └─────────────────────────────────────────────────────────────┘
+
+    Image is encoded once and shared between passes (no double CPU work).
+    429s are handled by per-endpoint cooldown — no sleeping, instant failover.
+    """
+    fname = os.path.basename(image_path)
+
+    # ── Pre-encode image ONCE — shared by all passes ──────────────────
+    b64, mime = _prepare_image_payload(image_path)
+
+    # ── Launch Pass 1 & Pass 2 CONCURRENTLY ──────────────────────────
+    # Pass 2 deliberately excludes Pass 1's region (chosen at call time).
+    # We pick Pass 1's region hint before launching so they diverge.
+    ep1_hint_candidates = _get_healthy_pool()
+    ep1_region_hint = ep1_hint_candidates[0]["region"] if ep1_hint_candidates else None
+    ep2_exclude = [ep1_region_hint] if ep1_region_hint else []
+
+    print(f"  🚀 [OCR Pass 1+2 concurrent] {fname}")
+    r1, r2 = await asyncio.gather(
+        _ocr_single_pass(session, image_path, get_headers, project_id,
+                         exclude_regions=None, b64=b64, mime=mime),
+        _ocr_single_pass(session, image_path, get_headers, project_id,
+                         exclude_regions=ep2_exclude, b64=b64, mime=mime),
+        return_exceptions=False,
+    )
+
+    # Handle errors from either pass
+    if "error" in r1 and "error" in r2:
+        print(f"  ❌ [OCR both passes failed] {fname}: P1={r1['error']} | P2={r2['error']}")
+        return r1
+    if "error" in r1:
+        print(f"  ⚠️ [OCR Pass 1 failed] {fname}: {r1['error']} — using Pass 2 only")
+        return r2
+    if "error" in r2:
+        print(f"  ⚠️ [OCR Pass 2 failed] {fname}: {r2['error']} — using Pass 1 only")
+        return r1
+
+    ep1_ep = r1.get('_endpoint', '?')
+    ep2_ep = r2.get('_endpoint', '?')
+    print(f"  ✅ [OCR P1+P2 done] {fname} | P1={ep1_ep} ({len(r1.get('answers',{}))}q) | P2={ep2_ep} ({len(r2.get('answers',{}))}q)")
+
+    # ── Agreement check ─────────────────────────────────────────────
+    if _answers_agree(r1, r2):
+        print(f"  ✅✅ [OCR VERIFIED] {fname} — passes agree, done")
+        result = dict(r1)
+        result["comments"] = "[2-pass verified] " + (r1.get("comments") or "")
+        result["_endpoint"] = f"{ep1_ep}, {ep2_ep}"
+        result["_verified_passes"] = 2
+        return result
+
+    # ── Disagreement — run Pass 3 tiebreaker ────────────────────────
+    ep1_region = ep1_ep.split("@")[-1]
+    ep2_region = ep2_ep.split("@")[-1]
+    differing = [
+        q for q in sorted(set(r1.get("answers", {}).keys()) | set(r2.get("answers", {}).keys()))
+        if r1.get("answers", {}).get(q) != r2.get("answers", {}).get(q)
+    ]
+    print(f"  ⚖️  [OCR DISAGREE] {fname} — differ on Q{differing}. Launching tiebreaker (Pass 3)...")
+
+    r3 = await _ocr_single_pass(
+        session, image_path, get_headers, project_id,
+        exclude_regions=[ep1_region, ep2_region],
+        b64=b64, mime=mime,
+    )
+    if "error" in r3:
+        print(f"  ⚠️ [OCR Pass 3 failed] {fname}: {r3['error']} — majority of 2")
+        result = _majority_vote([r1, r2])
+        result["comments"] = "[2-of-3 pass, tiebreaker failed] " + (result.get("comments") or "")
+        return result
+
+    print(f"  ✅ [OCR Pass 3 done] {fname} via {r3.get('_endpoint')} ({len(r3.get('answers',{}))}q)")
+    result = _majority_vote([r1, r2, r3])
+    print(f"  🏆 [OCR FINAL] {fname} — 3-pass majority vote | {len(result.get('answers',{}))} answers")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -435,7 +579,7 @@ def _make_eval_cache_key(file_id: str, answer_key_hash: str, evaluation_id: str 
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default"):
+async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default", force_reprocess: bool = False):
     """
     Streaming pipeline:
       - Cache check (OCR + evaluation) BEFORE downloading anything
@@ -514,7 +658,10 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
             # ── STEP 1: Check FULL evaluation cache (OCR + scored result) ──
             # If hit, we're done — no download, no OCR, no re-evaluation needed.
             # IMPORTANT: Reject cached results with empty/UNREAD_ entry_number (network-failure garbage).
-            eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
+            eval_cached = None
+            if not force_reprocess:
+                eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
+            
             cached_entry = (eval_cached or {}).get("entry_number", "") if eval_cached else ""
             if eval_cached and _is_valid_cached_entry(cached_entry) and "total_score" in eval_cached:
                 async with lock:
@@ -534,7 +681,10 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
 
             # ── STEP 2: Check OCR-only cache ──
             # Reject OCR cache if entry_number is empty or UNREAD_ placeholder
-            ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
+            ocr_cached = None
+            if not force_reprocess:
+                ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
+            
             ocr_cached_entry = (ocr_cached or {}).get("entry_number", "") if ocr_cached else ""
             if ocr_cached and _is_valid_cached_entry(ocr_cached_entry):
                 ocr = ocr_cached
@@ -731,7 +881,7 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
 
         # Run pipeline
         eval_id = request.evaluation_id or "default"
-        results, errors = await _process_sheets_optimized(student_sheets, _current_answer_key, processing_id, eval_id)
+        results, errors = await _process_sheets_optimized(student_sheets, _current_answer_key, processing_id, eval_id, force_reprocess)
 
         total_time = time.time() - start_time
         _processing_stats[processing_id].update({

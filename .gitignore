@@ -9,6 +9,10 @@ build/
 venv/
 .venv/
 *.db
+*.db-shm
+*.db-wal
+*.db.broken
+testing_with_sot/
 
 # Environment
 .env
