@@ -584,15 +584,25 @@ class SheetsService:
         # ── Stage 3: Combined entry Levenshtein + name similarity ──
         # Entry is close (1-2 edits) AND name clearly matches.
         # This catches OCR errors that the corrector couldn't fix.
+        # Check distance on BOTH corrected and raw strings, because the 
+        # aggressive length fixer might have mangled short raw strings.
+        e1_raw = re.sub(r'[^A-Za-z0-9]', '', str(sheet_entry)).upper()
+        e2_raw = re.sub(r'[^A-Za-z0-9]', '', str(ocr_entry)).upper()
+        
+        best_dist = 999
         if e1 and e2:
-            entry_dist = cls._levenshtein_distance(e1, e2)
-            if entry_dist <= 2 and name_sim >= 0.60:
-                # Both entry and name are close — weighted combination.
-                max_elen = max(len(e1), len(e2), 1)
-                entry_sim = 1.0 - (entry_dist / max_elen)
-                # Weight: entry number 40%, name 60% (name is more reliable here)
-                score = entry_sim * 0.40 + name_sim * 0.60
-                return round(min(score, 0.89), 4)  # Cap at 0.89 to rank below exact/year-slid
+            best_dist = min(best_dist, cls._levenshtein_distance(e1, e2))
+        if e1_raw and e2_raw:
+            best_dist = min(best_dist, cls._levenshtein_distance(e1_raw, e2_raw))
+            
+        if best_dist <= 2 and name_sim >= 0.60:
+            # Both entry and name are close — weighted combination.
+            # Base the len on whichever was used (approx)
+            max_elen = max(len(e1) if e1 else len(e1_raw), len(e2) if e2 else len(e2_raw), 1)
+            entry_sim = 1.0 - (best_dist / max_elen)
+            # Weight: entry number 40%, name 60% (name is more reliable here)
+            score = entry_sim * 0.40 + name_sim * 0.60
+            return round(min(score, 0.89), 4)  # Cap at 0.89 to rank below exact/year-slid
 
         return 0.0
 

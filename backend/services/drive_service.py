@@ -47,11 +47,18 @@ class DriveService:
             else:
                 print(f"Warning: No Service Account credentials found at {credentials_path} and no GOOGLE_API_KEY found.")
 
-    def get_service(self):
+    def get_service(self, timeout: int = 60):
+        """Build the Drive service with a specific timeout."""
+        import httplib2
+        
         if self.creds:
-            return build('drive', 'v3', credentials=self.creds)
+            import google_auth_httplib2
+            http = httplib2.Http(timeout=timeout)
+            authed_http = google_auth_httplib2.AuthorizedHttp(self.creds, http=http)
+            return build('drive', 'v3', http=authed_http)
         elif self.api_key:
-            return build('drive', 'v3', developerKey=self.api_key)
+            http = httplib2.Http(timeout=timeout)
+            return build('drive', 'v3', developerKey=self.api_key, http=http)
         else:
             return None
 
@@ -77,36 +84,44 @@ class DriveService:
             print("Drive service not initialized")
             return []
 
-        try:
-            query = f"'{folder_id}' in parents and trashed=false"
-            if mime_filter:
-                query += f" and mimeType contains '{mime_filter}'"
+        import time
+        query = f"'{folder_id}' in parents and trashed=false"
+        if mime_filter:
+            query += f" and mimeType contains '{mime_filter}'"
 
-            all_files = []
-            page_token = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                all_files = []
+                page_token = None
+                while True:
+                    results = service.files().list(
+                        q=query,
+                        pageSize=100,
+                        pageToken=page_token,
+                        fields="nextPageToken, files(id, name, mimeType, webContentLink, size)",
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True
+                    ).execute()
 
-            while True:
-                results = service.files().list(
-                    q=query,
-                    pageSize=100,
-                    pageToken=page_token,
-                    fields="nextPageToken, files(id, name, mimeType, webContentLink, size)",
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True
-                ).execute()
+                    items = results.get('files', [])
+                    all_files.extend(items)
 
-                items = results.get('files', [])
-                all_files.extend(items)
-
-                page_token = results.get('nextPageToken')
-                if not page_token:
-                    break
-
-            return all_files
-
-        except Exception as e:
-            print(f"An error occurred listing files: {e}")
-            return []
+                    page_token = results.get('nextPageToken')
+                    if not page_token:
+                        break
+                return all_files
+            except Exception as e:
+                # If it's a timeout or something retryable, wait and try again
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"  ⚠️ Drive listing attempt {attempt+1} failed: {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                # Re-raise so the caller knows it failed (timeout, auth, etc.)
+                # Instead of returning [ ] which is the same as "folder is empty"
+                print(f"  ❌ Drive Service Error listing files: {e}")
+                raise RuntimeError(f"Drive API listing failed: {e}")
 
     # ──────────────────────────────────────
     #  Separating Answer Key vs Student Sheets

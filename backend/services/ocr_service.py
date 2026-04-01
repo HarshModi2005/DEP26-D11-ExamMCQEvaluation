@@ -340,44 +340,91 @@ class OCRService:
 
 
     def _get_objective_prompt(self):
-        return """
-You are analyzing a student OBJECTIVE answer sheet. The sheet has a specific layout:
-- The TOP section contains printed questions (Q1 to Q10 or similar).
-- Below the questions, near the BOTTOM of the question block, there is a "Name" field and an "Entry No." field written by the student — look for them carefully even if they are on the same line or have labels like "Name -" or "Entry No.-".
-- Below that is an ANSWER GRID with question numbers (1, 2, 3...) and the student's handwritten answers.
-- The answer grid may be in TWO COLUMNS (e.g., questions 1-5 on the left and 6-10 on the right).
+        return """You are an expert OCR agent extracting data from a handwritten OBJECTIVE examination answer sheet.
+Your task is to read the image carefully and return a single valid JSON object. Do NOT output anything else — no markdown fences, no explanations, no preamble.
 
-Extract the following and return ONLY valid JSON (no markdown, no explanation):
+═══════════════════════════════════════════════════════════════════
+ STEP 1 — FIND STUDENT IDENTITY FIELDS
+═══════════════════════════════════════════════════════════════════
+Scan the ENTIRE image — headers, footers, margins, and every corner — for:
+
+  • Entry Number / Roll Number / Enrollment Number / Student ID / Reg. No.
+    - It usually follows the pattern: YYYY + DEPT_CODE + DEGREE + NNNN
+      Examples: "2023CSB1001", "2024AIB1234", "2025MCM0042"
+    - It may appear WITH spaces or dashes: "B21 CSB 1001", "2025-CSB-1001"
+    - It is often found BELOW the printed question block, near the answer grid — not only in the header.
+    - Common label variants: "Entry No.", "Entry No.-", "Roll No.", "Enrolment No.", "Reg. No.", "Student ID"
+    - Return it EXACTLY as written by the student, including any internal spaces. Do NOT reformat.
+    - OCR CAUTION — handwriting commonly confuses:
+        0 ↔ O   1 ↔ I/L   2 ↔ Z   3 ↔ E   4 ↔ A
+        5 ↔ S   6 ↔ G     7 ↔ T   8 ↔ B   9 ↔ G
+      Read extra carefully; still return what IS written, not a corrected version.
+    - If truly not found anywhere, return null.
+
+  • Student Name
+    - Common label variants: "Name", "Name-", "Name:", "Student Name", "Candidate Name"
+    - May appear on the SAME LINE as the Entry Number
+    - Return the name as written. If not found, return null.
+
+═══════════════════════════════════════════════════════════════════
+ STEP 2 — FIND AND EXTRACT ALL ANSWERS
+═══════════════════════════════════════════════════════════════════
+Students may write answers in a printed grid OR simply write a list on a BLANK sheet of notebook paper.
+For example, unstructured handwritten lists like:
+  1. A
+  2 - 600
+  3. a,b,c,d
+  4. C D
+Extract these just like a regular grid.
+
+Question numbers may be printed or handwritten as: 1, 2, Q1, Q.1, 1-, (1), etc.
+Always use plain integer strings as JSON keys: "1", "2", "3", …
+
+HOW TO READ THE ANSWERS:
+
+  1. SMCQ (Single Choice): student writes exactly one letter (e.g., "A" or "b").
+     → Return the single uppercase letter: "A".
+
+  2. MMCQ (Multiple Choice): student writes multiple options.
+     → They might write: "A B", "a,c", "C D", or "A, B, C, D"
+     → Concatenate all marked letters into one string: "AB", "AC", "CD", "ABCD"
+     → If the student wrote out all options "A B C D" and drew a CIRCLE or TICK around specific ones, extract ONLY the circled/ticked options. If nothing is circled, extract all the letters they wrote.
+
+  3. NCQ (Numerical Choice): student writes a number.
+     → Return as a string, preserving decimals and sign: "600", "1226", "2.5", "-3.5"
+
+SPECIAL ANSWER VALUES:
+  • UNATTEMPTED / BLANK — question slot is COMPLETELY EMPTY → OMIT from JSON.
+  • Student wrote or crossed "X" → return "X".
+  • Multiple choices on a SINGLE-CHOICE question → return "MULTIPLE" (unless they crossed one out).
+  • Erased/Corrected → use the FINAL clearly written or circled answer.
+  • Image rotated/tilted → read it in whichever orientation makes the text legible.
+
+═══════════════════════════════════════════════════════════════════
+ STEP 3 — RETURN THE JSON OBJECT
+═══════════════════════════════════════════════════════════════════
+Return EXACTLY this structure — nothing else:
 
 {
-    "entry_number": "the student's entry/roll number exactly as written (e.g. '2021CSB1001' or 'B21 CSB 1001' — DO NOT normalize or remove spaces)",
-    "name": "the student's name as written",
-    "answers": {
-        "1": "A",
-        "2": "C",
-        "3": "AC",
-        "4": "2.5",
-        ...
-    },
-    "comments": "Any observations about the sheet quality or ambiguities. null if clean."
+  "entry_number": "<string exactly as written, or null>",
+  "name": "<string exactly as written, or null>",
+  "answers": {
+    "1": "A",
+    "2": "AC",
+    "3": "2.5",
+    "7": "X",
+    "9": "MULTIPLE"
+  },
+  "comments": "<note legibility issues, heavy erasures, ambiguous marks, or sheet damage — null if none>"
 }
 
-Rules for answers:
-- Scan BOTH columns of the answer grid. Do not miss the right column.
-- Single MCQ: one letter e.g. "A", "B", "C", "D"
-- Multiple MCQ: concatenated letters e.g. "AC", "BCD"
-- Numerical: include decimals e.g. "2.5", "7.0"
-- If a question is blank/unanswered, OMIT it from answers (do not include it at all).
-- If multiple options are circled for a SINGLE-choice question, use "MULTIPLE".
-- Question numbers MUST be strings ("1", "2", ...), not integers.
-
-For entry_number:
-- Look for a field labelled "Entry No.", "Entry Number", "Roll No.", "Enrollment No.", or similar.
-- It is usually written near the student's name, often in the format YYYY<branch><number> e.g. "2021CSB1001" or with spaces like "B21 CSB 1001".
-- Return it EXACTLY as written by the student, including spaces.
-- If not found, return null.
-
-Return ONLY the JSON object.
+ABSOLUTE RULES:
+  ✓ Output ONLY the raw JSON object — no markdown (```json), no explanation text whatsoever.
+  ✓ "answers" keys MUST be plain integer strings: "1", "2" — NOT "Q1", "question_1", "Q 1".
+  ✓ All answer values MUST be uppercase.
+  ✓ Omit blank/unattempted questions entirely from "answers".
+  ✓ Scan EVERY part of the image — both identity fields and answers can appear anywhere.
+  ✓ If the entire sheet is blank, return "answers": {}.
 """
 
     def _normalize_objective_output(self, parsed: dict) -> dict:
