@@ -340,7 +340,8 @@ html {
     width: 92vw;
     max-width: 1440px;
     border-radius: 16px !important;
-    background-color: rgba(255, 255, 255, 0.95) !important;
+    background-color: rgba(239, 246, 255, 0.85) !important;
+    /* Light blue-50 tint with transparency */
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.3) !important;
@@ -357,7 +358,8 @@ html {
     width: 92vw;
     max-width: 1440px;
     margin: 0 auto;
-    background-color: #ffffff;
+    background-color: #EFF6FF;
+    /* tailwind blue-50 */
     border-radius: 20px;
     box-shadow:
         0 25px 50px -12px rgba(0, 0, 0, 0.2),

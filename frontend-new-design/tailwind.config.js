@@ -39,7 +39,7 @@ module.exports = {
 
                 // Background Colors
                 'background': '#FAFAFA', // Warm off-white background - gray-50
-                'surface': '#FFFFFF', // Pure white surface - white
+                'surface': '#F4F9FF', // Subtle frosty blue surface instead of pure white
 
                 // Text Colors
                 'text-primary': '#0F172A', // Near-black primary text - slate-900
