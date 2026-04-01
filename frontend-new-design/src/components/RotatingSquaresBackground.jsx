@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
 
 const MAX_SQUARES = 12; // Reduced: exponential growth covers the viewport much faster
-const DARK_BLUE = '#4A6984';
-const LIGHT_BLUE = '#7995AF';
+const DARK_BLUE = '#93C5FD'; // primary (blue-600)
+const LIGHT_BLUE = '#BFDBFE'; // primary-500 (blue-500)
 
 const RotatingSquaresBackground = () => {
     const squares = useMemo(() => {
