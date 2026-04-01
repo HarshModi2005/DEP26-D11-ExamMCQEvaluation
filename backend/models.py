@@ -99,6 +99,11 @@ class ExportToSheetsRequest(BaseModel):
     answer_key: Optional[Dict] = None
 
 
+class SyncSheetRequest(BaseModel):
+    sheet_url: str
+    sheet_tab_name: str
+
+
 class FullPipelineRequest(BaseModel):
     drive_folder_url: str
     sheets_url: str

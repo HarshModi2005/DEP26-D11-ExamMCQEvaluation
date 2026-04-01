@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from models import (
     Student, Submission, EvaluationResult,
     AnswerKey, StudentResult, PipelineSummary, SheetUpdateSummary,
-    ProcessFolderRequest, ExportToSheetsRequest, FullPipelineRequest,
+    ProcessFolderRequest, ExportToSheetsRequest, FullPipelineRequest, SyncSheetRequest,
 )
 from services.drive_service import DriveService
 from services.ocr_service import OCRService
@@ -802,15 +802,6 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
 # ═══════════════════════════════════════
 #  PHASE 3 — GOOGLE SHEETS EXPORT
 # ═══════════════════════════════════════
-
-class ExportToSheetsRequest(BaseModel):
-    results: Optional[List[Dict]] = None
-    sheet_url: str
-    answer_key: Optional[Dict] = None
-
-class SyncSheetRequest(BaseModel):
-    sheet_url: str
-    sheet_tab_name: str
 
 @router.post("/sync-from-sheets")
 def sync_from_sheets(request: SyncSheetRequest):
