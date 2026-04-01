@@ -8,6 +8,8 @@ import { courseService } from '../../services/courseService';
 import { invitationService } from '../../services/invitationService';
 import { evaluationService } from '../../services/evaluationService';
 
+import { createPortal } from 'react-dom';
+
 const GRADIENT_COLORS = [
     'from-blue-500 to-blue-600',
     'from-emerald-500 to-emerald-600',
@@ -39,8 +41,8 @@ const CreateCourseModal = ({ onClose, onCreated, userId }) => {
         }
     };
 
-    return (
-        <div className="fixed inset-0 z-200 bg-black bg-opacity-50 flex items-center justify-center p-4">
+    return createPortal(
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
             <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-lg border border-border">
                 <div className="flex items-center justify-between p-6 border-b border-border">
                     <h2 className="text-xl font-semibold text-text-primary">Create New Course</h2>
@@ -105,13 +107,14 @@ const CreateCourseModal = ({ onClose, onCreated, userId }) => {
                     </div>
                 </form>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
 const AcceptInviteModal = ({ invitation, onConfirm, onClose, loading }) => {
     if (!invitation) return null;
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
             <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
                 <div className="flex items-center justify-between p-6 border-b border-border">
@@ -142,13 +145,14 @@ const AcceptInviteModal = ({ invitation, onConfirm, onClose, loading }) => {
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
 const DeclineInviteModal = ({ invitation, onConfirm, onClose, loading }) => {
     if (!invitation) return null;
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
             <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
                 <div className="flex items-center justify-between p-6 border-b border-border">
@@ -179,7 +183,8 @@ const DeclineInviteModal = ({ invitation, onConfirm, onClose, loading }) => {
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -492,18 +497,17 @@ const FacultyDashboard = () => {
                                         </div>
                                         <div className="space-y-3 flex-1">
                                             {columnTasks.map(task => (
-                                                <div key={task.id} 
+                                                <div key={task.id}
                                                     className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow transition-shadow cursor-pointer hover:border-primary-300"
                                                     onClick={() => navigate(`/course/${task.course_id}`)}>
                                                     <div className="flex justify-between items-start mb-2">
                                                         <span className="text-xs font-semibold text-text-secondary bg-secondary-100 px-2 py-0.5 rounded">
                                                             {task.courses?.code || 'Course'}
                                                         </span>
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                                            task.status === 'active' ? 'text-primary-700 bg-primary-50' :
-                                                            task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
-                                                            'text-success-700 bg-success-50'
-                                                        }`}>
+                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.status === 'active' ? 'text-primary-700 bg-primary-50' :
+                                                                task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
+                                                                    'text-success-700 bg-success-50'
+                                                            }`}>
                                                             {task.status}
                                                         </span>
                                                     </div>

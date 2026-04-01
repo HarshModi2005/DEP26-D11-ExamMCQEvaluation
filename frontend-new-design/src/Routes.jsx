@@ -3,6 +3,7 @@ import { BrowserRouter, Routes as RouterRoutes, Route, Navigate } from "react-ro
 import ScrollToTop from "./components/ScrollToTop";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AppLayout from "./components/AppLayout";
 
 // Page imports
 import LoginRegister from "./pages/login-register";
@@ -24,14 +25,14 @@ const Routes = () => {
                     <Route path="/login-register" element={<LoginRegister />} />
                     <Route path="/" element={<Navigate to="/login-register" replace />} />
 
-                    {/* Protected routes */}
-                    <Route path="/dashboard-overview" element={<ProtectedRoute><DashboardOverview /></ProtectedRoute>} />
-                    <Route path="/faculty-dashboard" element={<ProtectedRoute><FacultyDashboard /></ProtectedRoute>} />
-                    <Route path="/course/:courseId" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
-                    <Route path="/evaluate/:evaluationId" element={<ProtectedRoute><EvaluatePage /></ProtectedRoute>} />
-                    <Route path="/kanban-board" element={<ProtectedRoute><KanbanBoard /></ProtectedRoute>} />
-                    <Route path="/task-detail" element={<ProtectedRoute><TaskDetail /></ProtectedRoute>} />
-                    <Route path="/analytics-dashboard" element={<ProtectedRoute><AnalyticsDashboard /></ProtectedRoute>} />
+                    {/* Protected routes — wrapped in AppLayout for animated background */}
+                    <Route path="/dashboard-overview" element={<ProtectedRoute><AppLayout><DashboardOverview /></AppLayout></ProtectedRoute>} />
+                    <Route path="/faculty-dashboard" element={<ProtectedRoute><AppLayout><FacultyDashboard /></AppLayout></ProtectedRoute>} />
+                    <Route path="/course/:courseId" element={<ProtectedRoute><AppLayout><CourseDetail /></AppLayout></ProtectedRoute>} />
+                    <Route path="/evaluate/:evaluationId" element={<ProtectedRoute><AppLayout><EvaluatePage /></AppLayout></ProtectedRoute>} />
+                    <Route path="/kanban-board" element={<ProtectedRoute><AppLayout><KanbanBoard /></AppLayout></ProtectedRoute>} />
+                    <Route path="/task-detail" element={<ProtectedRoute><AppLayout><TaskDetail /></AppLayout></ProtectedRoute>} />
+                    <Route path="/analytics-dashboard" element={<ProtectedRoute><AppLayout><AnalyticsDashboard /></AppLayout></ProtectedRoute>} />
 
                     {/* Catch-all */}
                     <Route path="*" element={<Navigate to="/login-register" replace />} />

@@ -276,3 +276,104 @@ html {
         scroll-behavior: auto;
     }
 }
+
+/* =============================================
+   Rotating Squares Animated Background
+   ============================================= */
+
+@keyframes spin-square {
+    from {
+        transform: translate(-50%, -50%) rotate(0deg);
+    }
+
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+.rotating-squares-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    z-index: -100;
+    pointer-events: none;
+    background-color: #4A6984;
+}
+
+.rotating-square {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation-name: spin-square;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: transform;
+}
+
+/* =============================================
+   App Content Window (opaque foreground)
+   ============================================= */
+
+.app-content-window {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 24px;
+    gap: 12px;
+    background: transparent;
+}
+
+/* Override the fixed header to become a floating rounded bar */
+.app-content-window header {
+    position: sticky !important;
+    top: 16px;
+    left: auto !important;
+    right: auto !important;
+    width: 92vw;
+    max-width: 1440px;
+    border-radius: 16px !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    box-shadow:
+        0 4px 24px -4px rgba(0, 0, 0, 0.15),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+    z-index: 100;
+    flex-shrink: 0;
+}
+
+/* Main content becomes its own floating rounded panel */
+.app-content-window>div>main,
+.app-content-window main {
+    width: 92vw;
+    max-width: 1440px;
+    margin: 0 auto;
+    background-color: #ffffff;
+    border-radius: 20px;
+    box-shadow:
+        0 25px 50px -12px rgba(0, 0, 0, 0.2),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+    padding-top: 0 !important;
+    min-height: calc(100vh - 110px);
+    overflow: hidden;
+}
+
+/* Remove the page-level bg since our panels handle it */
+.app-content-window>div {
+    width: 92vw;
+    max-width: 1440px;
+    background: transparent !important;
+    min-height: auto !important;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}

@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import { useAuth } from '../../context/AuthContext';
 
+import { createPortal } from 'react-dom';
+
 const LogoutModal = ({ onConfirm, onClose }) => {
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
             <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-sm border border-border">
                 <div className="p-8 text-center">
@@ -21,7 +23,8 @@ const LogoutModal = ({ onConfirm, onClose }) => {
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
@@ -49,7 +52,7 @@ const Header = () => {
     return (
         <header className="fixed top-0 left-0 right-0 h-16 bg-surface border-b border-border z-100">
             <div className="flex items-center justify-between h-full px-6">
-                <div 
+                <div
                     className="flex items-center space-x-3 cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => navigate('/faculty-dashboard')}
                 >
@@ -62,13 +65,6 @@ const Header = () => {
                     </div>
                 </div>
 
-                {/* Center Section - Search hint */}
-                <div className="flex-1 max-w-md mx-8 hidden md:block">
-                    <div className="w-full bg-secondary-50 border border-border rounded-lg px-4 py-2 flex items-center space-x-3 cursor-text">
-                        <Icon name="Search" size={16} color="#94a3b8" />
-                        <span className="text-sm text-secondary-400">Navigate to course, evaluation...</span>
-                    </div>
-                </div>
 
                 {/* Right Section - User */}
                 <div className="flex items-center space-x-3">
