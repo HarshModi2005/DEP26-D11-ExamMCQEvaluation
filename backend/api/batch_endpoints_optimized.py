@@ -194,6 +194,14 @@ _OCR_MAX_RETRIES = 20
 # 429 backoff cap (seconds): will wait up to 2 min before cycling to next region.
 _OCR_BACKOFF_CAP = 120
 
+_glm_pipeline_instance = None
+def _get_glm_pipeline():
+    global _glm_pipeline_instance
+    if _glm_pipeline_instance is None:
+        from glm_pipeline.pipeline import GLMPipeline
+        _glm_pipeline_instance = GLMPipeline()
+    return _glm_pipeline_instance
+
 
 def _prepare_image_payload(image_path: str) -> tuple:
     """Encode and compress an image, returning (b64_str, mime_type)."""
@@ -707,8 +715,17 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                         _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
                     return
 
-                # ── STEP 4: OCR (rate-limited, multi-tier, multi-region) ──
-                ocr = await _ocr_one(session, local_path, _get_headers, project_id)
+                # ── STEP 4: OCR (GLM Pipeline) ──
+                try:
+                    pipeline = _get_glm_pipeline()
+                    ocr = await asyncio.to_thread(pipeline.process_to_dict, local_path)
+                    ocr["_endpoint"] = "glm-pipeline"
+                    # Add error key if the pipeline produced an entirely empty return
+                    if not ocr.get("entry_number") and not ocr.get("name") and not ocr.get("answers"):
+                        ocr["error"] = "GLM pipeline couldn't detect any information"
+                except Exception as e:
+                    ocr = {"error": f"GLM Pipeline exception: {str(e)}"}
+
                 if "error" not in ocr:
                     # Only cache OCR results with valid entry_number (not empty, not UNREAD_)
                     if _is_valid_cached_entry(ocr.get("entry_number", "")):

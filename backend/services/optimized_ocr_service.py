@@ -220,100 +220,33 @@ class OptimizedOCRService:
     
     async def _process_with_retry(self, image_path: str, index: int, 
                                   max_retries: int = 2) -> Dict:
-        """Process with smart retry logic"""
-        last_error = None
-        
-        for attempt in range(max_retries + 1):
-            try:
-                endpoint = self._get_best_endpoint_fast()
-                if not endpoint:
-                    return {
-                        "error": "No healthy endpoints available",
-                        "image_path": image_path,
-                        "index": index
-                    }
-                
-                endpoint.current_load += 1
-                endpoint.total_requests += 1
-                
-                start_time = time.time()
-                
-                # Get cached session and auth
-                session = await self._get_session(endpoint)
-                headers = await self._get_auth_headers_cached(endpoint)
-                
-                # Optimize image
-                base64_image, mime_type = self._optimize_image(image_path)
-                
-                # Create minimal payload
-                payload = {
-                    "contents": [{
-                        "role": "user",
-                        "parts": [
-                            {"text": self._get_minimal_prompt()},
-                            {"inline_data": {"mime_type": mime_type, "data": base64_image}}
-                        ]
-                    }],
-                    "generationConfig": {
-                        "maxOutputTokens": 1024,
-                        "temperature": 0.0
-                    }
-                }
-                
-                # Make request with timeout
-                async with session.post(endpoint.url, headers=headers, json=payload, 
-                                      timeout=aiohttp.ClientTimeout(total=20)) as response:
-                    if response.status == 200:
-                        result_data = await response.json()
-                        parsed_result = self._parse_ocr_response(result_data)
-                        
-                        duration = time.time() - start_time
-                        endpoint.avg_response_time = (endpoint.avg_response_time * 0.9) + (duration * 0.1)
-                        endpoint.last_success = time.time()
-                        
-                        return {
-                            **parsed_result,
-                            "processing_time": duration,
-                            "endpoint": f"{endpoint.region}/{endpoint.model}",
-                            "index": index
-                        }
-                    else:
-                        error_text = await response.text()
-                        last_error = f"HTTP {response.status}: {error_text[:100]}"
-                        
-                        if response.status == 429:  # Rate limit
-                            await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
-                            continue
-                        
-                        raise Exception(last_error)
+        """Process with smart retry logic (now using GLMPipeline)"""
+        start_time = time.time()
+        try:
+            from glm_pipeline.pipeline import GLMPipeline
+            pipeline = GLMPipeline()
             
-            except asyncio.TimeoutError:
-                last_error = "Timeout"
-                if attempt < max_retries:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
+            # GLMPipeline uses synchronous requests, so run in a thread
+            result_data = await asyncio.to_thread(pipeline.process_to_dict, image_path)
             
-            except Exception as e:
-                last_error = str(e)
-                if attempt < max_retries:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
-            
-            finally:
-                if endpoint:
-                    endpoint.current_load -= 1
-        
-        # All retries failed
-        if endpoint:
-            endpoint.total_errors += 1
-        
-        return {
-            "error": last_error,
-            "image_path": image_path,
-            "endpoint": f"{endpoint.region}/{endpoint.model}" if endpoint else "none",
-            "index": index,
-            "processing_time": time.time() - start_time if 'start_time' in locals() else 0
-        }
+            # Make sure empty outputs get flagged as errors so they retry/fail properly
+            if not result_data.get("entry_number") and not result_data.get("answers"):
+                raise ValueError("GLM pipeline failed to extract any data")
+                
+            return {
+                **result_data,
+                "processing_time": time.time() - start_time,
+                "endpoint": "glm-pipeline",
+                "index": index
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "image_path": image_path,
+                "endpoint": "glm-pipeline-error",
+                "index": index,
+                "processing_time": time.time() - start_time
+            }
     
     def _get_best_endpoint_fast(self) -> Optional[OptimizedEndpoint]:
         """Fast endpoint selection prioritizing flash-lite"""
