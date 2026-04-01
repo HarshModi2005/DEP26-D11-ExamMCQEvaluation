@@ -194,16 +194,92 @@ async def _pick_endpoint(exclude_regions: Optional[list] = None) -> Dict:
 #  CORE OCR FUNCTION — Pro-only, rate-limited, multi-region
 # ─────────────────────────────────────────────────────────────────────
 
-_OCR_PROMPT = (
-    'Extract from this answer sheet and return JSON:\n'
-    '{"entry_number":"roll number","name":"student name",'
-    '"answers":{"1":"A","2":"AC","3":"2.5",...}}\n'
-    'answers: dict of question_number(str)->answer(str). '
-    'Single letter (A/B/C/D), multi-letter (AC/BCD), or number (2.5). '
-    'Omit blank questions. '
-    'The image may be rotated or tilted — read it in whatever orientation makes the text readable. '
-    'entry_number/roll number is REQUIRED — look for it carefully in corners, margins, and headers.'
-)
+_OCR_PROMPT = """You are an expert OCR agent extracting data from a handwritten OBJECTIVE examination answer sheet.
+Your task is to read the image carefully and return a single valid JSON object. Do NOT output anything else — no markdown fences, no explanations, no preamble.
+
+═══════════════════════════════════════════════════════════════════
+ STEP 1 — FIND STUDENT IDENTITY FIELDS
+═══════════════════════════════════════════════════════════════════
+Scan the ENTIRE image — headers, footers, margins, and every corner — for:
+
+  • Entry Number / Roll Number / Enrollment Number / Student ID / Reg. No.
+    - It usually follows the pattern: YYYY + DEPT_CODE + DEGREE + NNNN
+      Examples: "2023CSB1001", "2024AIB1234", "2025MCM0042"
+    - It may appear WITH spaces or dashes: "B21 CSB 1001", "2025-CSB-1001"
+    - It is often found BELOW the printed question block, near the answer grid — not only in the header.
+    - Common label variants: "Entry No.", "Entry No.-", "Roll No.", "Enrolment No.", "Reg. No.", "Student ID"
+    - Return it EXACTLY as written by the student, including any internal spaces. Do NOT reformat.
+    - OCR CAUTION — handwriting commonly confuses:
+        0 ↔ O   1 ↔ I/L   2 ↔ Z   3 ↔ E   4 ↔ A
+        5 ↔ S   6 ↔ G     7 ↔ T   8 ↔ B   9 ↔ G
+      Read extra carefully; still return what IS written, not a corrected version.
+    - If truly not found anywhere, return null.
+
+  • Student Name
+    - Common label variants: "Name", "Name-", "Name:", "Student Name", "Candidate Name"
+    - May appear on the SAME LINE as the Entry Number
+    - Return the name as written. If not found, return null.
+
+═══════════════════════════════════════════════════════════════════
+ STEP 2 — FIND AND EXTRACT ALL ANSWERS
+═══════════════════════════════════════════════════════════════════
+Students may write answers in a printed grid OR simply write a list on a BLANK sheet of notebook paper.
+For example, unstructured handwritten lists like:
+  1. A
+  2 - 600
+  3. a,b,c,d
+  4. C D
+Extract these just like a regular grid.
+
+Question numbers may be printed or handwritten as: 1, 2, Q1, Q.1, 1-, (1), etc.
+Always use plain integer strings as JSON keys: "1", "2", "3", …
+
+HOW TO READ THE ANSWERS:
+
+  1. SMCQ (Single Choice): student writes exactly one letter (e.g., "A" or "b").
+     → Return the single uppercase letter: "A".
+
+  2. MMCQ (Multiple Choice): student writes multiple options.
+     → They might write: "A B", "a,c", "C D", or "A, B, C, D"
+     → Concatenate all marked letters into one string: "AB", "AC", "CD", "ABCD"
+     → If the student wrote out all options "A B C D" and drew a CIRCLE or TICK around specific ones, extract ONLY the circled/ticked options. If nothing is circled, extract all the letters they wrote.
+
+  3. NCQ (Numerical Choice): student writes a number.
+     → Return as a string, preserving decimals and sign: "600", "1226", "2.5", "-3.5"
+
+SPECIAL ANSWER VALUES:
+  • UNATTEMPTED / BLANK — question slot is COMPLETELY EMPTY → OMIT from JSON.
+  • Student wrote or crossed "X" → return "X".
+  • Multiple choices on a SINGLE-CHOICE question → return "MULTIPLE" (unless they crossed one out).
+  • Erased/Corrected → use the FINAL clearly written or circled answer.
+  • Image rotated/tilted → read it in whichever orientation makes the text legible.
+
+═══════════════════════════════════════════════════════════════════
+ STEP 3 — RETURN THE JSON OBJECT
+═══════════════════════════════════════════════════════════════════
+Return EXACTLY this structure — nothing else:
+
+{
+  "entry_number": "<string exactly as written, or null>",
+  "name": "<string exactly as written, or null>",
+  "answers": {
+    "1": "A",
+    "2": "AC",
+    "3": "2.5",
+    "7": "X",
+    "9": "MULTIPLE"
+  },
+  "comments": "<note legibility issues, heavy erasures, ambiguous marks, or sheet damage — null if none>"
+}
+
+ABSOLUTE RULES:
+  ✓ Output ONLY the raw JSON object — no markdown (```json), no explanation text whatsoever.
+  ✓ "answers" keys MUST be plain integer strings: "1", "2" — NOT "Q1", "question_1", "Q 1".
+  ✓ All answer values MUST be uppercase.
+  ✓ Omit blank/unattempted questions entirely from "answers".
+  ✓ Scan EVERY part of the image — both identity fields and answers can appear anywhere.
+  ✓ If the entire sheet is blank, return "answers": {}.
+"""
 
 # Maximum retries per single OCR pass — we wait as long as needed on Pro.
 _OCR_MAX_RETRIES = 20
@@ -211,10 +287,13 @@ _OCR_MAX_RETRIES = 20
 _OCR_BACKOFF_CAP = 120
 
 
-def _prepare_image_payload(image_path: str) -> tuple:
-    """Encode and compress an image, returning (b64_str, mime_type)."""
+def _prepare_image_payload(image_path: str, crop_bottom_half: bool = False) -> tuple:
+    """Encode and compress an image, returning (b64_str, mime_type).
+    If crop_bottom_half is True, crops the top 40% of the image and boosts contrast 
+    to force the OCR model to focus purely on faint pencil marks in the answer grid.
+    """
     try:
-        from PIL import Image, ImageOps
+        from PIL import Image, ImageOps, ImageEnhance
         with Image.open(image_path) as img:
             try:
                 img = ImageOps.exif_transpose(img)
@@ -225,11 +304,24 @@ def _prepare_image_payload(image_path: str) -> tuple:
             w, h = img.size
             if h > w * 1.5:  # portrait-rotated landscape photo
                 img = img.rotate(90, expand=True)
+                w, h = img.size
+            
+            # --- SALVAGE LOGIC: Crop header to focus on grid ---
+            if crop_bottom_half:
+                top = int(h * 0.40)  # Cut off top 40%
+                img = img.crop((0, top, w, h))
+                print(f"  ✂️ [Image] Cropped top 40% of {os.path.basename(image_path)} to focus on grid")
+                
+                # Boost contrast slightly to help read faint pencil marks
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.5)
+
             img.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85, optimize=True)
             return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️ Error preparing image {os.path.basename(image_path)}: {e}")
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         mime = "image/jpeg" if image_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
@@ -527,6 +619,30 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
 
     # ── Agreement check ─────────────────────────────────────────────
     if _answers_agree(r1, r2):
+        ans_count = len(r1.get("answers", {}))
+        
+        # --- SALVAGE PASS: Double empty hallucination ---
+        # Both models read 0 answers but an identity field exists. This proves it's a real sheet,
+        # but the pencil marks are likely faint and the model got distracted by the printed header.
+        if ans_count == 0 and (str(r1.get("entry_number", "")).strip() or str(r1.get("name", "")).strip()):
+            print(f"  🆘 [OCR SALVAGE] {fname} — both passes read 0 answers but found identity. Retrying with cropped grid...")
+            b64_crop, mime_crop = _prepare_image_payload(image_path, crop_bottom_half=True)
+            r3_salvage = await _ocr_single_pass(
+                session, image_path, get_headers, project_id,
+                exclude_regions=None, b64=b64_crop, mime=mime_crop
+            )
+            if "error" not in r3_salvage and len(r3_salvage.get("answers", {})) > 0:
+                print(f"  🎯 [OCR SALVAGE SUCCESS] {fname} — recovered {len(r3_salvage['answers'])} answers!")
+                # Identity fields might have been cropped out, restore them from our solid r1 read
+                r3_salvage["entry_number"] = r1.get("entry_number") or r3_salvage.get("entry_number")
+                r3_salvage["name"] = r1.get("name") or r3_salvage.get("name")
+                r3_salvage["comments"] = "[Salvaged via grid-crop] " + str(r3_salvage.get("comments", ""))
+                r3_salvage["_endpoint"] = r3_salvage.get("_endpoint", "?") + " (salvage)"
+                r3_salvage["_verified_passes"] = 2  # treat as verified since it required targeted effort
+                return r3_salvage
+            else:
+                print(f"  ☠️ [OCR SALVAGE FAILED] {fname} — still 0 answers after grid crop.")
+
         print(f"  ✅✅ [OCR VERIFIED] {fname} — passes agree, done")
         result = dict(r1)
         result["comments"] = "[2-pass verified] " + (r1.get("comments") or "")
@@ -844,9 +960,27 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
     try:
         # Discover files
         _processing_stats[processing_id]["status"] = "discovering_files"
-        all_files = drive_service.list_all_files_in_folder(folder_id)
+        try:
+            all_files = drive_service.list_all_files_in_folder(folder_id)
+        except Exception as e:
+            msg = f"Failed to list files from Drive: {str(e)}"
+            print(f"  ❌ {msg}")
+            _processing_stats[processing_id].update({
+                "status": "failed",
+                "error": msg,
+                "total_time": time.time() - start_time,
+            })
+            return  # Stop the background task gracefully
+
         if not all_files:
-            raise HTTPException(status_code=404, detail="No files found in the Drive folder.")
+            msg = "No files found in the designated Drive folder. Please verify folder ID and permissions."
+            print(f"  ⚠️ {msg}")
+            _processing_stats[processing_id].update({
+                "status": "failed",
+                "error": msg,
+                "total_time": time.time() - start_time,
+            })
+            return
 
         answer_key_files, student_sheets = drive_service.separate_files(all_files)
         total_sheets = len(student_sheets)

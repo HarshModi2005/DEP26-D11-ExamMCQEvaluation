@@ -4,37 +4,37 @@
     "1": {
       "question_type": "MMCQ",
       "correct_answer": "BCD",
-      "positive_marks": 3.0,
+      "positive_marks": 2.0,
       "negative_marks": 0.0
     },
     "2": {
       "question_type": "NCQ",
       "correct_answer": "600",
-      "positive_marks": 3.0,
-      "negative_marks": 0.0
+      "positive_marks": 2.0,
+      "negative_marks": -0.5
     },
     "3": {
       "question_type": "SMCQ",
       "correct_answer": "A",
-      "positive_marks": 3.0,
-      "negative_marks": 0.0
+      "positive_marks": 2.0,
+      "negative_marks": -0.5
     },
     "4": {
       "question_type": "NCQ",
       "correct_answer": "1000",
-      "positive_marks": 4.0,
-      "negative_marks": 0.0
+      "positive_marks": 2.0,
+      "negative_marks": -0.5
     },
     "5": {
       "question_type": "MMCQ",
-      "correct_answer": "AD",
-      "positive_marks": 4.0,
+      "correct_answer": "BD",
+      "positive_marks": 2.0,
       "negative_marks": 0.0
     }
   },
   "negative_marking": 0.0,
   "metadata": {
-    "source_file": "answer_key.csv",
+    "source_file": "answer_key.xlsx - Answer Key (2).csv",
     "raw_question_count": 5,
     "parsed_question_count": 5,
     "format": "comprehensive"
