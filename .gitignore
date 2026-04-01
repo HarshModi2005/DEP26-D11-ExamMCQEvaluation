@@ -62,3 +62,7 @@ c_code_evaluator/output_*/
 # Environment files
 *.env
 *.env.*
+-e 
+# Environment files
+*.env
+*.env.*
