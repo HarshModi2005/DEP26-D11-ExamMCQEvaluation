@@ -211,44 +211,36 @@ _OCR_MAX_RETRIES = 20
 _OCR_BACKOFF_CAP = 120
 
 
-def _prepare_image_payload(image_path: str) -> tuple:
-    """Encode and compress an image, returning (b64_str, mime_type)."""
+def _prepare_image_payload(image_path: str) -> tuple[str, str]:
+    """
+    Intelligent image preparation:
+    Uses CV2 HSV pipeline to crop out the background desk, maximizing the resolution 
+    given to the checkboxes.
+    """
     fname = os.path.basename(image_path)
+    from services.image_preprocessing import preprocess_for_ocr
     try:
-        from PIL import Image, ImageOps
-        with Image.open(image_path) as img:
-            orig_mode = img.mode
-            orig_size = img.size
-            try:
-                img = ImageOps.exif_transpose(img)
-                if img.size != orig_size:
-                    print(f"  🔄 [IMG] {fname}: EXIF transpose changed size {orig_size} → {img.size}")
-            except Exception as exif_e:
-                print(f"  ⚠️ [IMG] {fname}: EXIF transpose failed: {exif_e}")
-            if img.mode not in ("RGB", "L"):
-                print(f"  🔄 [IMG] {fname}: converting mode {orig_mode} → RGB")
-                img = img.convert("RGB")
-            w, h = img.size
-            rotated = False
-            if h > w * 1.5:  # portrait-rotated landscape photo
-                img = img.rotate(90, expand=True)
-                rotated = True
-            # Relax the constraint slightly so more pixels are kept to avoid losing tiny checkboxes
-            img.thumbnail((2560, 2560), Image.Resampling.LANCZOS)
-            final_w, final_h = img.size
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=85, optimize=True)
-            kb = len(buf.getvalue()) / 1024
-            print(f"  🖼️  [IMG] {fname}: orig={orig_size} mode={orig_mode} rotated={rotated} → final={final_w}x{final_h} ({kb:.0f} KB)")
-            return base64.b64encode(buf.getvalue()).decode(), "image/jpeg"
-    except Exception as e:
-        print(f"  ⚠️ [IMG] {fname}: PIL failed ({e}), falling back to raw bytes")
-        with open(image_path, "rb") as f:
-            raw = f.read()
-        print(f"  🖼️  [IMG] {fname}: raw fallback size {len(raw)/1024:.0f} KB")
-        b64 = base64.b64encode(raw).decode()
-        mime = "image/jpeg" if image_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        img_bytes, mime = preprocess_for_ocr(image_path)
+        b64 = base64.b64encode(img_bytes).decode('utf-8')
         return b64, mime
+    except Exception as e:
+        print(f"  [WARN] CV2 Crop failed for {image_path}: {e}. Falling back to default resize.")
+        from PIL import Image, ImageOps
+        import io
+        with Image.open(image_path) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            
+            # Using 2560x2560 fallback resolution
+            img.thumbnail((2560, 2560))
+            
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            img_bytes = buffer.getvalue()
+
+        b64 = base64.b64encode(img_bytes).decode('utf-8')
+        return b64, "image/jpeg"
 
 
 def _parse_ocr_text(text: str, image_path: str) -> Optional[dict]:
