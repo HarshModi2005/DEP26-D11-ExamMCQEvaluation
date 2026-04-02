@@ -594,6 +594,24 @@ class SheetsService:
                 score = entry_sim * 0.40 + name_sim * 0.60
                 return round(min(score, 0.89), 4)  # Cap at 0.89 to rank below exact/year-slid
 
+        # ── Stage 4: Raw uncorrected Levenshtein + name similarity ──
+        # If the correction logic drastically mangled the entry (e.g. 20244B1376), we just compare the raw alphanumerics
+        raw_e1 = re.sub(r'[^A-Za-z0-9]', '', sheet_entry).upper()
+        raw_e2 = re.sub(r'[^A-Za-z0-9]', '', ocr_entry).upper()
+        if raw_e1 and raw_e2:
+            raw_dist = cls._levenshtein_distance(raw_e1, raw_e2)
+            if raw_dist <= 2 and name_sim >= 0.50:
+                max_elen = max(len(raw_e1), len(raw_e2), 1)
+                entry_sim = 1.0 - (raw_dist / max_elen)
+                score = entry_sim * 0.40 + name_sim * 0.60
+                return round(min(score, 0.88), 4)
+
+        # ── Stage 5: Dominant name similarity ──
+        # If the student wrote their own roll number so poorly that the edit distance exceeds 2,
+        # but their name almost completely matches the master list, assign a score based on name only.
+        if name_sim >= 0.90:
+            return round(min(name_sim * 0.85, 0.85), 4)  # Cap at 0.85, below entry-linked matches
+
         return 0.0
 
     # ──────────────────────────────────────

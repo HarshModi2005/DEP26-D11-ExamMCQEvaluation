@@ -194,16 +194,55 @@ async def _pick_endpoint(exclude_regions: Optional[list] = None) -> Dict:
 #  CORE OCR FUNCTION — Pro-only, rate-limited, multi-region
 # ─────────────────────────────────────────────────────────────────────
 
-_OCR_PROMPT = (
-    'Extract from this answer sheet and return JSON:\n'
-    '{"entry_number":"roll number","name":"student name",'
-    '"answers":{"1":"A","2":"AC","3":"2.5",...}}\n'
-    'answers: dict of question_number(str)->answer(str). '
-    'Single letter (A/B/C/D), multi-letter (AC/BCD), or number (2.5). '
-    'Omit blank questions. '
-    'The image may be rotated or tilted — read it in whatever orientation makes the text readable. '
-    'entry_number/roll number is REQUIRED — look for it carefully in corners, margins, and headers.'
-)
+def _build_ocr_prompt(answer_key: Optional[dict] = None) -> str:
+    example_answers_json = '{"1":"A","2":"AC","4":"10",...}'
+    schema_str = ""
+    
+    if answer_key and "answers" in answer_key:
+        schema = []
+        example_dict = {}
+        # Sort keys to ensure deterministic behavior
+        sorted_keys = sorted(answer_key["answers"].keys(), key=lambda x: int(x) if str(x).isdigit() else str(x))
+        
+        for q in sorted_keys:
+            meta = answer_key["answers"][q]
+            if isinstance(meta, dict):
+                q_type = meta.get("question_type", "")
+                if q_type == "SMCQ":
+                    schema.append(f"Q{q}: Single checkbox (A, B, C, D)")
+                    if len(example_dict) < 3: example_dict[str(q)] = "A"
+                elif q_type == "MMCQ":
+                    schema.append(f"Q{q}: Multiple checkboxes (e.g., AB, BCD)")
+                    if len(example_dict) < 3: example_dict[str(q)] = "AC"
+                elif q_type == "NCQ":
+                    schema.append(f"Q{q}: Numerical Text Box")
+                    if len(example_dict) < 3: example_dict[str(q)] = "2.5"
+                    
+        if schema:
+            schema_str = "\n".join(schema)
+        if example_dict:
+            import json
+            # Build a string like '{"1": "A", "2": "AC", ...}'
+            example_json_str = json.dumps(example_dict)
+            example_answers_json = example_json_str[:-1] + ',...}'
+
+    prompt = (
+        'Extract from this answer sheet and return JSON:\n'
+        '{"entry_number":"roll number","name":"student name",'
+        f'"answers":{example_answers_json}}}\n'
+        'answers: dict of question_number(str)->answer(str). '
+        'For checkboxes, ONLY return the exact letters checked (A/B/C/D). NEVER guess numbers like "3" for checked boxes. '
+        'For numerical text boxes, return the exact number written. '
+        'Omit blank questions. '
+        'The image may be rotated or tilted — read it in whatever orientation makes the text readable. '
+        'entry_number/roll number is REQUIRED — look for it carefully.'
+    )
+    
+    if schema_str:
+        prompt += f"\n\n**CRITICAL SCHEMA INSTRUCTIONS GIVEN BY ANSWER KEY:**\n{schema_str}\n"
+        prompt += "\nDO NOT GUESS OR CHANGE FORMATS! If a question is an SMCQ/MMCQ, you MUST extract ONLY letters. If it is NCQ, you MUST extract ONLY numbers."
+        
+    return prompt
 
 # Maximum retries per single OCR pass — we wait as long as needed on Pro.
 _OCR_MAX_RETRIES = 20
@@ -350,6 +389,7 @@ async def _ocr_single_pass(
     exclude_regions: Optional[list] = None,
     b64: Optional[str] = None,
     mime: Optional[str] = None,
+    answer_key: Optional[dict] = None
 ) -> dict:
     """
     Execute ONE OCR pass against gemini-2.5-pro only.
@@ -378,9 +418,10 @@ async def _ocr_single_pass(
         )
         headers = await get_headers()
 
+        prompt_text = _build_ocr_prompt(answer_key)
         payload = {
             "contents": [{"role": "user", "parts": [
-                {"text": _OCR_PROMPT},
+                {"text": prompt_text},
                 {"inline_data": {"mime_type": mime, "data": b64}},
             ]}],
             "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.0},
@@ -425,10 +466,9 @@ async def _ocr_single_pass(
 
                     print(f"  🌐 [OCR] {fname}: got {len(text)} chars of text from model")
                     parsed = _parse_ocr_text(text, image_path)
-                    if not parsed or not parsed.get("answers"):
-                        ans_count = len(parsed.get("answers", {})) if parsed else "None"
-                        last_error = f"Parse failed or 0 answers found for {fname}"
-                        print(f"  ⚠️ [OCR] {fname}: {last_error} (got {ans_count} answers). Retrying...")
+                    if not parsed:
+                        last_error = f"Parse failed (malformed JSON) for {fname}"
+                        print(f"  ⚠️ [OCR] {fname}: {last_error}. Retrying...")
                         await asyncio.sleep(1)
                         continue
 
@@ -511,7 +551,7 @@ def _majority_vote(results: list) -> dict:
 
 
 async def _ocr_one(session, image_path: str, get_headers, project_id: str,
-                   max_retries: int = _OCR_MAX_RETRIES) -> dict:
+                   answer_key: Optional[dict] = None, max_retries: int = _OCR_MAX_RETRIES) -> dict:
     """
     High-reliability OCR — gemini-2.5-pro ONLY, concurrent double-run verification.
 
@@ -542,9 +582,9 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
     print(f"  🚀 [OCR Pass 1+2 concurrent] {fname}")
     r1, r2 = await asyncio.gather(
         _ocr_single_pass(session, image_path, get_headers, project_id,
-                         exclude_regions=None, b64=b64, mime=mime),
+                         exclude_regions=None, b64=b64, mime=mime, answer_key=answer_key),
         _ocr_single_pass(session, image_path, get_headers, project_id,
-                         exclude_regions=ep2_exclude, b64=b64, mime=mime),
+                         exclude_regions=ep2_exclude, b64=b64, mime=mime, answer_key=answer_key),
         return_exceptions=False,
     )
 
@@ -584,7 +624,7 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
     r3 = await _ocr_single_pass(
         session, image_path, get_headers, project_id,
         exclude_regions=[ep1_region, ep2_region],
-        b64=b64, mime=mime,
+        b64=b64, mime=mime, answer_key=answer_key
     )
     if "error" in r3:
         print(f"  ⚠️ [OCR Pass 3 failed] {fname}: {r3['error']} — majority of 2")
@@ -713,13 +753,10 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
         return bool(s) and not s.startswith("UNREAD_")
 
     def _is_valid_ocr_result(ocr_dict):
-        """True only if it has a valid entry_number AND at least 1 extracted answer."""
+        """True if it has a valid entry_number. Zero answers are allowed for blank sheets."""
         if not ocr_dict:
             return False
-        if not _is_valid_cached_entry(ocr_dict.get("entry_number", "")):
-            return False
-        # If it found zero answers, we treat it as an OCR failure needing retry
-        return bool(ocr_dict.get("answers"))
+        return _is_valid_cached_entry(ocr_dict.get("entry_number", ""))
 
     async def _handle(sheet_file: dict, idx: int):
         nonlocal success_count, cache_hit_count  # noqa: E741
@@ -814,7 +851,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                 print(f"  ✅ [PIPELINE] {fname}: downloaded ({file_size_kb:.0f} KB) → {local_path}")
 
                 # ── STEP 4: OCR (rate-limited, multi-tier, multi-region) ──
-                ocr = await _ocr_one(session, local_path, _get_headers, project_id)
+                ocr = await _ocr_one(session, local_path, _get_headers, project_id, answer_key=answer_key)
 
                 # ── DEBUG: log raw OCR output immediately for inspection ──
                 global _ocr_debug_lock
@@ -861,7 +898,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                     if _is_valid_ocr_result(ocr):
                         await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
                     else:
-                        print(f"  ⚠️ [PIPELINE] {fname}: NOT caching (empty entry/answers) — will retry on next run")
+                        print(f"  ⚠️ [PIPELINE] {fname}: NOT caching (empty entry_number) — will retry on next run")
                 else:
                     print(f"  ❌ [PIPELINE] {fname}: OCR returned error: {ocr.get('error')}")
 
