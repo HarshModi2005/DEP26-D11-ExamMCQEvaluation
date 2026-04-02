@@ -1,0 +1,2066 @@
+{
+  "IMG_20260324_230017760_HDR.jpg": {
+    "entry_number": "2025CSB1235",
+    "name": "Poorab Singhi",
+    "answers": {
+      "1": "ABCD",
+      "2": "600",
+      "3": "B",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "Dhruv_kumar_gupta.jpeg": {
+    "entry_number": "2025CSB1185",
+    "name": "DHRUV KUMAR GUPTA",
+    "answers": {
+      "1": "BCD",
+      "3": "B",
+      "6": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "Priyesh_rai.jpeg": {
+    "entry_number": "2025MCB1508",
+    "name": "Priyesh Rai",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "K_siri_chandan.jpeg": {
+    "entry_number": "2025MCB1486",
+    "name": "K-Siri. Chandana",
+    "answers": {
+      "1": "ABC",
+      "2": "44",
+      "3": "B",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225941432_HDR.jpg": {
+    "entry_number": "2025CSB1227",
+    "name": "Aditya Nambiar",
+    "answers": {
+      "1": "AC",
+      "2": "231",
+      "3": "B",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230135195_HDR.jpg": {
+    "entry_number": "2025MCB1523",
+    "name": "Tanish Takkus",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_213703.jpg": {
+    "entry_number": "2025CSB1268",
+    "name": "Yash Kumar",
+    "answers": {
+      "2": "288",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230121630_HDR.jpg": {
+    "entry_number": "2025MCB1520",
+    "name": "Shreyansh Raj",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225624753_HDR.jpg": {
+    "entry_number": "2025CSB1222",
+    "name": "Minesh Kr. Meena",
+    "answers": {
+      "1": "CD",
+      "2": "37",
+      "3": "A",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225642406_HDR.jpg": {
+    "entry_number": "2025.CSB.1215",
+    "name": "MAHIT CHOPRA",
+    "answers": {
+      "1": "BCD",
+      "2": "552",
+      "3": "C",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225815224_HDR.jpg": {
+    "entry_number": "2023CSB1154",
+    "name": "Rohan Bhalkar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213650.jpg": {
+    "entry_number": "202SMCB.1455",
+    "name": "ABHINAV RASTOGI",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225952278_HDR.jpg": {
+    "entry_number": "2025C5B1232",
+    "name": "Parkhi Jain",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225704599_HDR.jpg": {
+    "entry_number": "20.25.CSB.12.28",
+    "name": "NAMIT JAIN",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230107870_HDR.jpg": {
+    "entry_number": "2025CSB1229",
+    "name": "Nilambuj Tripathi",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213551.jpg": {
+    "entry_number": "2025CSB1202",
+    "name": "Jaspreet Kaur",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20260324_213435.jpg": {
+    "entry_number": "2022CSB1078",
+    "name": "D. Vikram Naik",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225801732_HDR.jpg": {
+    "entry_number": "2025csb1184",
+    "name": "DHIRAJ KUMAR",
+    "answers": {
+      "1": "CA",
+      "2": "312",
+      "3": "B",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225729410_HDR.jpg": {
+    "entry_number": "2024CSB1349",
+    "name": "Hemachandran V",
+    "answers": {
+      "1": "B",
+      "2": "600",
+      "3": "A",
+      "4": "1000",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225617118_HDR.jpg": {
+    "entry_number": "2025CSB1211",
+    "name": "Kunal Singh Baghel",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214022.jpg": {
+    "entry_number": "2025MCB1482",
+    "name": "Jashraj Parmar",
+    "answers": {
+      "1": "CD",
+      "2": "600",
+      "3": "B",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225807498_HDR.jpg": {
+    "entry_number": "2025CSB1173",
+    "name": "Bhavesh Kumar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20260324_214308.jpg": {
+    "entry_number": "2025mcb1483",
+    "name": "Jatin",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225831371_HDR.jpg": {
+    "entry_number": "2025MCB1499",
+    "name": "MALAY NANDASANA",
+    "answers": {
+      "1": "BC",
+      "2": "1369",
+      "3": "A",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214013.jpg": {
+    "entry_number": "2025HCB1528",
+    "name": "VEER",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_213803.jpg": {
+    "entry_number": "20230831191",
+    "name": "Gorish",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20260324_214121.jpg": {
+    "entry_number": "2025MCB1500",
+    "name": "Neelabh Mishra",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225630989_HDR.jpg": {
+    "entry_number": "2025CSB1261",
+    "name": "Shloka",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214055.jpg": {
+    "entry_number": "2025MCB.1462",
+    "name": "AMEY JANGRA",
+    "answers": {
+      "1": "ACD",
+      "5": "BC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213908.jpg": {
+    "entry_number": "2025CSB1216",
+    "name": "Mainam Dushyant",
+    "answers": {
+      "1": "BC",
+      "2": "900",
+      "3": "D",
+      "5": "BCD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225933722_HDR.jpg": {
+    "entry_number": "2025CSB1209",
+    "name": "Krishaa sheetal golghate",
+    "answers": {
+      "1": "A",
+      "2": "1156",
+      "3": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225658065_HDR.jpg": {
+    "entry_number": "2025CSB1256",
+    "name": "SAURABHRAJ SINGH",
+    "answers": {
+      "1": "CD",
+      "2": "600",
+      "3": "A",
+      "4": "1000",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225734881_HDR.jpg": {
+    "entry_number": "2025CSB1180",
+    "name": "Chayam. Juneja",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214005.jpg": {
+    "entry_number": "2025MCB1526",
+    "name": "Manvith Vaisetti",
+    "answers": {
+      "1": "AC",
+      "2": "600",
+      "5": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_213535.jpg": {
+    "entry_number": "2025CSB1178",
+    "name": "Chandan Singh",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "3": "C",
+      "4": "127",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west1",
+    "_verified_passes": 3
+  },
+  "IMG_20260324_225556959_HDR.jpg": {
+    "entry_number": "2025CSB1266",
+    "name": "Varun Meena",
+    "answers": {
+      "1": "B",
+      "3": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_213937.jpg": {
+    "entry_number": "2025CSB1267",
+    "name": "Vineet Jatol",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214400.jpg": {
+    "entry_number": "2025MCB1492",
+    "name": "Manish Raj Ahirwar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225609131_HDR.jpg": {
+    "entry_number": "2028CSB1246",
+    "name": "Rehan yadav",
+    "answers": {
+      "1": "CD",
+      "3": "B",
+      "4": "144",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "IMG_20260324_230046976_HDR.jpg": {
+    "entry_number": "2025CSBIRIO",
+    "name": "Krrish Dagar",
+    "answers": {
+      "1": "B",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230115274_HDR.jpg": {
+    "entry_number": "2025MCB1519",
+    "name": "Shravan",
+    "answers": {
+      "1": "AC",
+      "5": "BCD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "IMG_20260324_225837232_HDR.jpg": {
+    "entry_number": "2025CSB183",
+    "name": "Dhawal Rastogi",
+    "answers": {
+      "1": "ACD",
+      "2": "769",
+      "3": "A",
+      "4": "1000",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225845665_HDR.jpg": {
+    "entry_number": "2025MEB1515",
+    "name": "Samont Sanywa",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230031069_HDR.jpg": {
+    "entry_number": "2025CSB1262",
+    "name": "TANISHA",
+    "answers": {
+      "1": "D",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225636811_HDR.jpg": {
+    "entry_number": "2025CSB1212",
+    "name": "Lakshay Kumar Padam",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "5": "E"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-west1",
+    "_verified_passes": 3
+  },
+  "20260324_214407.jpg": {
+    "entry_number": "2025m.6.1506",
+    "name": "PRAVEEN VERMA",
+    "answers": {
+      "1": "AB",
+      "2": "371",
+      "3": "D",
+      "4": "275",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225915449_HDR.jpg": {
+    "entry_number": "2025MCB1989",
+    "name": "Lokshya Goswomi",
+    "answers": {
+      "1": "ABCD",
+      "2": "2856",
+      "3": "A",
+      "4": "1500",
+      "5": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214425.jpg": {
+    "entry_number": "2025MCB1474",
+    "name": "Debasis Pradhan",
+    "answers": {
+      "1": "BCD",
+      "2": "600",
+      "3": "B",
+      "4": "250",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225927500_HDR.jpg": {
+    "entry_number": "2025CSB123.9",
+    "name": "Preeti",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214036.jpg": {
+    "entry_number": "2025MCB1518",
+    "name": "Shivam Garg",
+    "answers": {
+      "1": "CD",
+      "3": "D",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225723792_HDR.jpg": {
+    "entry_number": "20244B1376",
+    "name": "Rath lawath Jashuanth",
+    "answers": {
+      "1": "B",
+      "2": "600",
+      "3": "A",
+      "4": "1000",
+      "5": "5"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214328.jpg": {
+    "entry_number": "2025MC81498",
+    "name": "Mukesh prajapat",
+    "answers": {
+      "1": "BD",
+      "2": "600",
+      "3": "A",
+      "4": "1000",
+      "5": "ABD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214507.jpg": {
+    "entry_number": "2025CSB1218",
+    "name": "Mansi Goyal",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "20260324_214417.jpg": {
+    "entry_number": "2025MCB1496",
+    "name": "M. Gouthami",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213958.jpg": {
+    "entry_number": "2025CSB1255",
+    "name": "Satyam Bharti",
+    "answers": {
+      "1": "CD",
+      "2": "672",
+      "3": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225858541_HDR.jpg": {
+    "entry_number": "2025.MCBIS13",
+    "name": "Sakshi. Meena",
+    "answers": {
+      "1": "ACD",
+      "3": "C",
+      "4": "12",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213819.jpg": {
+    "entry_number": "2025CSB1159",
+    "name": "AMULYA KABRA",
+    "answers": {
+      "1": "ABCD",
+      "3": "5",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_214515.jpg": {
+    "entry_number": "2025MCB1484",
+    "name": "Kortik Modari",
+    "answers": {
+      "1": "CD",
+      "5": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225958276_HDR.jpg": {
+    "entry_number": "2025CSB1236",
+    "name": "Pragam Dixit",
+    "answers": {
+      "1": "B",
+      "2": "481",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230011422_HDR.jpg": {
+    "entry_number": "20256571203",
+    "name": "kingson Ramjan",
+    "answers": {
+      "2": "600",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214045.jpg": {
+    "entry_number": "2025MCB1530",
+    "name": "YASH NEHRA",
+    "answers": {
+      "1": "BC",
+      "2": "600",
+      "3": "C",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-east4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "IMG_20260324_230004354_HDR.jpg": {
+    "entry_number": "2025CSB1206",
+    "name": "KHUSH VARSHNEY",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214441.jpg": {
+    "entry_number": "201SMCR1503",
+    "name": "O.Nipan Tej. Reddy",
+    "answers": {
+      "1": "CD",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_214144.jpg": {
+    "entry_number": "2025mcb1461",
+    "name": "Ajitesh Singh Bhullar",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "3": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "20260324_214450.jpg": {
+    "entry_number": "2025MCB1490",
+    "name": "Lalit Kumar",
+    "answers": {
+      "1": "B",
+      "2": "600",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225710664_HDR.jpg": {
+    "entry_number": "2025MCB1457",
+    "name": "ADAMYA RAJPUT",
+    "answers": {
+      "1": "CD",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_214704.jpg": {
+    "entry_number": "2021SCSB1153",
+    "name": "Adarsh",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230100727_HDR.jpg": {
+    "entry_number": "2025CSB1238",
+    "name": "Pratey Das",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230023504_HDR.jpg": {
+    "entry_number": "2025c861244",
+    "name": "Ritika Chaudhary",
+    "answers": {
+      "1": "AC",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213918.jpg": {
+    "entry_number": "2025CSB1220",
+    "name": "Meet Trivedi",
+    "answers": {
+      "1": "ACD",
+      "2": "1369",
+      "3": "B",
+      "6": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_214753.jpg": {
+    "entry_number": "2025CSB1188",
+    "name": "Digvijaya",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214321.jpg": {
+    "entry_number": "202.5MCB.1469",
+    "name": "Aphamveer Singh Sallen",
+    "answers": {
+      "1": "ACD",
+      "2": "299",
+      "3": "B",
+      "5": "ACD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "20260324_214739.jpg": {
+    "entry_number": "202SCB1168",
+    "name": "Ashish",
+    "answers": {
+      "1": "ABCD",
+      "2": "600",
+      "3": "B",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214805.jpg": {
+    "entry_number": "2025CSB1187",
+    "name": "Dhwanit Patel",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_214644.jpg": {
+    "entry_number": "2025CSB1203",
+    "name": "Jayanth Kumar Dahire",
+    "answers": {
+      "1": "ACD",
+      "3": "A",
+      "5": "CD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20260324_214656.jpg": {
+    "entry_number": "2025CSB1177",
+    "name": "B. Jayram",
+    "answers": {
+      "1": "BD",
+      "3": "D",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "Copy of 20260324_200908.jpg": {
+    "entry_number": "2024CSB1225",
+    "name": "MOINAK K. GOSWAMI",
+    "answers": {
+      "1": "ABCD",
+      "2": "600",
+      "3": "A",
+      "4": "1226",
+      "5": "CD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 3
+  },
+  "20260324_215125.jpg": {
+    "entry_number": "2025MCB1467",
+    "name": "Aryan Dhan",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20260324_214538.jpg": {
+    "entry_number": "2025MCB1501",
+    "name": "NENAVATH NAVEEN",
+    "answers": {
+      "1": "BC",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "20260324_214731.jpg": {
+    "entry_number": "2025CSB1157",
+    "name": "AMAN GUPTA",
+    "answers": {
+      "1": "ACD",
+      "2": "702",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east5",
+    "_verified_passes": 3
+  },
+  "20260324_214913.jpg": {
+    "entry_number": "202SCSB1250",
+    "name": "Sainyam",
+    "answers": {
+      "1": "BCD",
+      "3": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_215010.jpg": {
+    "entry_number": "2015MCB1491",
+    "name": "Manish",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_214858.jpg": {
+    "entry_number": "2025CSB1241",
+    "name": "Ram Krishna Das",
+    "answers": {
+      "1": "B",
+      "2": "572",
+      "3": "A",
+      "4": "980",
+      "5": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_200821.jpg": {
+    "entry_number": "2024CSB1215",
+    "name": "Sarthak Keshaowar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0071.HEIC": {
+    "entry_number": "2025.CSB1230",
+    "name": "Ojasvi",
+    "answers": {
+      "1": "CD",
+      "3": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225921641_HDR.jpg": {
+    "entry_number": "2025MEB1510",
+    "name": "Ritesh Rai",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20260324_214937.jpg": {
+    "entry_number": "2025MCB1522",
+    "name": "SORYAD MADREKAR",
+    "answers": {
+      "1": "ACD",
+      "2": "684",
+      "3": "B",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_213621.jpg": {
+    "entry_number": "202SCSB1641",
+    "name": "Shubham Kumar",
+    "answers": {
+      "1": "A",
+      "3": "5",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_214813.jpg": {
+    "entry_number": "2025CSB1186",
+    "name": "Dhruvesh Maithai",
+    "answers": {
+      "1": "ABCD",
+      "2": "1143",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_214923.jpg": {
+    "entry_number": "2025MCB1480",
+    "name": "Hazel Gary",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "3": "A",
+      "5": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_200836.jpg": {
+    "entry_number": "2024CSB1093",
+    "name": "Abhishulesh Gevin",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230053172_HDR.jpg": {
+    "entry_number": "2025CSB1231",
+    "name": "Parichi",
+    "answers": {
+      "1": "ABCD",
+      "2": "456",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east5, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_200844.jpg": {
+    "entry_number": "2025CSB1195",
+    "name": "Gunjan Chaudhary",
+    "answers": {
+      "1": "AD",
+      "2": "703",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_214746.jpg": {
+    "entry_number": "2025CSB1205",
+    "name": "Keerat Singh Vohra",
+    "answers": {
+      "1": "BC",
+      "2": "444",
+      "3": "B",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_215218.jpg": {
+    "entry_number": "2025.MCB149.7",
+    "name": "Mridul",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_215035.jpg": {
+    "entry_number": "2025MCB1494",
+    "name": "Marwan PK Rahman",
+    "answers": {
+      "1": "AB",
+      "2": "600",
+      "3": "D",
+      "5": "BC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "IMG_0062.HEIC": {
+    "entry_number": "2025CSB1152",
+    "name": "Abhidipa Verma",
+    "answers": {
+      "1": "ABCD",
+      "2": "576",
+      "3": "5",
+      "5": "CD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "20260324_215233.jpg": {
+    "entry_number": "2025mcb1487",
+    "name": "KRATIKA VERMA",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0073.HEIC": {
+    "entry_number": "2025CSB1214",
+    "name": "Mooninder Singh",
+    "answers": {
+      "1": "AD",
+      "3": "B",
+      "5": "BC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_0064.HEIC": {
+    "entry_number": "20256SB1182",
+    "name": "Devan B. Burhan",
+    "answers": {
+      "1": "BCD",
+      "2": "600",
+      "3": "A",
+      "4": "NA",
+      "5": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "20260324_215136.jpg": {
+    "entry_number": "2025MCB1527",
+    "name": "Vanshika",
+    "answers": {
+      "1": "ACD",
+      "3": "D",
+      "5": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_230037975_HDR.jpg": {
+    "entry_number": "2025CSB1226",
+    "name": "Mohammed Rehoon CT",
+    "answers": {
+      "2": "888",
+      "3": "A",
+      "5": "ABD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 3
+  },
+  "IMG_0057.JPG": {
+    "entry_number": "2025CSB1169",
+    "name": "ASHLYN ALDRIN JOSE",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "5": "ABCD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_215224.jpg": {
+    "entry_number": "2025MCB1993",
+    "name": "Mansha",
+    "answers": {
+      "1": "ABCD",
+      "2": "444",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0075.HEIC": {
+    "entry_number": "2025CSB1264",
+    "name": "TANUJ",
+    "answers": {
+      "1": "B",
+      "2": "600",
+      "3": "B",
+      "4": "144"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0067.HEIC": {
+    "entry_number": "2025MCB1479",
+    "name": "HARSHIL GOYAL",
+    "answers": {
+      "1": "AD",
+      "2": "600",
+      "3": "A",
+      "4": "484",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "IMG_0076.HEIC": {
+    "entry_number": "2025MCB1509",
+    "name": "Rishi Kumawat",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "IMG_0080.HEIC": {
+    "entry_number": "2025MCB1511",
+    "name": "RONIT BISWAL",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_200814.jpg": {
+    "entry_number": "2024MCB1353",
+    "name": "Jaskaran Kora",
+    "answers": {
+      "1": "BC",
+      "2": "600",
+      "3": "A",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_213929.jpg": {
+    "entry_number": "2025CSB1249",
+    "name": "Sai Pasthan",
+    "answers": {
+      "1": "BCD",
+      "2": "600",
+      "3": "A",
+      "5": "BD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_214434.jpg": {
+    "entry_number": "2025MEB1472",
+    "name": "Cheton Yodou",
+    "answers": {
+      "1": "A",
+      "3": "A",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_20260324_225851795_HDR.jpg": {
+    "entry_number": "2025CSB1252",
+    "name": "Saksham Garg",
+    "answers": {
+      "1": "BCD",
+      "2": "1331",
+      "3": "B",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 3
+  },
+  "IMG_0077.HEIC": {
+    "entry_number": "2023MB1476",
+    "name": "Druganeshu",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_0079.HEIC": {
+    "entry_number": "2025MCB1475",
+    "name": "Dhoryaveen. Singh",
+    "answers": {
+      "1": "ACD",
+      "2": "1521",
+      "3": "A",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0078.HEIC": {
+    "entry_number": "2025.mcb.1468",
+    "name": "ARYAN SAHU",
+    "answers": {
+      "1": "BD",
+      "2": "600",
+      "3": "B",
+      "5": "BC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "IMG_0066.HEIC": {
+    "entry_number": "2025CSB11.7.0",
+    "name": "Ayush Raj",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_200850.jpg": {
+    "entry_number": "2025CSB1204",
+    "name": "Kanchi Aggarwal",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_200826.jpg": {
+    "entry_number": "2025CSB1193",
+    "name": "GOURAV",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_0069.HEIC": {
+    "entry_number": "2025.CS.B.1224",
+    "name": "",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0063.HEIC": {
+    "entry_number": "2025 CSA 1199",
+    "name": "Horsh Thapar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_215242.jpg": {
+    "entry_number": "2025CSB1158",
+    "name": "Amgoth Arun",
+    "answers": {
+      "1": "ACD",
+      "3": "A",
+      "5": "ABCD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_200941.jpg": {
+    "entry_number": "2025CSB.11.6.2",
+    "name": "Arsh Goy",
+    "answers": {
+      "1": "CD",
+      "3": "B",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_0074.HEIC": {
+    "entry_number": "2025MCB1456",
+    "name": "Abhiraj Maurya",
+    "answers": {
+      "1": "ABCD",
+      "5": "ACD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_200908.jpg": {
+    "entry_number": "2024CSB1225",
+    "name": "MOINAK GOSWAMI",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_214905.jpg": {
+    "entry_number": "2025MCB147B",
+    "name": "Harendra Fageriya",
+    "answers": {
+      "1": "BD",
+      "3": "A",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east5, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_200839.jpg": {
+    "entry_number": "202SCSB1184",
+    "name": "Divya Gupta",
+    "answers": {
+      "1": "BC",
+      "3": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_214724.jpg": {
+    "entry_number": "2025CSB1154",
+    "name": "Aditya",
+    "answers": {
+      "1": "ABCD",
+      "3": "D",
+      "4": "1219",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 3
+  },
+  "20260324_200916.jpg": {
+    "entry_number": "2024MCB1403",
+    "name": "ARJUN S",
+    "answers": {
+      "1": "CD",
+      "2": "576",
+      "3": "5",
+      "4": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20260324_200824.jpg": {
+    "entry_number": "2024MCB126",
+    "name": "ARAHAN A. GARG",
+    "answers": {
+      "1": "BCD",
+      "2": "625",
+      "3": "B",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_200904.jpg": {
+    "entry_number": "2024CSB1150",
+    "name": "Sandesh Bairagi",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201043.jpg": {
+    "entry_number": "2025CSB1245",
+    "name": "Ritul Kumar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "IMG_0081.HEIC": {
+    "entry_number": "2025MCB1459",
+    "name": "Aditya",
+    "answers": {
+      "1": "B",
+      "2": "312",
+      "3": "3",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 3
+  },
+  "20260324_201122.jpg": {
+    "entry_number": "2025MCB1458",
+    "name": "Adarsh Singh",
+    "answers": {
+      "1": "AD",
+      "3": "A",
+      "5": "CD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_200923.jpg": {
+    "entry_number": "2024MCB1333",
+    "name": "Bhavya Bansal",
+    "answers": {
+      "1": "BC",
+      "2": "312",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "20260324_200917.jpg": {
+    "entry_number": "2024MCB1403",
+    "name": "ARJUN S",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201102.jpg": {
+    "entry_number": "2025CSB1163",
+    "name": "ANURADHA KANAUJIYA",
+    "answers": {
+      "1": "ACD",
+      "3": "A",
+      "5": "ABCD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "20260324_214822.jpg": {
+    "entry_number": "2025.CSB.1240",
+    "name": "Raghav Anand",
+    "answers": {
+      "1": "CD",
+      "2": "1369",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 3
+  },
+  "IMG_0065.HEIC": {
+    "entry_number": "202SCSA1179",
+    "name": "Chandana Akash Meher",
+    "answers": {
+      "1": "AC",
+      "2": "600",
+      "3": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_214954.jpg": {
+    "entry_number": "2025MCBISI7",
+    "name": "Seerat Mehta",
+    "answers": {
+      "1": "ACD",
+      "2": "1521",
+      "3": "A",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "20260324_201009.jpg": {
+    "entry_number": "2025CSB1265",
+    "name": "Tushar",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "IMG_0072.HEIC": {
+    "entry_number": "2025CSB1260",
+    "name": "Somil Dhawan",
+    "answers": {
+      "1": "BC",
+      "2": "506",
+      "3": "B",
+      "4": "144",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_201137.jpg": {
+    "entry_number": "202JMCB1454",
+    "name": "Aayush Santosh Bhajale",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_0068.HEIC": {
+    "entry_number": "2025(SP1243",
+    "name": "Ritish Gupta",
+    "answers": {
+      "1": "CD",
+      "2": "600",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_200817.jpg": {
+    "entry_number": "2025CSB1174",
+    "name": "Bhosale Harshvardhan",
+    "answers": {
+      "1": "CD",
+      "2": "576",
+      "3": "C",
+      "4": "245",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_200912.jpg": {
+    "entry_number": "2025CSB1156",
+    "name": "Akanksha",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "3": "B",
+      "4": "80",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east5",
+    "_verified_passes": 3
+  },
+  "20260324_200833.jpg": {
+    "entry_number": "202SCSB1194",
+    "name": "Gugulo.th Karthik",
+    "answers": {
+      "1": "CD",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "20260324_200900.jpg": {
+    "entry_number": "2025.CSB.119.0.",
+    "name": "D. Rupika",
+    "answers": {
+      "1": "ABCD",
+      "2": "600",
+      "3": "A",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 3
+  },
+  "20260324_201215.jpg": {
+    "entry_number": "2025MCB1505",
+    "name": "PARAM DAMANI",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_201143.jpg": {
+    "entry_number": "2025CSB1257",
+    "name": "Shalin Javaria",
+    "answers": {
+      "1": "CD",
+      "3": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_201210.jpg": {
+    "entry_number": "2025CSB1259",
+    "name": "SIDDA VASUMAT",
+    "answers": {
+      "1": "BD",
+      "2": "11",
+      "3": "D",
+      "4": "1180",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "IMG_0070.HEIC": {
+    "entry_number": "20251581225",
+    "name": "Monish.P",
+    "answers": {
+      "1": "ACD",
+      "2": "592",
+      "3": "B",
+      "5": "CD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 3
+  },
+  "20260324_200949.jpg": {
+    "entry_number": "2021CSB1176",
+    "name": "Bisal Bhargow",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_201029.jpg": {
+    "entry_number": "2025CSB1217",
+    "name": "Monas Soumya",
+    "answers": {
+      "1": "CD",
+      "2": "336",
+      "3": "C",
+      "4": "144",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 3
+  },
+  "IMG_0055.JPG": {
+    "entry_number": "2025CSB1192",
+    "name": "G. Rupesh",
+    "answers": {
+      "1": "BD",
+      "2": "600",
+      "3": "A",
+      "5": "ABD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "IMG_0058.HEIC": {
+    "entry_number": "2024CSB1203",
+    "name": "HARSHIT SAHU",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_201308.jpg": {
+    "entry_number": "2025MCB1477",
+    "name": "Ekamjot Singh",
+    "answers": {
+      "2": "1200",
+      "3": "D",
+      "4": "1105"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "20260324_201550.jpg": {
+    "entry_number": "2025MCB1502",
+    "name": "NISHANT",
+    "answers": {
+      "1": "AC",
+      "3": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "20260324_201048.jpg": {
+    "entry_number": "2025CSB1263",
+    "name": "TANMAY KUMAR JAYANT",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_201056.jpg": {
+    "entry_number": "2025CSB1221",
+    "name": "",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201330.jpg": {
+    "entry_number": "20250831287",
+    "name": "Pranjal Agarwal",
+    "answers": {
+      "1": "ACD",
+      "2": "820",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_201334.jpg": {
+    "entry_number": "2025MCB1521",
+    "name": "SHRUTI RAI",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "20260324_200956.jpg": {
+    "entry_number": "2025CSB1202",
+    "name": "Satin Singla",
+    "answers": {
+      "1": "AC",
+      "2": "506",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_0054.JPG": {
+    "entry_number": "2025CSB1165",
+    "name": "ARSHI",
+    "answers": {
+      "1": "ABCD",
+      "3": "B",
+      "4": "1000",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201200.jpg": {
+    "entry_number": "2025CSB1253",
+    "name": "Saksham Yadav",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201205.jpg": {
+    "entry_number": "2021CSB1247",
+    "name": "Rohit Kumar Gond",
+    "answers": {
+      "1": "CD",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_200919.jpg": {
+    "entry_number": "2024MKB1389",
+    "name": "Shourya Pastor",
+    "answers": {
+      "1": "BC",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 3
+  },
+  "IMG_0059.HEIC": {
+    "entry_number": "2029056.105.7",
+    "name": "Amon Roj",
+    "answers": {
+      "1": "ABD",
+      "2": "288",
+      "3": "D",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201139.jpg": {
+    "entry_number": "2025mCB1454",
+    "name": "Aayush Santosh Bhosale",
+    "answers": {
+      "1": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_201323.jpg": {
+    "entry_number": "2025MCB1488",
+    "name": "Surya Tija",
+    "answers": {
+      "1": "CD",
+      "2": "576",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_201149.jpg": {
+    "entry_number": "2025CSB1242",
+    "name": "RISHIT GUPTA",
+    "answers": {
+      "1": "ABCD",
+      "3": "A",
+      "4": "100",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "20260324_201338.jpg": {
+    "entry_number": "2025MCB1529",
+    "name": "Vishu Garg",
+    "answers": {
+      "1": "BC",
+      "2": "600",
+      "3": "B",
+      "4": "1219",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201037.jpg": {
+    "entry_number": "2025CSB1254",
+    "name": "",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201128.jpg": {
+    "entry_number": "2015CSB1248",
+    "name": "Rudra",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "IMG_0056.JPG": {
+    "entry_number": "2024CSB1401",
+    "name": "Abhijit Kishan kamble",
+    "answers": {
+      "1": "ACD",
+      "3": "B",
+      "5": "ACD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "IMG_0053.JPG": {
+    "entry_number": "20257.SB.1161",
+    "name": "Ankush Raj",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_200936.jpg": {
+    "entry_number": "2025CSB1196",
+    "name": "Gurnoor Singh",
+    "answers": {},
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_201319.jpg": {
+    "entry_number": "202SMUB1524",
+    "name": "TANVIR JAURR",
+    "answers": {
+      "1": "ACD",
+      "2": "1369",
+      "5": "BC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "20260324_201326.jpg": {
+    "entry_number": "2025MCB1485",
+    "name": "KASHISH AGGARWAL",
+    "answers": {
+      "1": "ACD",
+      "2": "1156",
+      "3": "A",
+      "5": "ACD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "20260324_200930.jpg": {
+    "entry_number": "2025CSB1155",
+    "name": "Aditya Gothwal",
+    "answers": {
+      "1": "ACD",
+      "2": "569",
+      "3": "A",
+      "4": "216",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "IMG_0061.HEIC": {
+    "entry_number": "2025CSBIISI",
+    "name": "Aashil Ubbott",
+    "answers": {
+      "1": "BD",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_201134.jpg": {
+    "entry_number": "2020SCB1234",
+    "name": "Piyush Kumar",
+    "answers": {
+      "1": "AC",
+      "2": "144",
+      "3": "C",
+      "4": "1210",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 3
+  },
+  "20260324_201343.jpg": {
+    "entry_number": "2025MCB504",
+    "name": "Jenis Paghadell",
+    "answers": {
+      "1": "ACD",
+      "2": "600",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  },
+  "20260324_201250.jpg": {
+    "entry_number": "2025MCB1481",
+    "name": "Naga chaitanya",
+    "answers": {
+      "1": "ABD",
+      "2": "6M",
+      "3": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 3
+  },
+  "20260324_201304.jpg": {
+    "entry_number": "202SMCB1466",
+    "name": "ARNAV SINGH",
+    "answers": {
+      "1": "C",
+      "2": "600",
+      "3": "B",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 3
+  },
+  "IMG_0060.HEIC": {
+    "entry_number": "2025CSB1172",
+    "name": "Aryun Beludiyu",
+    "answers": {
+      "1": "B",
+      "2": "9/2",
+      "3": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-south1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 3
+  }
+}
