@@ -110,7 +110,9 @@ class BatchEvaluationService:
             'answers': {
                 q_num: {
                     'correct_option': entry.correct_option.strip().upper(),
-                    'marks': entry.marks
+                    'marks': entry.marks,
+                    'question_type': entry.question_type,
+                    'negative_marks': entry.negative_marks,
                 }
                 for q_num, entry in answer_key.answers.items()
             },
@@ -225,10 +227,12 @@ class BatchEvaluationService:
             answers_dict = optimized_key['answers']
             negative_marking = optimized_key['negative_marking']
             
-            # Iterate over answer key questions (more efficient than original)
+            # Iterate over answer key questions
             for q_num, key_data in answers_dict.items():
                 correct_option = key_data['correct_option']
                 marks = key_data['marks']
+                question_type = key_data.get('question_type', 'SMCQ')
+                per_q_negative = key_data.get('negative_marks') or negative_marking
                 max_score += marks
 
                 if q_num in student_ans:
@@ -248,30 +252,19 @@ class BatchEvaluationService:
                     elif marked == "MULTIPLE":
                         # Multiple options marked -> Incorrect
                         incorrect_count += 1
-                        negative_deduction += negative_marking
-                        total_score -= negative_marking
+                        negative_deduction += per_q_negative
+                        total_score -= per_q_negative
                         details.append(QuestionResult(
                             question_number=q_num,
                             marked=marked,
                             correct=correct_option,
                             result="multiple",
-                            score=-negative_marking
+                            score=-per_q_negative
                         ))
                         comments_list.append(f"Q{q_num}: Multiple marks")
                     
-                    elif marked == correct_option:
-                        correct_count += 1
-                        total_score += marks
-                        details.append(QuestionResult(
-                            question_number=q_num,
-                            marked=marked,
-                            correct=correct_option,
-                            result="correct",
-                            score=marks
-                        ))
-                    
-                    elif EvaluationService._ocr_correct_mcq_answer(marked) == correct_option:
-                        # OCR digit-to-letter correction matched (e.g. '8' → 'B')
+                    elif EvaluationService._is_answer_correct(marked, correct_option, question_type):
+                        # Proper type-aware matching: MMCQ sorted, NCQ float, SMCQ + OCR correction
                         correct_count += 1
                         total_score += marks
                         details.append(QuestionResult(
@@ -284,14 +277,14 @@ class BatchEvaluationService:
                     
                     else:
                         incorrect_count += 1
-                        negative_deduction += negative_marking
-                        total_score -= negative_marking
+                        negative_deduction += per_q_negative
+                        total_score -= per_q_negative
                         details.append(QuestionResult(
                             question_number=q_num,
                             marked=marked,
                             correct=correct_option,
                             result="incorrect",
-                            score=-negative_marking
+                            score=-per_q_negative
                         ))
                 else:
                     unattempted_count += 1

@@ -6,7 +6,6 @@ load_dotenv()
 
 from fastapi.middleware.cors import CORSMiddleware
 from api import endpoints
-from api import batch_endpoints
 from api import batch_endpoints_optimized
 
 
@@ -14,14 +13,8 @@ from api import batch_endpoints_optimized
 async def lifespan(app: FastAPI):
     # Startup: nothing extra needed (services self-initialise)
     yield
-    # Shutdown: cleanly close OptimizedOCRService connection pools
-    await batch_endpoints.optimized_ocr_service.cleanup()
+    # Shutdown: cleanly close any remaining connection pools
     await endpoints.optimized_ocr.cleanup()
-    # Cleanup optimized services
-    if hasattr(batch_endpoints_optimized, 'optimized_ocr'):
-        await batch_endpoints_optimized.optimized_ocr.cleanup()
-    if hasattr(batch_endpoints_optimized, 'multi_region_ocr'):
-        await batch_endpoints_optimized.multi_region_ocr.cleanup()
 
 
 app = FastAPI(
@@ -39,9 +32,6 @@ app.add_middleware(
 
 # Standard pipeline endpoints  →  /api/*
 app.include_router(endpoints.router, prefix="/api")
-
-# High-throughput batch endpoints  →  /api/batch/*
-app.include_router(batch_endpoints.router)
 
 # Ultra-optimized batch endpoints  →  /api/batch/*
 app.include_router(batch_endpoints_optimized.router)

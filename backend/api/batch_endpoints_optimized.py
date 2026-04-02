@@ -18,12 +18,11 @@ Evaluation results are FULLY CACHED — cache hits skip OCR AND evaluation entir
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from models import ProcessFolderRequest, PipelineSummary
 from services.drive_service import DriveService
-from services.optimized_ocr_service import OptimizedOCRService
-from services.multi_region_ocr_service import MultiRegionOCRService
 from services.answer_key_service import AnswerKeyService
 from services.batch_evaluation_service import BatchEvaluationService, batch_match_and_score
 from services.result_cache_service import ResultCacheService, get_cached_or_process_ocr
 from services.optimized_database_service import OptimizedDatabaseService, batch_write_student_results
+import aiohttp
 import asyncio
 import tempfile
 import shutil
@@ -41,8 +40,6 @@ router = APIRouter(prefix="/api")
 
 # Services
 drive_service = DriveService()
-optimized_ocr = OptimizedOCRService()
-multi_region_ocr = MultiRegionOCRService()
 answer_key_service = AnswerKeyService()
 batch_eval_service = BatchEvaluationService()
 cache_service = ResultCacheService()
@@ -121,7 +118,7 @@ class _TokenBucket:
 # Bucket per (model, region) pair, lazily initialised
 _buckets: Dict[str, _TokenBucket] = {}
 _rr_counter: int = 0  # global round-robin index across all Pro endpoints
-_rr_lock: Optional[asyncio.Lock] = None
+_rr_lock: asyncio.Lock = asyncio.Lock()
 
 # ─── Per-endpoint 429 cooldown ────────────────────────────────────────────────
 # When an endpoint returns 429, we mark it as cooling down for N seconds.
@@ -180,9 +177,7 @@ def _get_healthy_pool(exclude_regions: Optional[list] = None) -> List[Dict]:
 
 async def _pick_endpoint(exclude_regions: Optional[list] = None) -> Dict:
     """Round-robin across healthy (non-cooling-down) Pro endpoints."""
-    global _rr_lock, _rr_counter
-    if _rr_lock is None:
-        _rr_lock = asyncio.Lock()
+    global _rr_counter
     candidates = _get_healthy_pool(exclude_regions)
     async with _rr_lock:
         idx = _rr_counter % len(candidates)
@@ -248,6 +243,29 @@ def _build_ocr_prompt(answer_key: Optional[dict] = None) -> str:
 _OCR_MAX_RETRIES = 20
 # 429 backoff cap (seconds): will wait up to 2 min before cycling to next region.
 _OCR_BACKOFF_CAP = 120
+
+# Cache prompt strings so _build_ocr_prompt runs at most once per unique answer key
+_ocr_prompt_cache: Dict[str, str] = {}  # answer_key fingerprint → prompt string
+
+
+def _get_ocr_prompt(answer_key: Optional[dict] = None) -> str:
+    """Return a cached OCR prompt for the given answer key. Builds once, reuses always."""
+    if not answer_key:
+        key = "__no_answer_key__"
+    else:
+        # Fingerprint using sorted question types — fast and stable
+        try:
+            fingerprint_parts = sorted(
+                (str(q), str(meta.get("question_type", "")))
+                for q, meta in answer_key.get("answers", {}).items()
+                if isinstance(meta, dict)
+            )
+            key = str(fingerprint_parts)
+        except Exception:
+            key = "__fallback__"
+    if key not in _ocr_prompt_cache:
+        _ocr_prompt_cache[key] = _build_ocr_prompt(answer_key)
+    return _ocr_prompt_cache[key]
 
 
 def _prepare_image_payload(image_path: str) -> tuple[str, str]:
@@ -389,7 +407,7 @@ async def _ocr_single_pass(
     exclude_regions: Optional[list] = None,
     b64: Optional[str] = None,
     mime: Optional[str] = None,
-    answer_key: Optional[dict] = None
+    ocr_prompt: Optional[str] = None,   # Pre-built prompt string — pass once from _ocr_one
 ) -> dict:
     """
     Execute ONE OCR pass against gemini-2.5-pro only.
@@ -399,6 +417,8 @@ async def _ocr_single_pass(
       a DIFFERENT healthy region without sleeping (no blocking delay).
     - b64/mime can be pre-computed and shared across concurrent passes.
     - exclude_regions: list of regions to avoid (for cross-region verification).
+    - ocr_prompt: pre-built prompt string, passed in once by _ocr_one to avoid
+      rebuilding the prompt string on every retry attempt.
     """
     last_error = None
     # Pre-encode image once (caller may pass it in to avoid redundant work)
@@ -418,7 +438,7 @@ async def _ocr_single_pass(
         )
         headers = await get_headers()
 
-        prompt_text = _build_ocr_prompt(answer_key)
+        prompt_text = ocr_prompt or _get_ocr_prompt(None)
         payload = {
             "contents": [{"role": "user", "parts": [
                 {"text": prompt_text},
@@ -430,7 +450,6 @@ async def _ocr_single_pass(
         fname = os.path.basename(image_path)
         print(f"  🌐 [OCR] {fname} attempt {attempt+1}/{_OCR_MAX_RETRIES+1} → {ep['model']}@{ep['region']}")
         try:
-            import aiohttp
             async with session.post(url, headers=headers, json=payload,
                                     timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 print(f"  🌐 [OCR] {fname} HTTP {resp.status} from {ep['region']}")
@@ -569,6 +588,9 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
     """
     fname = os.path.basename(image_path)
 
+    # ── Build OCR prompt ONCE for this image — shared across all passes ───────
+    ocr_prompt = _get_ocr_prompt(answer_key)
+
     # ── Pre-encode image ONCE — shared by all passes ──────────────────
     b64, mime = _prepare_image_payload(image_path)
 
@@ -582,9 +604,9 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
     print(f"  🚀 [OCR Pass 1+2 concurrent] {fname}")
     r1, r2 = await asyncio.gather(
         _ocr_single_pass(session, image_path, get_headers, project_id,
-                         exclude_regions=None, b64=b64, mime=mime, answer_key=answer_key),
+                         exclude_regions=None, b64=b64, mime=mime, ocr_prompt=ocr_prompt),
         _ocr_single_pass(session, image_path, get_headers, project_id,
-                         exclude_regions=ep2_exclude, b64=b64, mime=mime, answer_key=answer_key),
+                         exclude_regions=ep2_exclude, b64=b64, mime=mime, ocr_prompt=ocr_prompt),
         return_exceptions=False,
     )
 
@@ -612,10 +634,22 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
         # but the pencil marks are likely faint and the model got distracted by the printed header.
         if ans_count == 0 and (str(r1.get("entry_number", "")).strip() or str(r1.get("name", "")).strip()):
             print(f"  🆘 [OCR SALVAGE] {fname} — both passes read 0 answers but found identity. Retrying with cropped grid...")
-            b64_crop, mime_crop = _prepare_image_payload(image_path, crop_bottom_half=True)
+            # Crop bottom 60% of image (where answer grid typically lives)
+            try:
+                from PIL import Image as _PILImage
+                with _PILImage.open(image_path) as _img:
+                    w, h = _img.size
+                    cropped = _img.crop((0, int(h * 0.4), w, h))
+                    _buf = io.BytesIO()
+                    cropped.save(_buf, format="JPEG", quality=85)
+                    b64_crop = base64.b64encode(_buf.getvalue()).decode("utf-8")
+                    mime_crop = "image/jpeg"
+            except Exception as crop_err:
+                print(f"  ⚠️ [OCR SALVAGE] {fname}: crop failed: {crop_err}, using full image")
+                b64_crop, mime_crop = b64, mime
             r3_salvage = await _ocr_single_pass(
                 session, image_path, get_headers, project_id,
-                exclude_regions=None, b64=b64_crop, mime=mime_crop
+                exclude_regions=None, b64=b64_crop, mime=mime_crop, ocr_prompt=ocr_prompt
             )
             if "error" not in r3_salvage and len(r3_salvage.get("answers", {})) > 0:
                 print(f"  🎯 [OCR SALVAGE SUCCESS] {fname} — recovered {len(r3_salvage['answers'])} answers!")
@@ -648,7 +682,7 @@ async def _ocr_one(session, image_path: str, get_headers, project_id: str,
     r3 = await _ocr_single_pass(
         session, image_path, get_headers, project_id,
         exclude_regions=[ep1_region, ep2_region],
-        b64=b64, mime=mime, answer_key=answer_key
+        b64=b64, mime=mime, ocr_prompt=ocr_prompt
     )
     if "error" in r3:
         print(f"  ⚠️ [OCR Pass 3 failed] {fname}: {r3['error']} — majority of 2")
@@ -701,7 +735,7 @@ def _make_eval_cache_key(file_id: str, answer_key_hash: str, evaluation_id: str 
 # Written to backend/ocr_debug_<processing_id>.json at the end of each batch.
 # Keys: file name → raw OCR dict (entry_number, name, answers, _endpoint, etc.)
 _ocr_debug_log: Dict[str, dict] = {}   # processing_id → {fname: ocr_dict}
-_ocr_debug_lock: Optional[asyncio.Lock] = None
+_ocr_debug_lock: asyncio.Lock = asyncio.Lock()
 
 # ── Problem-file tracker — feed the download endpoint ─────────────────────────
 # Stores Drive file metadata for any sheet that produced an empty/error result.
@@ -719,7 +753,6 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
       - Evaluation + DB write happen immediately after OCR
       - Tier-1 (Pro) → Tier-2 (Flash) → Tier-3 (Lite) failover
     """
-    import aiohttp
     from google.oauth2 import service_account
     import google.auth.transport.requests
 
@@ -878,9 +911,6 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                 ocr = await _ocr_one(session, local_path, _get_headers, project_id, answer_key=answer_key)
 
                 # ── DEBUG: log raw OCR output immediately for inspection ──
-                global _ocr_debug_lock
-                if _ocr_debug_lock is None:
-                    _ocr_debug_lock = asyncio.Lock()
                 async with _ocr_debug_lock:
                     if processing_id not in _ocr_debug_log:
                         _ocr_debug_log[processing_id] = {}
@@ -1174,6 +1204,31 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
             "total_time": time.time() - start_time,
         })
         raise
+
+    finally:
+        # ── Auto-cleanup: remove debug JSON files older than 24 hours ──────────
+        try:
+            backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cutoff = time.time() - 86400
+            for dname in os.listdir(backend_dir):
+                if dname.startswith("ocr_debug_") and dname.endswith(".json"):
+                    fpath = os.path.join(backend_dir, dname)
+                    if os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+        except Exception:
+            pass
+        # ── Auto-trim _processing_stats: keep only last 50 runs ─────────────
+        try:
+            if len(_processing_stats) > 50:
+                sorted_ids = sorted(
+                    _processing_stats.keys(),
+                    key=lambda k: _processing_stats[k].get("start_time", 0)
+                )
+                for old_id in sorted_ids[:-50]:
+                    _processing_stats[old_id]["results"] = []
+                    _processing_stats.pop(old_id, None)
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────
