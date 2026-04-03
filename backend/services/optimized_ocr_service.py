@@ -51,7 +51,7 @@ class OptimizedOCRService:
     """Highly optimized OCR service for peak loads"""
     
     def __init__(self, project_id: str = None):
-        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-fd1a2f17-2b4d-4858-9e8")
+        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-5fa1c6c6-be40-41cd-b42")
         self.endpoints = self._initialize_endpoints()
         self.session_pool = {}
         self.credentials_cache = {}
@@ -404,9 +404,22 @@ class OptimizedOCRService:
     
     def _get_minimal_prompt(self) -> str:
         """Minimal prompt for faster processing with comprehensive answer support"""
-        return """Extract from this answer sheet and return JSON:
-{"entry_number": "roll number", "name": "student name", "answers": {"1": "A", "2": "AC", "3": "2.5", ...}}
-Rules: answers as dict, question numbers as strings, answers can be single letters (A/B/C/D), multiple letters (AC/BCD), or numbers (2.5/7.0), blank questions omitted."""
+        return """Extract from this handwritten answer sheet and return JSON:
+{"entry_number": "roll number", "name": "student name", "answers": {"1": "A", "2": "AC", "3": "A", "4": "1000", "5": "BD"}}
+
+CRITICAL RULES for "answers":
+- Keys are QUESTION NUMBERS (strings like "1", "2", "3").
+- Values are what the STUDENT MARKED as their answer, NOT the question number.
+- For MCQ/option questions: extract ONLY the letter(s) selected: "A", "B", "C", "D", or combinations like "AC", "BCD".
+- For numerical questions: extract the number they wrote, e.g. "600", "1000", "2.5".
+- IMPORTANT: If a student writes "3) A" or "(a) = 3" or "Qus3 → (a)", the answer for Q3 is "A", NOT "3".
+- The digit after "=" or "→" following an option letter is IRRELEVANT — ignore it.
+- If a student labels answers like "Qus1 → B", "Q2 600", use those labels to map to the right question number.
+- If multiple options are circled/marked for a single-answer MCQ, set value to "MULTIPLE".
+- Omit any question the student left completely blank.
+- Do NOT include the question number as its own answer value.
+
+Return ONLY valid JSON, no markdown, no explanation."""
     
     def _parse_ocr_response(self, result: Dict) -> Dict:
         """Fast OCR response parsing"""
