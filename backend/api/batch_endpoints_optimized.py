@@ -239,9 +239,12 @@ def _build_ocr_prompt(answer_key: Optional[dict] = None) -> str:
         
     return prompt
 
-# Maximum retries per single OCR pass — we wait as long as needed on Pro.
-_OCR_MAX_RETRIES = 20
-# 429 backoff cap (seconds): will wait up to 2 min before cycling to next region.
+# Maximum retries per single OCR pass.
+# Kept deliberately low (3) so a stubborn file does not block the whole queue.
+# Phase-2 retry sweep (see _process_sheets_optimized) handles persistent failures
+# after all other files have already been processed.
+_OCR_MAX_RETRIES = 3
+# 429 backoff cap (seconds)
 _OCR_BACKOFF_CAP = 120
 
 # Cache prompt strings so _build_ocr_prompt runs at most once per unique answer key
@@ -745,19 +748,28 @@ _problem_files: Dict[str, List[Dict]] = {}
 
 async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default", force_reprocess: bool = False):
     """
-    Streaming pipeline:
-      - Cache check (OCR + evaluation) BEFORE downloading anything
-      - Cache hits skip download, OCR AND re-evaluation entirely
-      - Downloads & OCR run concurrently across all sheets
-      - Token-bucket rate limiting per (model, region) pair prevents 429
-      - Evaluation + DB write happen immediately after OCR
-      - Tier-1 (Pro) → Tier-2 (Flash) → Tier-3 (Lite) failover
+    Two-phase streaming pipeline:
+
+    Phase 1 — process EVERY file concurrently with _OCR_MAX_RETRIES (3) per pass.
+              Files that produce an invalid result (empty entry_number or 0 answers)
+              are queued for phase 2 rather than retried inline.
+
+    Phase 2 — retry only the failed/empty files from phase 1, this time bypassing
+              the OCR cache and using a slightly higher retry budget (up to 5).
+              Running after the rest of the batch means quota/429 pressure is lower.
+
+    Benefits:
+      • A handful of stubborn files can no longer stall the entire queue.
+      • Total API calls per file is capped: 3 retries × 2 passes + tiebreaker = ~7 max.
+      • Phase-2 files get a quieter network (most quota already freed).
     """
     from google.oauth2 import service_account
     import google.auth.transport.requests
 
     results: List = []
     errors: List = []
+    # Files that need phase-2 retry: (sheet_file dict, original idx)
+    retry_queue: List[tuple] = []
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "project-fd1a2f17-2b4d-4858-9e8")
     optimized_key = batch_eval_service.optimize_answer_key(answer_key)
     answer_key_hash = cache_service.get_answer_key_hash(
@@ -815,10 +827,12 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
             return False
         return _is_valid_cached_entry(ocr_dict.get("entry_number", ""))
 
-    async def _handle(sheet_file: dict, idx: int):
+    async def _handle(sheet_file: dict, idx: int, is_retry: bool = False, force_fresh_ocr: bool = False):
+        """Process a single sheet. Set is_retry=True for phase-2 retries."""
         nonlocal success_count, cache_hit_count  # noqa: E741
         fname = sheet_file["name"]
-        print(f"\n{'─'*60}\n  📄 [PIPELINE] [{idx+1}/{total}] START: {fname}")
+        phase_tag = "[RETRY]" if is_retry else "[PIPELINE]"
+        print(f"\n{'─'*60}\n  📄 {phase_tag} [{idx+1}/{total}] START: {fname}")
         file_id = sheet_file["id"]
         local_path = os.path.join(temp_dir, f"{idx}_{fname}")
         # Eval cache key now encodes the answer_key_hash so stale results
@@ -873,26 +887,29 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
             if not force_reprocess:
                 ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
             
-            if ocr_cached and _is_valid_ocr_result(ocr_cached):
+            # On retry passes, always skip OCR cache so we get a fresh read
+            if not force_fresh_ocr and ocr_cached and _is_valid_ocr_result(ocr_cached):
                 ocr = ocr_cached
                 n_cached_ans = len(ocr_cached.get("answers", {}))
-                print(f"  ⚡ [PIPELINE] {fname}: OCR CACHE HIT | entry={ocr_cached.get('entry_number','')} answers={n_cached_ans}")
+                print(f"  ⚡ {phase_tag} {fname}: OCR CACHE HIT | entry={ocr_cached.get('entry_number','')} answers={n_cached_ans}")
                 async with lock:
                     _processing_stats[processing_id]["ocr_cache_hits"] = \
                         _processing_stats[processing_id].get("ocr_cache_hits", 0) + 1
             else:
-                if ocr_cached:
+                if ocr_cached and force_fresh_ocr:
+                    print(f"  🔄 {phase_tag} {fname}: skipping OCR cache (retry pass — forcing fresh OCR)")
+                elif ocr_cached:
                     cached_entry = ocr_cached.get('entry_number', '')
                     ans_count = len(ocr_cached.get('answers', {}))
-                    print(f"  🔄 [PIPELINE] {fname}: OCR cache INVALID (entry='{cached_entry}', answers={ans_count}) — re-OCR")
+                    print(f"  🔄 {phase_tag} {fname}: OCR cache INVALID (entry='{cached_entry}', answers={ans_count}) — re-OCR")
                 else:
-                    print(f"  ⬇️  [PIPELINE] {fname}: Downloading for fresh OCR")
+                    print(f"  ⬇️  {phase_tag} {fname}: Downloading for fresh OCR")
                 async with lock:
                     _processing_stats[processing_id]["cache_misses"] = \
                         _processing_stats[processing_id].get("cache_misses", 0) + 1
 
                 # ── STEP 3: Download ──
-                print(f"  ⬇️  [PIPELINE] {fname}: downloading (file_id={file_id})")
+                print(f"  ⬇️  {phase_tag} {fname}: downloading (file_id={file_id})")
                 async with download_sem:
                     ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
                 if not ok:
@@ -936,14 +953,24 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                 if "error" not in ocr:
                     ocr_entry = ocr.get("entry_number", "")
                     ocr_ans = ocr.get("answers", {})
-                    print(f"  🧠 [PIPELINE] {fname}: OCR done | entry={ocr_entry!r} | answers({len(ocr_ans)}): {dict(list(ocr_ans.items())[:5])}")
-                    # Track problem files for download endpoint
-                    if not str(ocr_entry).strip():
+                    print(f"  🧠 {phase_tag} {fname}: OCR done | entry={ocr_entry!r} | answers({len(ocr_ans)}): {dict(list(ocr_ans.items())[:5])}")
+                    # ── Phase-1: queue empty results for retry instead of giving up ──
+                    entry_empty = not str(ocr_entry).strip()
+                    answers_empty = not ocr_ans
+                    if not is_retry and (entry_empty or answers_empty):
+                        reason = "empty_entry_number" if entry_empty else "empty_answers"
+                        print(f"  🔁 {phase_tag} {fname}: queuing for PHASE-2 retry (reason={reason})")
+                        async with lock:
+                            retry_queue.append((sheet_file, idx))
+                        # Don't cache this weak result — phase-2 will overwrite
+                        return
+                    # Track problem files for download endpoint (only if still bad after retry)
+                    if entry_empty:
                         _problem_files.setdefault(processing_id, []).append(
                             {"name": fname, "id": file_id, "reason": "empty_entry_number",
                              "entry_number": "", "answers_count": len(ocr_ans)}
                         )
-                    elif not ocr_ans:
+                    elif answers_empty:
                         _problem_files.setdefault(processing_id, []).append(
                             {"name": fname, "id": file_id, "reason": "empty_answers",
                              "entry_number": ocr_entry, "answers_count": 0}
@@ -952,12 +979,23 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                     if _is_valid_ocr_result(ocr):
                         await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
                     else:
-                        print(f"  ⚠️ [PIPELINE] {fname}: NOT caching (empty entry_number) — will retry on next run")
+                        print(f"  ⚠️ {phase_tag} {fname}: NOT caching (empty entry_number) — recorded as problem file")
                 else:
-                    print(f"  ❌ [PIPELINE] {fname}: OCR returned error: {ocr.get('error')}")
+                    print(f"  ❌ {phase_tag} {fname}: OCR returned error: {ocr.get('error')}")
 
             if "error" in ocr:
-                print(f"  ❌ [PIPELINE] {fname}: FATAL OCR error — {ocr['error']}")
+                if not is_retry:
+                    # Phase-1: queue for retry rather than marking as a hard error
+                    print(f"  🔁 {phase_tag} {fname}: OCR error in phase-1 — queuing for PHASE-2 retry")
+                    async with lock:
+                        retry_queue.append((sheet_file, idx))
+                    try:
+                        os.path.exists(local_path) and os.remove(local_path)
+                    except Exception:
+                        pass
+                    return
+                # Phase-2 (retry) still failed — hard error
+                print(f"  ❌ {phase_tag} {fname}: FATAL OCR error after retry — {ocr['error']}")
                 _problem_files.setdefault(processing_id, []).append(
                     {"name": fname, "id": file_id, "reason": "ocr_error",
                      "entry_number": "", "answers_count": 0, "detail": ocr["error"]}
@@ -977,12 +1015,12 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
             if not str(ocr.get("entry_number", "")).strip():
                 fallback_id = os.path.splitext(fname)[0]
                 ocr["entry_number"] = f"UNREAD_{fallback_id}"
-                print(f"  ⚠️ [PIPELINE] {fname}: assigning fallback entry_number={ocr['entry_number']!r}")
-            print(f"  ⚖️  [PIPELINE] {fname}: evaluating | entry={ocr['entry_number']!r} | {len(ocr.get('answers',{}))} answers")
+                print(f"  ⚠️ {phase_tag} {fname}: assigning fallback entry_number={ocr['entry_number']!r}")
+            print(f"  ⚖️  {phase_tag} {fname}: evaluating | entry={ocr['entry_number']!r} | {len(ocr.get('answers',{}))} answers")
             student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
 
             if isinstance(student_result, dict) and "error" in student_result:
-                print(f"  ❌ [PIPELINE] {fname}: EVAL ERROR — {student_result['error']}")
+                print(f"  ❌ {phase_tag} {fname}: EVAL ERROR — {student_result['error']}")
                 _problem_files.setdefault(processing_id, []).append(
                     {"name": fname, "id": file_id, "reason": "eval_error",
                      "entry_number": ocr.get("entry_number", ""), "answers_count": len(ocr.get("answers", {})),
@@ -994,7 +1032,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
             else:
                 scored_entry = getattr(student_result, 'entry_number', None) or (student_result.get('entry_number') if isinstance(student_result, dict) else '')
                 scored_score = getattr(student_result, 'total_score', None) or (student_result.get('total_score') if isinstance(student_result, dict) else '?')
-                print(f"  ✅ [PIPELINE] {fname}: DONE | entry={scored_entry!r} score={scored_score}")
+                print(f"  ✅ {phase_tag} {fname}: DONE | entry={scored_entry!r} score={scored_score}")
                 # ── STEP 6: Cache the fully evaluated result ──
                 try:
                     scored_dict = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
@@ -1002,9 +1040,9 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                         scored_dict["_answer_key_hash"] = answer_key_hash
                         await cache_service.cache_ocr_result("__eval__", scored_dict, file_hash=eval_cache_key)
                     else:
-                        print(f"  ⚠️ [PIPELINE] {fname}: NOT caching eval (UNREAD entry) — will retry next run")
+                        print(f"  ⚠️ {phase_tag} {fname}: NOT caching eval (UNREAD entry) — will retry next run")
                 except Exception as cache_exc:
-                    print(f"  ⚠️ [PIPELINE] {fname}: eval cache write failed: {cache_exc}")
+                    print(f"  ⚠️ {phase_tag} {fname}: eval cache write failed: {cache_exc}")
 
                 await db_queue.put(student_result)
                 async with lock:
@@ -1018,7 +1056,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
         except Exception as exc:
             import traceback
             tb = traceback.format_exc()
-            print(f"  ❌ [PIPELINE] {fname}: UNHANDLED EXCEPTION: {exc}\n{tb}")
+            print(f"  ❌ {phase_tag} {fname}: UNHANDLED EXCEPTION: {exc}\n{tb}")
             _problem_files.setdefault(processing_id, []).append(
                 {"name": fname, "id": file_id, "reason": "unhandled_exception",
                  "entry_number": "", "answers_count": 0, "detail": str(exc)}
@@ -1034,9 +1072,40 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                 pass
 
     try:
+        # ── PHASE 1: process ALL files with tight retry budget ────────────
         _processing_stats[processing_id]["status"] = "streaming_pipeline"
         tasks = [asyncio.create_task(_handle(sf, i)) for i, sf in enumerate(student_sheets)]
         await asyncio.gather(*tasks)
+
+        # ── PHASE 2: retry only the files that produced empty results ─────
+        if retry_queue:
+            print(f"\n{'═'*60}")
+            print(f"  🔁 PHASE-2 RETRY: {len(retry_queue)} file(s) with empty OCR — retrying with fresh OCR...")
+            print(f"{'═'*60}")
+            _processing_stats[processing_id]["status"] = "retry_pass"
+            _processing_stats[processing_id]["retry_count"] = len(retry_queue)
+            _processing_stats[processing_id]["retry_files"] = [sf["name"] for sf, _ in retry_queue[:20]]
+
+            # Slightly looser retry limit for phase-2 (quota pressure is lower now)
+            orig_max = _OCR_MAX_RETRIES
+            import api.batch_endpoints_optimized as _self_mod
+            _self_mod._OCR_MAX_RETRIES = 5
+            try:
+                retry_tasks = [
+                    asyncio.create_task(_handle(sf, orig_idx, is_retry=True, force_fresh_ocr=True))
+                    for sf, orig_idx in retry_queue
+                ]
+                await asyncio.gather(*retry_tasks)
+            finally:
+                _self_mod._OCR_MAX_RETRIES = orig_max
+
+            n_recovered = len([r for r in results  # count results added during retry
+                               if str(getattr(r, 'entry_number', None) or (r.get('entry_number') if isinstance(r, dict) else '')).strip()
+                               and not str(getattr(r, 'entry_number', None) or (r.get('entry_number') if isinstance(r, dict) else '')).startswith('UNREAD_')])
+            print(f"  ✅ PHASE-2 COMPLETE: retry queue had {len(retry_queue)} file(s)")
+        else:
+            print(f"  ✅ No phase-2 retries needed — all files had valid OCR on first pass")
+
     finally:
         await db_queue.put(None)
         await writer_task
