@@ -114,7 +114,7 @@ class MultiRegionOCRService:
     """High-throughput multi-region OCR service"""
     
     def __init__(self, project_id: str = None):
-        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-75abf07c-e594-4660-ab7")
+        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-fd1a2f17-2b4d-4858-9e8")
         self.endpoints = self._initialize_endpoints()
         self.load_balancer = LoadBalancer(self.endpoints)
         self.session_pool = {}

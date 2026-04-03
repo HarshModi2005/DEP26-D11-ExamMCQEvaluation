@@ -16,7 +16,7 @@ class OCRService:
         import google.auth.transport.requests
         import google.auth
         
-        self.project_id = "project-75abf07c-e594-4660-ab7"
+        self.project_id = "project-fd1a2f17-2b4d-4858-9e8"
         self.location = "us-central1"
         self.model_id = "gemini-2.5-flash"
         self.creds = None

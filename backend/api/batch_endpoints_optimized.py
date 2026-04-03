@@ -758,7 +758,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
 
     results: List = []
     errors: List = []
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "project-75abf07c-e594-4660-ab7")
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "project-fd1a2f17-2b4d-4858-9e8")
     optimized_key = batch_eval_service.optimize_answer_key(answer_key)
     answer_key_hash = cache_service.get_answer_key_hash(
         {"answers": optimized_key["answers"], "negative_marking": optimized_key["negative_marking"]}

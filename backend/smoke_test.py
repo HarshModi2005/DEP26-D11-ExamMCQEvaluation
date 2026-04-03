@@ -9,7 +9,7 @@ from google.oauth2 import service_account
 import google.auth.transport.requests
 
 def test_ocr():
-    PROJECT_ID = "project-75abf07c-e594-4660-ab7"
+    PROJECT_ID = "project-fd1a2f17-2b4d-4858-9e8"
     LOCATION = "asia-east2"
     # Will try testing "gemini-pro" and "gemini-1.5-flash"
     MODEL_ID = "gemini-pro"
