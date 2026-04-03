@@ -19,7 +19,7 @@ import google.auth
 
 class AnswerKeyService:
     def __init__(self):
-        self.project_id = "project-fd1a2f17-2b4d-4858-9e8"
+        self.project_id = "project-5fa1c6c6-be40-41cd-b42"
         self.location = "us-central1"
         self.model_id = "gemini-2.5-flash"
         self.creds = None

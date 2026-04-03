@@ -114,7 +114,7 @@ class MultiRegionOCRService:
     """High-throughput multi-region OCR service"""
     
     def __init__(self, project_id: str = None):
-        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-fd1a2f17-2b4d-4858-9e8")
+        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-5fa1c6c6-be40-41cd-b42")
         self.endpoints = self._initialize_endpoints()
         self.load_balancer = LoadBalancer(self.endpoints)
         self.session_pool = {}
@@ -369,30 +369,36 @@ class MultiRegionOCRService:
     
     def _get_ocr_prompt(self) -> str:
         """Get OCR prompt for objective answer sheets"""
-        return """
-You are analyzing an OBJECTIVE answer sheet (MCQ/OMR style).
+        return """You are analyzing a HANDWRITTEN OBJECTIVE answer sheet (MCQ/OMR style).
 
 Extract ONLY the following fields and return as valid JSON (no markdown):
 
 {
     "entry_number": "the student's entry/roll number",
-    "name": "the student's name", 
+    "name": "the student's name",
     "answers": {
-        "1": "A",
-        "2": "C", 
-        "3": "B",
-        ...
+        "1": "BD",
+        "2": "600",
+        "3": "A",
+        "4": "1000",
+        "5": "BD"
     },
     "comments": "Any observations about the sheet quality or issues"
 }
 
-Rules:
-- "entry_number": Look for roll number, entry number, enrollment number, student ID, etc.
-- "name": The student's name as written on the sheet
-- "answers": Dictionary mapping question number (string) to marked option (A/B/C/D)
-- If question is blank, don't include it
-- If multiple options marked, set value to "MULTIPLE"
-- If entry_number or name not found, set to null
+CRITICAL RULES for \"answers\":
+- Keys are QUESTION NUMBERS (strings: "1", "2", "3", "4", "5").
+- Values are what the STUDENT MARKED as their answer, NOT the question number.
+- For MCQ/option questions: extract ONLY the letter(s) the student selected: "A", "B", "C", "D", or combinations like "AC", "BCD".
+- For numerical questions: extract the number they wrote, e.g. "600", "1000", "2.5".
+- IMPORTANT: If a student writes "3) A" or "(a) = 3" or "Qus3 → (a)" or "(a) → 3", the answer for Q3 is "A", NOT "3". The number after "=" or "→" following an option letter is the student's calculation/working — IGNORE IT.
+- If a student labels answers like "Qus1 → B and D", "Q2 600", map them correctly to question numbers "1", "2", etc.
+- If multiple options are circled/boxed for a single MCQ, set value to "MULTIPLE".
+- Omit any question the student left completely blank.
+- Do NOT output the question number itself as the answer value.
+- "entry_number": Look for roll number, entry number, enrollment number, student ID.
+- "name": The student's name as written on the sheet.
+- If entry_number or name not found, set to null.
 
 Return ONLY valid JSON, no explanation, no markdown.
 """

@@ -166,10 +166,18 @@ class EvaluationService:
         if not option:
             return option
         
-        # Preserve special markers
+        # Preserve single-token special markers (multi-word ones handled by regex below)
         if option in ('MULTIPLE', 'X', 'NONE', '-', 'NA', 'N/A', 'BLANK',
                        'NOT ATTEMPTED', 'UNATTEMPTED'):
             return option
+
+        # Handle explicit "No answer" / "No ans" / "No Ans" text → unattempted
+        if re.match(r'^NO[\s\-]?ANS', option):
+            return 'X'
+
+        # Strip the word "AND" used to join options: "b and d" → "bd" → "BD"
+        # Do this before any letter-extraction so downstream logic sees clean letters.
+        option = re.sub(r'\bAND\b', '', option).strip()
         
         # Strip "OPTION" prefix
         if "OPTION" in option:
@@ -177,13 +185,24 @@ class EvaluationService:
         
         # Strip "ANS" / "ANSWER" prefix
         option = re.sub(r'^(?:ANS(?:WER)?)[\s.:)\-]*', '', option).strip()
-        
-        # Try to extract letter(s) from parenthesized patterns:
-        #   "1 (A)", "(A)", "1(A)3", "ANS 1 (A) 3", "Q1 (B)"
-        paren_match = re.search(r'\(\s*([A-Da-d]+)\s*\)', option)
-        if paren_match:
-            return paren_match.group(1).upper()
-        
+
+        # Strip "Qus<N>" / "Q<N>" label prefix: "Qus3 -> (a)" → "(a)", "Q3 A" → "A"
+        option = re.sub(r'^Q(?:US)?\s*\d+\s*(?:[\-=]?>?|\s)', '', option).strip()
+
+        # Pattern: letter followed by "=" or "->" and then digits/noise:
+        #   "(a) = 3", "(a) -> 3", "A = 3", "A → 3"
+        # Extract just the letter BEFORE the "=" / "->" chain.
+        eq_arrow = re.match(r'^\(?\s*([A-Da-d]+)\s*\)?\s*(?:[=\-]?>|[=\-]+>?)\s*\d', option)
+        if eq_arrow:
+            return eq_arrow.group(1).upper()
+
+        # Pattern: one or more parenthesized letters — collect ALL of them.
+        #   "(a)" → "A", "(b) (d)" → "BD", "(b) and (d)" → "BD"
+        #   Also handles chained: "Qus3 → (a) → 3" (after AND/Qus stripping)
+        all_parens = re.findall(r'\(\s*([A-Da-d]+)\s*\)', option)
+        if all_parens:
+            return ''.join(sorted(set(''.join(all_parens).upper())))
+
         # Pattern: "A)" or "1 A)" — option letter followed by closing paren
         close_paren = re.search(r'(?:^|\s)([A-Da-d])\s*\)', option)
         if close_paren:
@@ -260,7 +279,17 @@ class EvaluationService:
                 return True
             # OCR digit-to-letter correction (e.g., '8' → 'B')
             corrected = EvaluationService._ocr_correct_mcq_answer(student_answer)
-            return corrected == correct_answer
+            if corrected == correct_answer:
+                return True
+            # Context-aware Q3 guard: if student answer is a DIGIT and correct answer
+            # is a LETTER, it means OCR picked up the question number / working instead
+            # of the actual letter.  e.g. student wrote "(a) = 3" → OCR emits "3",
+            # but correct answer is "A".  The digit-to-letter map may not cover every
+            # case (e.g. "3" → "E", not "A"), so we don't blindly score it correct,
+            # but we do not penalise — return None-like via a comment marker so the
+            # caller can decide.  For now: return False (incorrect) which is safe — the
+            # real fix is in the prompt so this path is now a last-resort edge case.
+            return False
             
         elif question_type == "MMCQ":
             # Sort both to handle different ordering (e.g., "AC" vs "CA")
