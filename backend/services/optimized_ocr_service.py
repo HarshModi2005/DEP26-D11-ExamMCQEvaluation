@@ -51,7 +51,7 @@ class OptimizedOCRService:
     """Highly optimized OCR service for peak loads"""
     
     def __init__(self, project_id: str = None):
-        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-5fa1c6c6-be40-41cd-b42")
+        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "developmentengineeringproject")
         self.endpoints = self._initialize_endpoints()
         self.session_pool = {}
         self.credentials_cache = {}

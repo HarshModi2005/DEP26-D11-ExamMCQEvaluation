@@ -770,7 +770,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     errors: List = []
     # Files that need phase-2 retry: (sheet_file dict, original idx)
     retry_queue: List[tuple] = []
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "project-5fa1c6c6-be40-41cd-b42")
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "developmentengineeringproject")
     optimized_key = batch_eval_service.optimize_answer_key(answer_key)
     answer_key_hash = cache_service.get_answer_key_hash(
         {"answers": optimized_key["answers"], "negative_marking": optimized_key["negative_marking"]}

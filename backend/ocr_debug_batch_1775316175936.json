@@ -1,0 +1,260 @@
+{
+  "2025CSB1202 - Satin Singla.jpg": {
+    "entry_number": "2025CSB1202",
+    "name": "Satin Singla",
+    "answers": {
+      "1": "AC",
+      "2": "506",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1163 - ANURADHA KANAUJIYA.jpg": {
+    "entry_number": "2025CSB1163",
+    "name": "ANURADHA KANAUJIYA",
+    "answers": {
+      "1": "ACD",
+      "3": "A",
+      "5": "ABCD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2024MCB1403 - ARJUN S.jpg": {
+    "entry_number": "2024MCB1403",
+    "name": "ARJUN.S.",
+    "answers": {
+      "1": "CD",
+      "2": "576",
+      "3": "5",
+      "4": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2024MCB126 - ARAHAN A. GARG.jpg": {
+    "entry_number": "2024.MCB126",
+    "name": "ARAHAN A. GARG",
+    "answers": {
+      "1": "BCD",
+      "2": "625",
+      "3": "B",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2029.csb.1057 - Aman Raj.HEIC": {
+    "entry_number": "2029.cph.105.7",
+    "name": "Amon Roj",
+    "answers": {
+      "1": "ABD",
+      "2": "288",
+      "3": "D",
+      "5": "AB"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1254 - Sakshi P. Bansal.jpg": {
+    "entry_number": "2025CSB1254",
+    "name": "Sakshi Bansal",
+    "answers": {
+      "1": "BC",
+      "2": "600",
+      "3": "A",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSBIISI - Aashil Ubbott.HEIC": {
+    "entry_number": "2025CSBIISI",
+    "name": "Aashil Ubbott",
+    "answers": {
+      "1": "BD",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2024MCB1333 - Bhavya Bansal.jpg": {
+    "entry_number": "2024MCB1333",
+    "name": "Bharya Bansal",
+    "answers": {
+      "1": "BC",
+      "2": "312",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1488 - Surya Tija.jpg": {
+    "entry_number": "2025MCB1488",
+    "name": "Surya Tija",
+    "answers": {
+      "1": "CD",
+      "2": "576",
+      "3": "C",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1260 - Somil Dhawan.HEIC": {
+    "entry_number": "2025CSB1260",
+    "name": "Somil Dhawan",
+    "answers": {
+      "1": "BC",
+      "2": "506",
+      "3": "B",
+      "4": "144",
+      "5": "ABC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20250831287 - Pranjal Agarwal.jpg": {
+    "entry_number": "20250831257",
+    "name": "Pranjal Agarwal",
+    "answers": {
+      "1": "ACD",
+      "2": "820",
+      "3": "A",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025 CSB 1204 - Kanchi Aggarwal.jpg": {
+    "entry_number": "2025 CSB 1204",
+    "name": "Kanchi Aggarwal",
+    "answers": {
+      "1": "ABD",
+      "2": "288",
+      "3": "A",
+      "5": "CD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1529 - Vishu Garg.jpg": {
+    "entry_number": "2025.MCB.1529",
+    "name": "Vishu Gorg",
+    "answers": {
+      "1": "BC",
+      "2": "600",
+      "3": "B",
+      "4": "1219",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025.CSB.119.0 - D. Rupika.jpg": {
+    "entry_number": "2025.CSB.119.0",
+    "name": "D. Rupika",
+    "answers": {
+      "1": "ABCD",
+      "2": "600",
+      "3": "A",
+      "5": "AC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1195 - Gunjan Chaudhury.jpg": {
+    "entry_number": "2025CSB1195",
+    "name": "Gunjan Chaudhury",
+    "answers": {
+      "1": "AD",
+      "2": "703",
+      "3": "B",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1502 - NISHANT.jpg": {
+    "entry_number": "2025MCB1502",
+    "name": "NISHANT",
+    "answers": {
+      "1": "AC",
+      "3": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2020SCB1234 - Piyush Kumar.jpg": {
+    "entry_number": "2005CSB1234",
+    "name": "Piyush Kumar",
+    "answers": {
+      "1": "AC",
+      "2": "144",
+      "3": "C",
+      "4": "1210",
+      "5": "AD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "202SMCB1466 - ARNAV SINGH.jpg": {
+    "entry_number": "202.5MCB1466",
+    "name": "ARNAV SINGH",
+    "answers": {
+      "1": "C",
+      "2": "600",
+      "3": "B",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2024CSB1401 - Abhijit Kishan kamble.JPG": {
+    "entry_number": "2024CSB1401",
+    "name": "Abhijit Kishan kamble",
+    "answers": {
+      "1": "ACD",
+      "3": "B",
+      "5": "ACD"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1509 - Rishi Kumawat.HEIC": {
+    "entry_number": "2025MCB1509",
+    "name": "Rishi Kumawat",
+    "answers": {
+      "1": "ABCD",
+      "3": "A",
+      "4": "25",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  }
+}
