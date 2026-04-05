@@ -699,6 +699,46 @@ const EvaluatePage = () => {
         }
     };
 
+    const [syncLoading, setSyncLoading] = useState(false);
+
+    const handleSyncFromSheet = async () => {
+        const course = evaluation?.courses;
+        if (!course?.master_sheet_url) {
+            setExportMsg('Error: No master Google Sheet URL set for this course.');
+            return;
+        }
+        setSyncLoading(true);
+        setExportMsg('');
+        try {
+            // Send the raw OR DB results to backend for synchronization
+            const currentResults = rawOcrResults.length > 0 ? rawOcrResults : results;
+            const mappedResults = currentResults.map(r => ({
+                ...r,
+                entry_number: r.entry_number || (r.students?.roll_number) || '',
+                name: r.name || (r.students?.name) || ''
+            }));
+            
+            // Pass the subsheet name to extract exported marks manually modified by user
+            const res = await backendService.syncResultsWithSheet(course.master_sheet_url, mappedResults, evaluation?.subsheet_name);
+            
+            // Save synchronized results directly back to DB
+            if (res.results && res.results.length > 0) {
+                await resultsService.saveResults(evaluationId, course.id, res.results, user?.id);
+                
+                // Fetch fresh records to display
+                const fresh = await resultsService.getResultsByEvaluation(evaluationId);
+                setResults(fresh || []);
+                setExportMsg('Successfully synchronized App Data with Google Sheet.');
+            } else {
+                setExportMsg('No results returned from Sync.');
+            }
+        } catch (err) {
+            setExportMsg('Sync failed: ' + err.message);
+        } finally {
+            setSyncLoading(false);
+        }
+    };
+
     const handleCommentUpdate = (id, comment) => {
         setResults(prev => prev.map(r => r.id === id ? { ...r, comments: comment } : r));
     };
@@ -758,13 +798,22 @@ const EvaluatePage = () => {
                         </div>
                         <div className="flex items-center gap-3">
                             {results.length > 0 && (
-                                <button onClick={handleExportToSheet} disabled={exportLoading}
-                                    className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
-                                    {exportLoading
-                                        ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
-                                        : <Icon name="FileSpreadsheet" size={16} />}
-                                    Export to Sheet
-                                </button>
+                                <>
+                                    <button onClick={handleSyncFromSheet} disabled={syncLoading || exportLoading}
+                                        className="px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {syncLoading
+                                            ? <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="RefreshCw" size={16} />}
+                                        Sync from Sheet
+                                    </button>
+                                    <button onClick={handleExportToSheet} disabled={exportLoading || syncLoading}
+                                        className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {exportLoading
+                                            ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="FileSpreadsheet" size={16} />}
+                                        Export to Sheet
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>

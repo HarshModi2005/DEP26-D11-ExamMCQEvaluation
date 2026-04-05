@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -9,7 +10,7 @@ from typing import List, Dict, Tuple
 
 class DriveService:
     SCOPES = [
-        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive',  # Full access for rename support
     ]
 
     # File name patterns that indicate an answer key
@@ -235,6 +236,105 @@ class DriveService:
             return dest_path
         else:
             raise RuntimeError(f"Failed to download answer key: {file_name}")
+
+    # ──────────────────────────────────────
+    #  Renaming Files
+    # ──────────────────────────────────────
+
+    def rename_file(self, file_id: str, new_name: str, max_retries: int = 3) -> bool:
+        """
+        Rename a file in Google Drive.
+        
+        Args:
+            file_id: The Drive file ID.
+            new_name: The new name for the file.
+            max_retries: Number of retries on transient errors.
+        
+        Returns:
+            True if renamed successfully, False otherwise.
+        """
+        service = self.get_service()
+        if not service:
+            print("Drive service not initialized — cannot rename")
+            return False
+
+        for attempt in range(max_retries):
+            try:
+                service.files().update(
+                    fileId=file_id,
+                    body={'name': new_name},
+                    supportsAllDrives=True,
+                ).execute()
+                return True
+            except Exception as e:
+                err_str = str(e)
+                # Retry on rate-limit (429) or server errors (5xx)
+                if ('429' in err_str or '500' in err_str or '503' in err_str) and attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(f"  ⚠️ Rename attempt {attempt+1} for '{new_name}' failed: {e}. Retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                print(f"  ❌ Failed to rename file {file_id} to '{new_name}': {e}")
+                return False
+
+    def batch_rename_files(
+        self,
+        rename_map: List[Dict],
+        rate_limit_delay: float = 0.2,
+    ) -> Dict:
+        """
+        Rename multiple files in Google Drive with rate limiting.
+        
+        Args:
+            rename_map: List of dicts with keys 'file_id', 'new_name', and optionally 'old_name'.
+            rate_limit_delay: Seconds to wait between renames (default 0.2 = 5 renames/sec).
+        
+        Returns:
+            Summary dict with counts and error details.
+        """
+        summary = {
+            "total": len(rename_map),
+            "success": 0,
+            "failed": 0,
+            "skipped": 0,
+            "errors": [],
+            "renamed": [],
+        }
+
+        for i, entry in enumerate(rename_map):
+            file_id = entry.get('file_id', '')
+            new_name = entry.get('new_name', '')
+            old_name = entry.get('old_name', f'file_{i}')
+
+            if not file_id or not new_name:
+                summary['skipped'] += 1
+                continue
+
+            print(f"  📝 [{i+1}/{len(rename_map)}] '{old_name}' → '{new_name}'")
+            ok = self.rename_file(file_id, new_name)
+            if ok:
+                summary['success'] += 1
+                summary['renamed'].append({
+                    'file_id': file_id,
+                    'old_name': old_name,
+                    'new_name': new_name,
+                })
+            else:
+                summary['failed'] += 1
+                summary['errors'].append({
+                    'file_id': file_id,
+                    'old_name': old_name,
+                    'new_name': new_name,
+                    'error': 'Rename API call failed',
+                })
+
+            # Rate limit to avoid 429s
+            if i < len(rename_map) - 1:
+                time.sleep(rate_limit_delay)
+
+        print(f"  ✅ Batch rename complete: {summary['success']} success, "
+              f"{summary['failed']} failed, {summary['skipped']} skipped")
+        return summary
 
     # ──────────────────────────────────────
     #  URL Parsing

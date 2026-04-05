@@ -1076,12 +1076,26 @@ class SheetsService:
         category_order = {'confident': 0, 'fuzzy': 1, 'unmatched': 2}
         data_rows.sort(key=lambda x: (category_order.get(x[0], 3), x[1][0]))  # secondary sort by entry number
 
+        def _get_col_letter(col_idx: int) -> str:
+            result = ""
+            while col_idx >= 0:
+                result = chr(col_idx % 26 + 65) + result
+                col_idx = col_idx // 26 - 1
+            return result
+
+        start_col_letter = _get_col_letter(5)
+        end_col_letter = _get_col_letter(5 + len(all_q_nums) - 1)
+        marks_col_idx = 5 + len(all_q_nums)
+
         # Build final row list and compute formatting indices post-sort
         sorted_rows = []
         confident_rows = []
         fuzzy_rows = []
         unmatched_rows = []
         for i, (cat, row_data) in enumerate(data_rows):
+            real_row_num = i + 2
+            if len(all_q_nums) > 0:
+                row_data[marks_col_idx] = f"=SUM({start_col_letter}{real_row_num}:{end_col_letter}{real_row_num})"
             sorted_rows.append(row_data)
             if cat == 'confident':
                 confident_rows.append(i)
@@ -1116,21 +1130,25 @@ class SheetsService:
         stats_label_row = [''] * len(headers)
         stats_label_row[1] = 'STATISTICS'
 
+        marks_col_letter = _get_col_letter(marks_col_idx)
+        data_start_row = 2
+        data_end_row = len(sorted_rows) + 1
+
         mean_row = [''] * len(headers)
         mean_row[1] = 'Mean / Average'
-        mean_row[marks_col_idx] = mean_val
+        mean_row[marks_col_idx] = f"=AVERAGE({marks_col_letter}{data_start_row}:{marks_col_letter}{data_end_row})" if sorted_rows else 0
 
         median_row = [''] * len(headers)
         median_row[1] = 'Median'
-        median_row[marks_col_idx] = median_val
+        median_row[marks_col_idx] = f"=MEDIAN({marks_col_letter}{data_start_row}:{marks_col_letter}{data_end_row})" if sorted_rows else 0
 
         highest_row = [''] * len(headers)
         highest_row[1] = 'Highest'
-        highest_row[marks_col_idx] = highest_val
+        highest_row[marks_col_idx] = f"=MAX({marks_col_letter}{data_start_row}:{marks_col_letter}{data_end_row})" if sorted_rows else 0
 
         lowest_row = [''] * len(headers)
         lowest_row[1] = 'Lowest'
-        lowest_row[marks_col_idx] = lowest_val
+        lowest_row[marks_col_idx] = f"=MIN({marks_col_letter}{data_start_row}:{marks_col_letter}{data_end_row})" if sorted_rows else 0
 
         all_data = [headers] + sorted_rows + [empty_row, stats_label_row, mean_row, median_row, highest_row, lowest_row]
 
@@ -1783,3 +1801,210 @@ class SheetsService:
         if idx is None or idx >= len(lst):
             return default
         return lst[idx]
+
+    def sync_results_with_master(self, sheet_url: str, results: List[Dict], subsheet_name: str = None) -> List[Dict]:
+        """Matches OCR results against the master sheet and returns updated results.
+        If subsheet_name is provided, also syncs marks and comments from the exported sheet tab.
+        """
+        try:
+            sheet_data = self.read_student_list(sheet_url)
+            master_students = sheet_data.get('students', [])
+        except Exception:
+            master_students = []
+
+        if not master_students:
+            return results
+
+        results_map = {}
+        _UNKNOWN_PLACEHOLDERS = {'unknown', 'n/a', 'none', 'null'}
+        def _sanitize(val: str) -> str:
+            stripped = (val or '').strip()
+            return '' if stripped.lower() in _UNKNOWN_PLACEHOLDERS else stripped
+
+        import copy
+        results_copy = copy.deepcopy(results)
+        _placeholder_counter = 0
+
+        for i, r in enumerate(results_copy):
+            # Try to grab dictionary if it's a Pydantic model
+            r_dict = r if isinstance(r, dict) else (r.dict() if hasattr(r, 'dict') else r)
+            if not isinstance(r_dict, dict):
+                continue
+            raw = (r_dict.get('entry_number') or r_dict.get('students', {}).get('roll_number') or '')
+            raw = _sanitize(str(raw))
+            norm = self._normalize_entry_number(raw)
+            if norm:
+                results_map.setdefault(norm, []).append((i, r_dict))
+            elif r_dict.get('name') or r_dict.get('answers'):
+                results_map.setdefault(f"__noentry_{_placeholder_counter}", []).append((i, r_dict))
+                _placeholder_counter += 1
+
+        matched_results = set()
+        for student in master_students:
+            raw_entry = student.get('entry_number', '')
+            normalized = self._normalize_entry_number(raw_entry)
+            result_idx = None
+            result = None
+
+            # STAGE 1
+            if normalized and normalized in results_map:
+                candidates = results_map[normalized]
+                available = [(idx, c) for idx, c in candidates if (normalized, idx) not in matched_results]
+                if len(available) == 1:
+                    result_idx, result = available[0]
+                    matched_results.add((normalized, result_idx))
+                elif len(available) > 1:
+                    sheet_name_str = student.get('name', '').strip()
+                    best_idx, best_candidate, best_sim = None, None, -1.0
+                    for idx, c in available:
+                        sim = self._name_similarity(sheet_name_str, str(c.get('name', '')).strip())
+                        if sim > best_sim:
+                            best_sim, best_idx, best_candidate = sim, idx, c
+                    if best_candidate is not None:
+                        result_idx, result = best_idx, best_candidate
+                        matched_results.add((normalized, best_idx))
+
+            # STAGE 2
+            if not result and normalized and len(normalized) >= 10:
+                sheet_name_str = student.get('name', '').strip()
+                try:
+                    base_year = int(normalized[:4])
+                    for offset in [-1, 1, -2, 2, -3, 3]:
+                        slid_key = str(base_year + offset) + normalized[4:]
+                        if slid_key not in results_map: continue
+                        available = [(idx, c) for idx, c in results_map[slid_key] if (slid_key, idx) not in matched_results]
+                        if not available: continue
+                        best_idx, best_candidate, best_sim = None, None, -1.0
+                        for idx, c in available:
+                            sim = self._name_similarity(sheet_name_str, str(c.get('name', '')).strip())
+                            if sim > best_sim:
+                                best_sim, best_idx, best_candidate = sim, idx, c
+                        if best_candidate is not None and best_sim >= 0.50:
+                            result_idx, result = best_idx, best_candidate
+                            matched_results.add((slid_key, best_idx))
+                            break
+                except ValueError: pass
+
+            # STAGE 3
+            if not result and raw_entry:
+                sheet_name_str = student.get('name', '').strip()
+                sheet_entry_str = str(raw_entry).strip()
+                best_match_id = None
+                best_match_r = None
+                best_score = 0.0
+
+                for norm_id, r_list in results_map.items():
+                    for idx, r_candidate in r_list:
+                        if (norm_id, idx) in matched_results: continue
+                        match_score = self._smart_match_score(
+                            sheet_entry_str, sheet_name_str,
+                            str(r_candidate.get('entry_number', '')).strip(),
+                            str(r_candidate.get('name', '')).strip()
+                        )
+                        if match_score >= 0.55 and match_score > best_score:
+                            best_score, best_match_id, best_match_r = match_score, (norm_id, idx), r_candidate
+                if best_match_r:
+                    norm_id, idx = best_match_id
+                    result_idx, result = idx, best_match_r
+                    matched_results.add(best_match_id)
+
+            if result:
+                # Update the result OCR with true attributes
+                # Note: 'entry_number', 'name' are saved back so frontend gets the fixed version.
+                result['ocr_entry_number'] = result.get('entry_number', '')
+                result['ocr_name'] = result.get('name', '')
+                result['entry_number'] = raw_entry
+                result['name'] = student.get('name', '')
+                # Re-assign back to list in case it's a completely new dict
+                results_copy[result_idx] = result
+                
+        if subsheet_name and self.service:
+            # Sync scores & comments from the exported sheet!
+            spreadsheet_id, _ = self.parse_sheet_url(sheet_url)
+            try:
+                sheet_values = self.service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{subsheet_name}'"
+                ).execute().get('values', [])
+                
+                if sheet_values and len(sheet_values) > 0:
+                    headers = sheet_values[0]
+                    # Find column indices
+                    entry_col = headers.index("Entry Number") if "Entry Number" in headers else -1
+                    name_col = headers.index("Name") if "Name" in headers else -1
+                    ocr_entry_col = headers.index("OCR Entry Number") if "OCR Entry Number" in headers else -1
+                    marks_col = headers.index("Marks") if "Marks" in headers else -1
+                    comments_col = headers.index("Comments") if "Comments" in headers else -1
+                    
+                    q_cols = {}
+                    for idx, h in enumerate(headers):
+                        if h.startswith("Q") and h[1:].isdigit():
+                            q_cols[int(h[1:])] = idx
+                            
+                    # Now update the results mapping
+                    for r in results_copy:
+                        matched_row = None
+                        r_entry = str(r.get('entry_number', '')).strip()
+                        r_ocr_entry = str(r.get('ocr_entry_number', '')).strip()
+                        
+                        # Find best match from rows
+                        for row in sheet_values[1:]:
+                            entry_val = str(self._safe_get(row, entry_col, '')).strip()
+                            ocr_entry_val = str(self._safe_get(row, ocr_entry_col, '')).strip()
+                            
+                            # Priority 1: Match by invariant OCR Entry
+                            if r_ocr_entry and ocr_entry_val and r_ocr_entry == ocr_entry_val:
+                                matched_row = row
+                                break
+                            # Priority 2: Match by latest/resolved Entry
+                            elif r_entry and entry_val and r_entry == entry_val:
+                                matched_row = row
+                                break
+                            # Priority 3: Cross-match
+                            elif r_entry and ocr_entry_val and r_entry == ocr_entry_val:
+                                matched_row = row
+                                break
+
+                        if matched_row:
+                            row = matched_row
+                            
+                            # Extract true Name and Entry Number directly from the Quiz sheet!
+                            if entry_col != -1 and len(row) > entry_col and row[entry_col].strip():
+                                r['entry_number'] = row[entry_col].strip()
+                            if name_col != -1 and len(row) > name_col and row[name_col].strip():
+                                r['name'] = row[name_col].strip()
+                            
+                            # Parse marks
+                            if marks_col != -1 and len(row) > marks_col:
+                                try:
+                                    r['total_score'] = float(row[marks_col])
+                                except ValueError:
+                                    pass
+                                    
+                            # Parse comments
+                            if comments_col != -1 and len(row) > comments_col:
+                                r['comments'] = row[comments_col]
+                                
+                            # Parse Q marks
+                            if 'details' not in r:
+                                r['details'] = []
+                                
+                            # Convert existing details list into dict by question_number
+                            d_map = {d.get('question_number'): d for d in r['details'] if isinstance(d, dict)}
+                            
+                            for qn, col_idx in q_cols.items():
+                                if len(row) > col_idx:
+                                    try:
+                                        sc = float(row[col_idx])
+                                        if qn in d_map:
+                                            d_map[qn]['score'] = sc
+                                        else:
+                                            d_map[qn] = {'question_number': qn, 'score': sc}
+                                    except ValueError:
+                                        pass
+                                        
+                            r['details'] = list(d_map.values())
+            except Exception as e:
+                print(f"Failed to sync from subsheet {subsheet_name}: {e}")
+
+        return results_copy

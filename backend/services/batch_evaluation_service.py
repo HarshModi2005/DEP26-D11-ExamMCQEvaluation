@@ -232,7 +232,8 @@ class BatchEvaluationService:
                 correct_option = key_data['correct_option']
                 marks = key_data['marks']
                 question_type = key_data.get('question_type', 'SMCQ')
-                per_q_negative = key_data.get('negative_marks') or negative_marking
+                raw_negative = key_data.get('negative_marks') or negative_marking
+                per_q_negative = abs(float(raw_negative)) if raw_negative is not None else 0.0
                 max_score += marks
 
                 if q_num in student_ans:
