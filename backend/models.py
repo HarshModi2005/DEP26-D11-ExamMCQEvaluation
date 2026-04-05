@@ -117,3 +117,19 @@ class SheetUpdateSummary(BaseModel):
     not_found: List[str] = []
     name_mismatches: List[Dict] = []
     errors: List[str] = []
+
+
+# ── Drive Rename Models ──
+
+class RenameDriveFilesRequest(BaseModel):
+    folder_url: str
+    dry_run: bool = False
+    skip_already_renamed: bool = True
+    results: Optional[List[Dict]] = None  # Pass results explicitly; falls back to in-memory
+
+
+class FullPipelineWithRenameRequest(BaseModel):
+    drive_folder_url: str
+    sheets_url: str
+    rename_files: bool = True   # Rename Drive files after processing
+    dry_run_rename: bool = False  # Preview renames without executing

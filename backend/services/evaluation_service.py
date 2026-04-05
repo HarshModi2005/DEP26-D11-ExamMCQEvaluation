@@ -63,7 +63,9 @@ class EvaluationService:
             correct_answer = key_entry.correct_answer.strip().upper()
             question_type = key_entry.question_type
             positive_marks = key_entry.positive_marks
-            negative_marks = key_entry.negative_marks or answer_key.negative_marking
+            # Ensure negative marks are properly represented as positive values for deduction
+            raw_negative = key_entry.negative_marks or answer_key.negative_marking
+            negative_marks = abs(float(raw_negative)) if raw_negative is not None else 0.0
             
             max_score += positive_marks
 

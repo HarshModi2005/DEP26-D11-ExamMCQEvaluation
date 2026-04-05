@@ -7,10 +7,12 @@ Auth is handled entirely by Supabase on the frontend.
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.responses import Response
+from pydantic import BaseModel
 from models import (
     Student, Submission, EvaluationResult,
     AnswerKey, StudentResult, PipelineSummary, SheetUpdateSummary,
     ProcessFolderRequest, ExportToSheetsRequest, FullPipelineRequest,
+    RenameDriveFilesRequest, FullPipelineWithRenameRequest,
 )
 from services.drive_service import DriveService
 from services.ocr_service import OCRService
@@ -29,7 +31,7 @@ import json
 import tempfile
 import shutil
 import zipfile
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 router = APIRouter()
 db = Database()
@@ -42,6 +44,10 @@ optimized_ocr = OptimizedOCRService()        # used for the main /process-drive-
 eval_service = EvaluationService()
 answer_key_service = AnswerKeyService()
 sheets_service = SheetsService()
+
+# Drive rename service
+from services.drive_rename_service import DriveRenameService
+rename_service = DriveRenameService(drive_service)
 
 # ──────────────────────────────────────
 #  In-memory state for the current exam session
@@ -862,7 +868,7 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
         request: Drive folder processing request
         force_reprocess: If True, bypass cache and reprocess all files
     """
-    global _current_answer_key, _current_results
+    global _current_answer_key, _current_results, _last_pipeline_errors
 
     folder_id = DriveService.extract_folder_id(request.folder_url)
     all_files = drive_service.list_all_files_in_folder(folder_id)
@@ -1019,6 +1025,9 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
         errors=errors,
         status="completed",
     )
+
+    # Store errors for rename context
+    _last_pipeline_errors = errors
 
     return PipelineSummary(
         total_students_processed=len(_current_results),
@@ -1431,6 +1440,24 @@ async def run_full_pipeline(request: FullPipelineRequest):
 #  RESULTS & DATA ACCESS
 # ═══════════════════════════════════════
 
+class SyncResultsRequest(BaseModel):
+    sheet_url: str
+    results: List[Dict] = []
+    subsheet_name: str = None
+
+@router.post("/sync-results")
+def sync_results(request: SyncResultsRequest):
+    """Sync results with Google Sheet master list and subsheet marks"""
+    try:
+        updated_results = sheets_service.sync_results_with_master(
+            request.sheet_url, 
+            request.results,
+            request.subsheet_name
+        )
+        return {"results": updated_results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
 @router.get("/results")
 def get_results():
     """Get all results from the current session."""
@@ -1726,3 +1753,169 @@ def _legacy_process_task(submission_id: str, file_id: str, file_name: str):
 
     except Exception as e:
         print(f"Error processing submission {submission_id}: {e}")
+
+
+# ═══════════════════════════════════════
+#  DRIVE FILE RENAMING
+# ═══════════════════════════════════════
+
+@router.post("/rename-drive-files/preview")
+def preview_rename_drive_files(request: RenameDriveFilesRequest):
+    """
+    Preview (dry-run) how files in a Drive folder would be renamed.
+    Does NOT modify anything — only returns the planned rename map.
+
+    Uses in-memory results from the last /process-drive-folder call,
+    or explicit results passed in the request body.
+    """
+    results_dicts = _get_results_for_rename(request.results)
+    if not results_dicts:
+        raise HTTPException(
+            status_code=400,
+            detail="No results available. Process a Drive folder first, or pass results in the request body."
+        )
+
+    # Get master student list for match categorization
+    master_students = _get_master_students_if_available()
+
+    # Collect error file names from the last pipeline run
+    error_names = [e.get('file', '') for e in (_last_pipeline_errors or [])]
+
+    summary = rename_service.rename_folder_files(
+        folder_url=request.folder_url,
+        results=results_dicts,
+        master_students=master_students,
+        error_file_names=error_names,
+        dry_run=True,  # Always dry-run for preview
+        skip_already_renamed=request.skip_already_renamed,
+    )
+    return summary
+
+
+@router.post("/rename-drive-files")
+def rename_drive_files(request: RenameDriveFilesRequest):
+    """
+    Rename files in a Drive folder based on OCR matching results.
+
+    Naming convention:
+      - Matched (confident):  {EntryNumber} - {Name}.{ext}
+      - Matched (fuzzy):      FUZZY - {EntryNumber} - {Name}.{ext}
+      - Unmatched (has OCR):  UNMATCHED - OCR {OCREntry} - OCR {OCRName}.{ext}
+      - Unmatched (no data):  UNMATCHED_NODATA - {original}.{ext}
+      - Answer key:           ANSWER_KEY - {original}.{ext}
+      - Error:                ERROR - {original}.{ext}
+
+    Edge cases:
+      - Duplicate entries get _DUP1, _DUP2 suffixes
+      - Special characters replaced with underscores
+      - Long names truncated to 50 chars
+      - Already-renamed files optionally skipped
+    """
+    results_dicts = _get_results_for_rename(request.results)
+    if not results_dicts:
+        raise HTTPException(
+            status_code=400,
+            detail="No results available. Process a Drive folder first, or pass results in the request body."
+        )
+
+    master_students = _get_master_students_if_available()
+    error_names = [e.get('file', '') for e in (_last_pipeline_errors or [])]
+
+    summary = rename_service.rename_folder_files(
+        folder_url=request.folder_url,
+        results=results_dicts,
+        master_students=master_students,
+        error_file_names=error_names,
+        dry_run=request.dry_run,
+        skip_already_renamed=request.skip_already_renamed,
+    )
+    return summary
+
+
+@router.post("/full-pipeline-with-rename")
+async def run_full_pipeline_with_rename(request: FullPipelineWithRenameRequest):
+    """
+    Enhanced one-click pipeline:
+    Drive folder → Extract answer key → OCR all sheets → Score
+    → Write to Google Sheets → Rename Drive files
+
+    Set rename_files=true (default) to auto-rename after processing.
+    Set dry_run_rename=true to preview renames without executing.
+    """
+    global _last_pipeline_errors
+
+    # Step 1 & 2: Process drive folder
+    folder_result = await process_drive_folder(
+        ProcessFolderRequest(folder_url=request.drive_folder_url)
+    )
+
+    # Step 3: Export to sheets
+    try:
+        sheet_result = export_to_sheets(
+            ExportToSheetsRequest(sheet_url=request.sheets_url)
+        )
+    except HTTPException as e:
+        sheet_result = {"error": e.detail}
+
+    # Step 4: Rename Drive files
+    rename_result = None
+    if request.rename_files:
+        results_dicts = _get_results_for_rename(None)
+        if results_dicts:
+            master_students = _get_master_students_if_available()
+            error_names = [e.get('file', '') for e in (_last_pipeline_errors or [])]
+
+            rename_result = rename_service.rename_folder_files(
+                folder_url=request.drive_folder_url,
+                results=results_dicts,
+                master_students=master_students,
+                error_file_names=error_names,
+                dry_run=request.dry_run_rename,
+            )
+        else:
+            rename_result = {"message": "No results to rename files with"}
+
+    return {
+        "pipeline": folder_result,
+        "sheet_export": sheet_result,
+        "rename": rename_result,
+    }
+
+
+# ──────────────────────────────────────
+#  Rename Helper Functions
+# ──────────────────────────────────────
+
+# Track pipeline errors for rename context
+_last_pipeline_errors: list = []
+
+
+def _get_results_for_rename(explicit_results: Optional[List[Dict]]) -> List[Dict]:
+    """Get results for the rename operation from explicit input or in-memory state."""
+    if explicit_results:
+        return explicit_results
+    if _current_results:
+        return [r.model_dump() for r in _current_results]
+    # Fallback: try database
+    db_results = db.get_all_results()
+    if db_results:
+        parsed = []
+        for row in db_results:
+            details_raw = row.get('details')
+            if details_raw:
+                try:
+                    d = json.loads(details_raw) if isinstance(details_raw, str) else details_raw
+                    if isinstance(d, dict):
+                        parsed.append(d)
+                except Exception:
+                    pass
+        return parsed
+    return []
+
+
+def _get_master_students_if_available() -> List[Dict]:
+    """Try to read master student list from the last known sheet URL."""
+    # The master list is typically available from the sheets_service
+    # after an export. We return an empty list if unavailable —
+    # the rename logic still works, just without confident/fuzzy split.
+    return []

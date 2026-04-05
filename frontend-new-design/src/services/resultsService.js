@@ -62,9 +62,33 @@ export const resultsService = {
         }
 
         // 5. Fetch all needed students again to get their assigned IDs (batched)
-        const allStudents = await batchIn('students', 'id, roll_number', 'roll_number', uniqueRollNos);
+        const allStudents = await batchIn('students', 'id, roll_number, name', 'roll_number', uniqueRollNos);
         const studentMap = new Map(allStudents.map(s => [s.roll_number, s.id]));
         console.log(`[saveResults] studentMap size after re-fetch: ${studentMap.size}`);
+
+        // Update existing student names if they drifted/got corrected during sync
+        const studentsToUpdate = [];
+        const seenUpdateRolls = new Set();
+        for (const r of results) {
+            if (r.entry_number && r.name && !seenUpdateRolls.has(r.entry_number)) {
+                const s = allStudents.find(st => st.roll_number === r.entry_number);
+                if (s && s.name !== r.name) {
+                    studentsToUpdate.push({ id: s.id, roll_number: s.roll_number, name: r.name });
+                    seenUpdateRolls.add(r.entry_number);
+                }
+            }
+        }
+        
+        if (studentsToUpdate.length > 0) {
+            console.log(`[saveResults] updating ${studentsToUpdate.length} student names found in sync`);
+            for (let i = 0; i < studentsToUpdate.length; i += BATCH) {
+                const chunk = studentsToUpdate.slice(i, i + BATCH);
+                const { error: updateErr } = await supabase.from('students').upsert(chunk);
+                if (updateErr) {
+                    console.error('Failed to update student names:', updateErr);
+                }
+            }
+        }
 
         const insertsMap = new Map();
 

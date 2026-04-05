@@ -215,4 +215,14 @@ export const backendService = {
     async getPipelineRunStatus(runId) {
         return api(`/pipeline-runs/${runId}/status`);
     },
+
+    /**
+     * Sync OCR results with master student list from a Google Sheet
+     */
+    async syncResultsWithSheet(sheetUrl, results, subsheetName) {
+        return api('/sync-results', {
+            method: 'POST',
+            body: JSON.stringify({ sheet_url: sheetUrl, results, subsheet_name: subsheetName }),
+        });
+    },
 };
