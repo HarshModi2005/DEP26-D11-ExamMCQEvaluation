@@ -162,6 +162,23 @@ class DriveService:
             print(f"An error occurred downloading file: {e}")
             return False
 
+    def rename_file(self, file_id: str, new_name: str) -> bool:
+        """Rename a file in Google Drive."""
+        service = self.get_service()
+        if not service:
+            return False
+        
+        try:
+            # We don't change the extension, just the name. Wait, the extension in Google Drive is part of the name.
+            # But we can just set it to the new name directly.
+            file_metadata = {'name': new_name}
+            service.files().update(fileId=file_id, body=file_metadata).execute()
+            print(f"  📛 Renamed Drive file to: {new_name}")
+            return True
+        except Exception as e:
+            print(f"  ⚠️ Failed to rename Drive file {file_id}: {e}")
+            return False
+
     def export_google_file(self, file_id: str, export_mime: str, destination_path: str) -> bool:
         """
         Export a Google Workspace file (Sheets, Docs) to a specific format.

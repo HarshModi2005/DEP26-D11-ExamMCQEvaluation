@@ -72,3 +72,6 @@ The backend must be running **before** you start the frontend application for se
 1. **API Dependency:** The frontend relies entirely on the backend API endpoints (`/api/*`, `/api/batch/*`) to function. Without the backend, API calls will fail, leading to infinite loading states or immediate errors.
 2. **Database Initialization:** The backend runs local SQLite initialization on startup (`database.py`), ensuring that tables for students, submissions, and results exist before any data operations occur.
 3. **Service Connection Pools:** Core infrastructure, including OCR service connection pools and API clients, are initialized during the backend's startup lifespan. The frontend cannot process uploads or evaluations if these services are inactive.
+
+
+

@@ -294,8 +294,12 @@ def _parse_ocr_text(text: str, image_path: str) -> Optional[dict]:
         non_answer_keys = {k: v for k, v in parsed.items() if k != "answers"}
         print(f"  🔍 [OCR DEBUG] Empty entry for {fname}: model returned keys={non_answer_keys}")
 
+    # Post-processing cleanup: strip dots, spaces, and special chars that the model
+    # hallucinates from grid-box layouts (e.g. "2023. CSB . 1234" → "2023CSB1234")
+    cleaned_entry = re.sub(r'[^a-zA-Z0-9]', '', str(entry)).upper()
+
     result = {
-        "entry_number": str(entry).strip(),
+        "entry_number": cleaned_entry,
         "name": str(parsed.get("name") or parsed.get("student_name") or "").strip(),
         "comments": parsed.get("comments") or "",
         "answers": {},
@@ -674,6 +678,18 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                     _processing_stats[processing_id]["processed_files"] = processed
                     _log_progress(processing_id, processed, total, success_count,
                                   len(errors), cache_hit_count, start_t, from_cache=True)
+                
+                # Auto-rename even on cache hit just in case it wasn't done before
+                try:
+                    actual_name = eval_cached.get("name", "")
+                    ext = os.path.splitext(fname)[1]
+                    clean_name = "".join([c for c in str(actual_name) if c.isalpha() or c.isspace() or c == '.']).strip()
+                    new_name = f"{cached_entry} - {clean_name}{ext}" if clean_name else f"{cached_entry}{ext}"
+                    if new_name != fname:
+                        asyncio.create_task(asyncio.to_thread(drive_service.rename_file, file_id, new_name))
+                except Exception as e:
+                    print(f"  ⚠️ Error setting up cached file rename task for {fname}: {e}")
+
                 await db_queue.put(student_result)
                 return
             elif eval_cached and not _is_valid_cached_entry(cached_entry):
@@ -751,6 +767,27 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                         print(f"  ⚠️ Skipping eval cache for {fname} (entry='{scored_dict.get('entry_number','')}') — will retry on next run")
                 except Exception:
                     pass
+
+                # ── STEP 7: Rename file in Drive ──
+                # Automatically rename heavily obfuscated files to match the OCR output
+                # Requires 'Editor' access on the shared Google Drive folder
+                try:
+                    actual_entry = getattr(student_result, "entry_number", "")
+                    actual_name = getattr(student_result, "name", "")
+                    
+                    if _is_valid_cached_entry(actual_entry):
+                        ext = os.path.splitext(fname)[1]
+                        # Remove potentially confusing punctuation or characters from the name string safely
+                        clean_name = "".join([c for c in str(actual_name) if c.isalpha() or c.isspace() or c == '.']).strip()
+                        
+                        # Build standard filename e.g. "2024CSB1220 - HARSH MODI.jpg" or "2024CSB1220.jpg"
+                        new_name = f"{actual_entry} - {clean_name}{ext}" if clean_name else f"{actual_entry}{ext}"
+                        
+                        if new_name != fname:
+                            # Rename asynchronously in the background so it doesn't block the evaluation pipeline
+                            asyncio.create_task(asyncio.to_thread(drive_service.rename_file, file_id, new_name))
+                except Exception as e:
+                    print(f"  ⚠️ Error setting up file rename task for {fname}: {e}")
 
                 await db_queue.put(student_result)
                 async with lock:
