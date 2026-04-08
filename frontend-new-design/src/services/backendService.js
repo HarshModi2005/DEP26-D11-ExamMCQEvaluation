@@ -66,7 +66,11 @@ export const backendService = {
         const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
-            body: JSON.stringify({ folder_url: driveFolderUrl, evaluation_id: evaluationId }),
+            body: JSON.stringify({
+                folder_url: driveFolderUrl,
+                evaluation_id: evaluationId,
+                rename_drive_inline: true,
+            }),
         });
     },
 
@@ -74,7 +78,11 @@ export const backendService = {
         const url = forceReprocess ? '/batch/process-folder-optimized/start?force_reprocess=true' : '/batch/process-folder-optimized/start';
         return api(url, {
             method: 'POST',
-            body: JSON.stringify({ folder_url: driveFolderUrl, evaluation_id: evaluationId }),
+            body: JSON.stringify({
+                folder_url: driveFolderUrl,
+                evaluation_id: evaluationId,
+                rename_drive_inline: true,
+            }),
         });
     },
 
@@ -223,6 +231,35 @@ export const backendService = {
         return api('/sync-results', {
             method: 'POST',
             body: JSON.stringify({ sheet_url: sheetUrl, results, subsheet_name: subsheetName }),
+        });
+    },
+
+    /**
+     * Preview how Drive files would be renamed (dry run; no API writes).
+     */
+    async previewRenameDriveFiles(folderUrl, results = null, skipAlreadyRenamed = false) {
+        return api('/rename-drive-files/preview', {
+            method: 'POST',
+            body: JSON.stringify({
+                folder_url: folderUrl,
+                results,
+                skip_already_renamed: skipAlreadyRenamed,
+            }),
+        });
+    },
+
+    /**
+     * Rename files in a Google Drive folder using pipeline results (entry + name).
+     */
+    async renameDriveFiles(folderUrl, results = null, dryRun = false, skipAlreadyRenamed = false) {
+        return api('/rename-drive-files', {
+            method: 'POST',
+            body: JSON.stringify({
+                folder_url: folderUrl,
+                results,
+                dry_run: dryRun,
+                skip_already_renamed: skipAlreadyRenamed,
+            }),
         });
     },
 };

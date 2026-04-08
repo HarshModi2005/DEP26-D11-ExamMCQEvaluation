@@ -2,39 +2,39 @@
   "total_questions": 5,
   "answers": {
     "1": {
-      "question_type": "MMCQ",
-      "correct_answer": "BCD",
-      "positive_marks": 2.0,
-      "negative_marks": 0.0
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": -0.25
     },
     "2": {
-      "question_type": "NCQ",
-      "correct_answer": "600",
-      "positive_marks": 2.0,
-      "negative_marks": -0.5
-    },
-    "3": {
       "question_type": "SMCQ",
       "correct_answer": "A",
       "positive_marks": 2.0,
       "negative_marks": -0.5
     },
+    "3": {
+      "question_type": "SMCQ",
+      "correct_answer": "C",
+      "positive_marks": 1.0,
+      "negative_marks": -0.25
+    },
     "4": {
-      "question_type": "NCQ",
-      "correct_answer": "1000",
+      "question_type": "SMCQ",
+      "correct_answer": "A",
       "positive_marks": 2.0,
       "negative_marks": -0.5
     },
     "5": {
-      "question_type": "MMCQ",
-      "correct_answer": "BD",
-      "positive_marks": 2.0,
-      "negative_marks": 0.0
+      "question_type": "SMCQ",
+      "correct_answer": "C",
+      "positive_marks": 1.0,
+      "negative_marks": -0.25
     }
   },
   "negative_marking": 0.0,
   "metadata": {
-    "source_file": "answer_key.xlsx - Answer Key (2).csv",
+    "source_file": "answer_key.xlsx - Answer Key (4).csv",
     "raw_question_count": 5,
     "parsed_question_count": 5,
     "format": "comprehensive"

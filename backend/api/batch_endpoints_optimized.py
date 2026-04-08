@@ -22,6 +22,7 @@ from services.answer_key_service import AnswerKeyService
 from services.batch_evaluation_service import BatchEvaluationService, batch_match_and_score
 from services.result_cache_service import ResultCacheService, get_cached_or_process_ocr
 from services.optimized_database_service import OptimizedDatabaseService, batch_write_student_results
+from services.drive_rename_service import DriveRenameService
 import aiohttp
 import asyncio
 import tempfile
@@ -746,7 +747,14 @@ _ocr_debug_lock: asyncio.Lock = asyncio.Lock()
 _problem_files: Dict[str, List[Dict]] = {}
 
 
-async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, processing_id: str, evaluation_id: str = "default", force_reprocess: bool = False):
+async def _process_sheets_optimized(
+    student_sheets: List[Dict],
+    answer_key,
+    processing_id: str,
+    evaluation_id: str = "default",
+    force_reprocess: bool = False,
+    rename_drive_inline: bool = False,
+):
     """
     Two-phase streaming pipeline:
 
@@ -808,11 +816,37 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
     # Use a generous semaphore just to cap memory from too many in-flight downloads
     download_sem = asyncio.Semaphore(50)
     lock = asyncio.Lock()
+    rename_usage_lock = asyncio.Lock()
+    entry_usage_for_rename: Dict[str, int] = {}
+    _rename_svc = DriveRenameService(drive_service) if rename_drive_inline else None
     success_count = 0
     cache_hit_count = 0
     start_t = time.time()
     _processing_stats[processing_id]["start_time"] = start_t
     total = len(student_sheets)
+
+    async def _rename_one(display_fname: str, fid: str, result_payload: Any):
+        """Rename Drive file using this row's scores. Returns (updated result, effective filename)."""
+        if not rename_drive_inline or not _rename_svc or not fid:
+            return result_payload, display_fname
+        rdict = result_payload.model_dump() if hasattr(result_payload, "model_dump") else dict(result_payload)
+        rdict["file_id"] = fid
+        rdict["file_name"] = display_fname
+        async with rename_usage_lock:
+            mt = _rename_svc.classify_match(rdict)
+            new_nm = _rename_svc.compute_new_name_for_student_sheet(
+                display_fname, rdict, mt, entry_usage_for_rename, False
+            )
+        if not new_nm:
+            return result_payload, display_fname
+        ok = await asyncio.to_thread(drive_service.rename_file, fid, new_nm)
+        if not ok:
+            return result_payload, display_fname
+        if hasattr(result_payload, "model_copy"):
+            result_payload = result_payload.model_copy(update={"file_name": new_nm, "file_id": fid})
+        else:
+            result_payload = {**dict(result_payload), "file_name": new_nm, "file_id": fid}
+        return result_payload, new_nm
 
     def _is_valid_cached_entry(entry_val):
         """Legacy check just for entry_number validity."""
@@ -862,10 +896,10 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                 score = eval_cached.get('total_score', '?')
                 n_answers = len(eval_cached.get('answers', {}) or eval_cached.get('details', []))
                 print(f"  ⚡ [PIPELINE] {fname}: EVAL CACHE HIT | entry={cached_entry!r} score={score} ak_hash_ok=True")
+                student_result, fname = await _rename_one(fname, file_id, dict(eval_cached))
                 async with lock:
                     cache_hit_count += 1
                     _processing_stats[processing_id]["cache_hits"] = cache_hit_count
-                    student_result = eval_cached  # already fully scored
                     results.append(student_result)
                     success_count += 1
                     processed = len(results) + len(errors)
@@ -1012,6 +1046,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
             # ── STEP 5: Evaluate ──
             ocr["index"] = idx
             ocr["file_name"] = fname
+            ocr["file_id"] = file_id
             if not str(ocr.get("entry_number", "")).strip():
                 fallback_id = os.path.splitext(fname)[0]
                 ocr["entry_number"] = f"UNREAD_{fallback_id}"
@@ -1030,6 +1065,7 @@ async def _process_sheets_optimized(student_sheets: List[Dict], answer_key, proc
                     errors.append({"file": fname, "error": student_result["error"], "file_id": file_id})
                     _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
             else:
+                student_result, fname = await _rename_one(fname, file_id, student_result)
                 scored_entry = getattr(student_result, 'entry_number', None) or (student_result.get('entry_number') if isinstance(student_result, dict) else '')
                 scored_score = getattr(student_result, 'total_score', None) or (student_result.get('total_score') if isinstance(student_result, dict) else '?')
                 print(f"  ✅ {phase_tag} {fname}: DONE | entry={scored_entry!r} score={scored_score}")
@@ -1210,7 +1246,14 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
 
         # Run pipeline
         eval_id = request.evaluation_id or "default"
-        results, errors = await _process_sheets_optimized(student_sheets, _current_answer_key, processing_id, eval_id, force_reprocess)
+        results, errors = await _process_sheets_optimized(
+            student_sheets,
+            _current_answer_key,
+            processing_id,
+            eval_id,
+            force_reprocess,
+            rename_drive_inline=bool(request.rename_drive_inline),
+        )
 
         total_time = time.time() - start_time
         _processing_stats[processing_id].update({

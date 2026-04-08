@@ -83,6 +83,9 @@ class StudentResult(BaseModel):
     negative_deduction: float = 0.0
     details: List[QuestionResult] = []
     comments: str = ""
+    # Source file (Google Drive) — used to correlate OCR rows to Drive files for renaming
+    file_name: Optional[str] = None
+    file_id: Optional[str] = None
 
 
 # ── API Request/Response Models ──
@@ -90,6 +93,8 @@ class StudentResult(BaseModel):
 class ProcessFolderRequest(BaseModel):
     folder_url: str
     evaluation_id: Optional[str] = None
+    # Rename each student sheet on Drive immediately after that file is scored (correct file ↔ result).
+    rename_drive_inline: bool = False
 
 
 class ExportToSheetsRequest(BaseModel):
@@ -124,12 +129,12 @@ class SheetUpdateSummary(BaseModel):
 class RenameDriveFilesRequest(BaseModel):
     folder_url: str
     dry_run: bool = False
-    skip_already_renamed: bool = True
+    skip_already_renamed: bool = False
     results: Optional[List[Dict]] = None  # Pass results explicitly; falls back to in-memory
 
 
 class FullPipelineWithRenameRequest(BaseModel):
     drive_folder_url: str
     sheets_url: str
-    rename_files: bool = True   # Rename Drive files after processing
-    dry_run_rename: bool = False  # Preview renames without executing
+    rename_files: bool = True   # Rename each sheet on Drive as soon as it is processed (inline)
+    dry_run_rename: bool = False  # If True, no Drive renames; optional batch preview only at end

@@ -645,6 +645,7 @@ const EvaluatePage = () => {
             await backendService.clearCache();
             await resultsService.clearResultsByEvaluation(evaluationId);
             setResults([]);
+            setRawOcrResults([]);
             setPipelineLog(prev => [...prev, 'Cache and results cleared successfully! Start a new pipeline run.']);
             await loadCacheStatus();
         } catch (err) {
@@ -700,6 +701,55 @@ const EvaluatePage = () => {
     };
 
     const [syncLoading, setSyncLoading] = useState(false);
+    const [renameLoading, setRenameLoading] = useState(false);
+
+    const buildResultsForDriveRename = () => {
+        const list = rawOcrResults.length > 0 ? rawOcrResults : results;
+        return list.map((r) => ({
+            entry_number: r.entry_number || r.students?.roll_number || '',
+            name: r.name || r.students?.name || '',
+            comments: r.comments || '',
+            file_name: r.file_name || undefined,
+            file_id: r.file_id || undefined,
+        }));
+    };
+
+    const handleRenameDriveFiles = async () => {
+        const folderUrl = driveFolderUrl || evaluation?.drive_folder_url;
+        if (!folderUrl) {
+            setExportMsg('Error: Set a Google Drive folder URL on this evaluation to rename files there.');
+            return;
+        }
+        if (!window.confirm(
+            "Rename files in that Google Drive folder using each sheet's detected roll number and name? "
+            + "Already-renamed files may be skipped. This cannot be undone from the app."
+        )) {
+            return;
+        }
+        setRenameLoading(true);
+        setExportMsg('');
+        try {
+            const payload = buildResultsForDriveRename();
+            if (payload.length === 0) {
+                setExportMsg('No results to use for renaming.');
+                return;
+            }
+            const res = await backendService.renameDriveFiles(folderUrl, payload, false, false);
+            if (res.error) {
+                setExportMsg(`Rename: ${res.error}`);
+                return;
+            }
+            const msg = res.message
+                || (res.execution_result
+                    ? `Renamed ${res.execution_result.success}/${res.execution_result.total} files.`
+                    : 'Rename finished.');
+            setExportMsg(msg);
+        } catch (err) {
+            setExportMsg('Rename failed: ' + err.message);
+        } finally {
+            setRenameLoading(false);
+        }
+    };
 
     const handleSyncFromSheet = async () => {
         const course = evaluation?.courses;
@@ -799,14 +849,25 @@ const EvaluatePage = () => {
                         <div className="flex items-center gap-3">
                             {results.length > 0 && (
                                 <>
-                                    <button onClick={handleSyncFromSheet} disabled={syncLoading || exportLoading}
+                                    <button
+                                        type="button"
+                                        onClick={handleRenameDriveFiles}
+                                        disabled={renameLoading || syncLoading || exportLoading || !(driveFolderUrl || evaluation?.drive_folder_url)}
+                                        title={!(driveFolderUrl || evaluation?.drive_folder_url) ? 'Save a Drive folder URL for this evaluation first' : undefined}
+                                        className="px-4 py-2 border border-secondary-300 bg-secondary-50 text-secondary-800 rounded-lg hover:bg-secondary-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
+                                        {renameLoading
+                                            ? <div className="w-4 h-4 border-2 border-secondary-500 border-t-transparent rounded-full animate-spin" />
+                                            : <Icon name="FilePenLine" size={16} />}
+                                        Rename Drive files
+                                    </button>
+                                    <button onClick={handleSyncFromSheet} disabled={syncLoading || exportLoading || renameLoading}
                                         className="px-4 py-2 border border-blue-300 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
                                         {syncLoading
                                             ? <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                                             : <Icon name="RefreshCw" size={16} />}
                                         Sync from Sheet
                                     </button>
-                                    <button onClick={handleExportToSheet} disabled={exportLoading || syncLoading}
+                                    <button onClick={handleExportToSheet} disabled={exportLoading || syncLoading || renameLoading}
                                         className="px-4 py-2 border border-success-300 bg-success-50 text-success-700 rounded-lg hover:bg-success-100 transition-colors text-sm flex items-center gap-2 disabled:opacity-50">
                                         {exportLoading
                                             ? <div className="w-4 h-4 border-2 border-success-500 border-t-transparent rounded-full animate-spin" />

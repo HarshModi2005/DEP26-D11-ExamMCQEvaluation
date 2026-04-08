@@ -1,0 +1,2688 @@
+{
+  "UNMATCHED_NODATA - 2025CSB1224 - Mohit Dhaka.jpg": {
+    "entry_number": "2025 MCB1500",
+    "name": "NEELABH MISHRA",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1472 - CHETAN YADAV.jpg": {
+    "entry_number": "2025MCB1467",
+    "name": "ARYAN DHAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "BC",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1212 - Lakshay Kumar Padam.jpg": {
+    "entry_number": "2025CSB1243",
+    "name": "RITESH GUPTA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1517 - SEERAT MEHTA.jpg": {
+    "entry_number": "2025MCB1464",
+    "name": "ANSHIKA SHARMA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2024CSB1093 - ABHISHULESH GEVIN.jpg": {
+    "entry_number": "2025CSB1220",
+    "name": "MEET. KAMLESH. TRIVEDI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1460 - ADITYA NEGI.jpg": {
+    "entry_number": "2025MCB1475",
+    "name": "DHARYAVEER SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1234 - PIYUSH KUMAR.jpg": {
+    "entry_number": "20.25.MCB.1507",
+    "name": "PRITHVI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2024CSB1376 - R. JASHVANTH.jpg": {
+    "entry_number": "2025 MCB 1485",
+    "name": "KASHISH AGGARWAL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1217 - MANAS. SOUMYA.jpg": {
+    "entry_number": "2025CSB1232",
+    "name": "PARKHI JAIN",
+    "answers": {
+      "1": "B",
+      "3": "D",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2024CSB1225 - MOINAK GOSWAMI.jpg": {
+    "entry_number": "202.5 MCB1509",
+    "name": "RISHI KUMAWAT",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1522 - SURYA MADREKAR.jpg": {
+    "entry_number": "2025MCB1459",
+    "name": "ADITYA ANAND",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1169 - ASHLYN ALDRIN JOSE.HEIC": {
+    "entry_number": "2025CSB1261",
+    "name": "SURINENI SHLOKA",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1518 - SHIVAM GARG.jpg": {
+    "entry_number": "2025.CSB1207",
+    "name": "KHUSHI. SHINDE",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "B",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2024CSB1150 - SANDESH BAIRAGI.jpg": {
+    "entry_number": "2025MCB1489",
+    "name": "LAKSHYA GOSWAMI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1247 - ROHIT KUMAR GOND.HEIC": {
+    "entry_number": "2025CSB1188",
+    "name": "DIGVIJAYA SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1218 - MANSI GOYAL.jpg": {
+    "entry_number": "2025 MCB 1529",
+    "name": "VISHU. GARG",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1491 - MANISH.jpg": {
+    "entry_number": "2025CSB1196",
+    "name": "GURNOOR SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1469 - ASHAMVEER SINGH SALLAN.jpg": {
+    "entry_number": "2025CSB1154",
+    "name": "ADITYA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1641 - SHUBHAM KUMAR.HEIC": {
+    "entry_number": "2025CSB1260",
+    "name": "SOMIL DHAWAN",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1495 - M SUCHITH NAIDU.HEIC": {
+    "entry_number": "2025MCB1523",
+    "name": "TANISH TAKKAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1488 - K SURYA TEJA.jpg": {
+    "entry_number": "202.5.CSB.1.259",
+    "name": "SIDDA. VASUMAT",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1255 - SATYAM BHARTI.HEIC": {
+    "entry_number": "2025C8B1237",
+    "name": "PRANJAL. AGARWAL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025MC(B)S16 - Sarthek Nayek.jpg": {
+    "entry_number": "2025CSB1254",
+    "name": "SAKSHAT BANSAL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2024CSB1401 - ABHIJIT KISHAN KAMBLE.jpg": {
+    "entry_number": "2025CSB1166",
+    "name": "ARYA SINGH SIDAR",
+    "answers": {
+      "1": "C",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1266 - Varun Meena.jpg": {
+    "entry_number": "2024CSB1376",
+    "name": "R. JASHVANTH",
+    "answers": {
+      "1": "D",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025.CSB1229 - NILAMBUJ. TRIPATHI.jpg": {
+    "entry_number": "2025MCB1508",
+    "name": "PRIYESH RAI",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025.CSB1174 - BHOSALE HARSHVARDHAN.HEIC": {
+    "entry_number": "2025CSB1194",
+    "name": "GUGULOTH KARTHIK",
+    "answers": {
+      "3": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB.11.60. - ANJALI CHOUDHARY.HEIC": {
+    "entry_number": "202.55.8.1200",
+    "name": "IZVAN ZUPERI",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "202565B1182 - Devam. Baba. Burhan.jpg": {
+    "entry_number": "2025CSB1257",
+    "name": "SHALIN JAVARIA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025.CSB1230 - OJASVI.jpg": {
+    "entry_number": "2025 MCB 1477",
+    "name": "EKAMJOT SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1474 - DEBASIS PRADHAN.jpg": {
+    "entry_number": "2025CSB1256",
+    "name": "SAURABHRAJ SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1267 - VINEET JATOL.HEIC": {
+    "entry_number": "2025MCB1495",
+    "name": "M SUCHITH NAIDU",
+    "answers": {
+      "3": "B",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "202565B1211 - KUNAL SINGH BAGHEL.jpg": {
+    "entry_number": "2025CSB1191",
+    "name": "GORISH LAMBA",
+    "answers": {
+      "1": "A",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1502 - NISHANT.jpg": {
+    "entry_number": "2025CSB1180",
+    "name": "CHAYAN JUNEJA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025M.CB1481 - Nagachaitanya.jpg": {
+    "entry_number": "2024CSB1093",
+    "name": "ABHISHULESH GEVIN",
+    "answers": {
+      "1": "A",
+      "2": "BC",
+      "3": "D",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1239 - Preeti PREETI.HEIC": {
+    "entry_number": "2025CSB1173",
+    "name": "BHAVESH KUMAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "202.5M.CB1498 - MUKESH PRAJAPAT.HEIC": {
+    "entry_number": "2025MCB1483",
+    "name": "JATIN DAHIYA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "D",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025.MCB.1478 - HARENDRA FAGERIYA.HEIC": {
+    "entry_number": "2025CSB1192",
+    "name": "GORLE RUPESH",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1265 - TUSHAR.jpg": {
+    "entry_number": "2025MCB1463",
+    "name": "ANIKA AGRAWAL",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1166 - ARYA SINGH SIDAR.jpg": {
+    "entry_number": "2025MCB1479",
+    "name": "HARSHIL Goyal",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1206 - KHUSH VARSHNEY.jpg": {
+    "entry_number": "2025MCB1514",
+    "name": "SAMARTH JAIN",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1487 - Kratika verma.jpg": {
+    "entry_number": "2025CSB1165",
+    "name": "ARSHI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025.CSB1184 - DHIRAJ KUMAR.jpg": {
+    "entry_number": "2025MCB1524",
+    "name": "TANVIR JAURR",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1157 - AMAN GUPTA.jpg": {
+    "entry_number": "2025M.CB1481",
+    "name": "Nagachaitanya",
+    "answers": {
+      "1": "C",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "202.5MCB.1457 - ADAMYA RAJPUT.jpg": {
+    "entry_number": "2025CSB1185",
+    "name": "DHRUV KUMAR GUPTA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1159 - AMULYA KABRA.jpg": {
+    "entry_number": "2025CSB1225",
+    "name": "MONISH CHANDRA PONUGOTI",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1222 - MINESH KUMAR MEENA.HEIC": {
+    "entry_number": "2025MCB1468",
+    "name": "ARYAN SAHU",
+    "answers": {
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1177 - BUGATHA JAYRAM.jpg": {
+    "entry_number": "2025CSB1212",
+    "name": "Lakshay Kumar Padam",
+    "answers": {
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1527 - VANSHIKA SINGH.HEIC": {
+    "entry_number": "2025.C.SB.115.2",
+    "name": "ABHI DIPA VERMA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025MCB1486 - K.SIRI.CHANDANA.jpg": {
+    "entry_number": "2025CSB1175",
+    "name": "BIJJULA SAI AKSHAYA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1261 - SURINENI SHLOKA.jpg": {
+    "entry_number": "2025CSB1217",
+    "name": "MANAS. SOUMYA",
+    "answers": {
+      "1": "C",
+      "2": "A",
+      "3": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025MCB1453 - AARE PRANAVI.HEIC": {
+    "entry_number": "2025CSB1179",
+    "name": "CHANDANA. AKASH MEHER",
+    "answers": {
+      "1": "C",
+      "2": "C",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1203 - JAYANTH KUMAR DAHIRE.jpg": {
+    "entry_number": "2025CSB1242",
+    "name": "RISHIT GUPTA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1248 - RUDRA.jpg": {
+    "entry_number": "2025.CSB 1215",
+    "name": "MAHIT CHOPRA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1201 - JASPREET KAUR.jpg": {
+    "entry_number": "2025CSB1227",
+    "name": "ADITYA NAMBIAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1455 - ABHINAV RASTOGI.jpg": {
+    "entry_number": "2025CSB1208",
+    "name": "KINUSON. RANJAN",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1506 - PRAVEEN VERMA.jpg": {
+    "entry_number": "2025MCB1515",
+    "name": "SAMRAT SANJIVA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1468 - ARYAN SAHU.jpg": {
+    "entry_number": "2025CSB1214",
+    "name": "MAANINDER SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025.MCB.1497 - MRIDUL KUMAR RATHORE.jpg": {
+    "entry_number": "2025CSB1231",
+    "name": "PARIDHI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025mcb1521 - Shrutt Rai.jpg": {
+    "entry_number": "202.5CSB1151",
+    "name": "AASHIL. UBBOTT",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1253 - SAKSHAM YADAV.jpg": {
+    "entry_number": "20.25.CSB.11.62",
+    "name": "ANSH GARG",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1209 - KRISHAA. SHEETAL GOLGHATE.jpg": {
+    "entry_number": "2025CSB1228",
+    "name": "NAMIT JAIN",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1",
+    "_verified_passes": 0
+  },
+  "2025MCB1484 - KARTIK MADAVI.HEIC": {
+    "entry_number": "2025CSB1158",
+    "name": "AM GOTH ARUN",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1232.. - PARKHI.. JAIN...jpg": {
+    "entry_number": "2025CSB1168",
+    "name": "ASHISH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1496 - MEESALA GOUTHAMI.jpg": {
+    "entry_number": "2025MCB1526",
+    "name": "Manvith Vaisetti",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025.CSB1207 - KHUSHI. SHINDE.HEIC": {
+    "entry_number": "2025MCB/S16",
+    "name": "Sarthek Nayek",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2024MCB1353 - Jaskoron Kara.jpg": {
+    "entry_number": "202.5CS.B.11.83",
+    "name": "DHAWAL RASTOGI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025.CSB.1246 - ROHAN YADAV.jpg": {
+    "entry_number": "202.5MCB.1457",
+    "name": "ADAMYA RAJPUT",
+    "answers": {
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1179 - CHANDANA. AKASH MEHER.jpg": {
+    "entry_number": "202.5CSB1186",
+    "name": "Dhruvesh. Maithani",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2024MCB1389 - SHOURYA PASTOR.jpg": {
+    "entry_number": "2025MCB1503",
+    "name": "O. NIPUN TEJ REDDY",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1",
+    "_verified_passes": 0
+  },
+  "2025MCB1463 - ANIKA AGRAWAL.jpg": {
+    "entry_number": "20217CB1473",
+    "name": "Anushna",
+    "answers": {
+      "3": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1249 - SAI PASTHAM.HEIC": {
+    "entry_number": "2025mcb1521",
+    "name": "Shrutt Rai",
+    "answers": {
+      "1": "B",
+      "3": "B",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1194 - GUGULOTH KARTHIK.HEIC": {
+    "entry_number": "2025MCB1470",
+    "name": "B. KASYAP",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025 CSB 1238 - PRATTOY DAS.jpg": {
+    "entry_number": "2025MCB1476",
+    "name": "DIVYANSHU SAROJ",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1227 - ADITYA NAMBIAR.jpg": {
+    "entry_number": "2025MCB1461",
+    "name": "AJITESH SINGH BHULLAR",
+    "answers": {
+      "2": "A",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1",
+    "_verified_passes": 0
+  },
+  "2025MCB1508 - PRIYESH RAI.jpg": {
+    "entry_number": "2025CSB1239",
+    "name": "Preeti PREETI",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "4": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "202.55.8.1200 - IZVAN ZUPERI.jpg": {
+    "entry_number": "2025MCB1456",
+    "name": "ABHIRAJ MAURYA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025MCB1524 - TANVIR JAURR.jpg": {
+    "entry_number": "2025CSB1253",
+    "name": "SAKSHAM YADAV",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2023CSB1154 - ROMAN BHASKAR.jpg": {
+    "entry_number": "202565B1211",
+    "name": "KUNAL SINGH BAGHEL",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1245 - RITUL KUMAR.jpg": {
+    "entry_number": "2025MCB1465",
+    "name": "ARMAAN SINGH",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "20217CB1473 - Anushna.HEIC": {
+    "entry_number": "2025MCB1453",
+    "name": "AARE PRANAVI",
+    "answers": {
+      "1": "B",
+      "3": "B",
+      "5": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1",
+    "_verified_passes": 0
+  },
+  "2025CSB119 - GORISH LAMBA.jpg": {
+    "entry_number": "2025MCB1511",
+    "name": "RONIT BISWAL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025MCB1476 - DIVYANSHU SAROJ.jpg": {
+    "entry_number": "2025CSB1223",
+    "name": "MISHRA RISHIKESH",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2024CSB1215 - SARTHAK NITIN KESHAOWAR.jpg": {
+    "entry_number": "2024CSB1150",
+    "name": "SANDESH BAIRAGI",
+    "answers": {
+      "1": "D",
+      "2": "D",
+      "3": "C",
+      "4": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1225 - MONISH CHANDRA PONUGOTI.jpg": {
+    "entry_number": "2025CSB1249",
+    "name": "SAI PASTHAM",
+    "answers": {
+      "1": "B",
+      "2": "BC",
+      "3": "C",
+      "4": "BC"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1240 - RAGHAV ANAND.HEIC": {
+    "entry_number": "2025.MCB.1497",
+    "name": "MRIDUL KUMAR RATHORE",
+    "answers": {
+      "1": "D",
+      "2": "A",
+      "3": "C",
+      "4": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MEBIS19 - Sh. Rawan _ SHRAVAN.HEIC": {
+    "entry_number": "2025CSB1176",
+    "name": "BOKKIKONDA SAIBHARGAV",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1244 - RITIKA CHAUDHARY.jpg": {
+    "entry_number": "2024.M.CB1251",
+    "name": "ARAHANA GARG",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5",
+    "_verified_passes": 0
+  },
+  "2025MCB1528 - VEER.jpg": {
+    "entry_number": "2025.MCB1504",
+    "name": "PAGHADAL JENIS ALPESHBHAI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1198 - HAPAVATH SHIVA KUMAR.jpg": {
+    "entry_number": "2025CSB1262",
+    "name": "TANISHA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "B",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025M.CB1513 - SAKSHI. MEENA.jpg": {
+    "entry_number": "2023CSB1154",
+    "name": "ROMAN BHASKAR",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1",
+    "_verified_passes": 0
+  },
+  "2025CSB1215 - MAHIT CHOPRA.jpg": {
+    "entry_number": "2025MCB1520",
+    "name": "SHREYANSH RAJ",
+    "answers": {
+      "1": "A",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4",
+    "_verified_passes": 0
+  },
+  "2025MCB14.71 - CHALLA NIHARIKA.jpg": {
+    "entry_number": "2025MCB1493",
+    "name": "MANSHA",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025.CSB1.210 - KRRISH DAGAR.HEIC": {
+    "entry_number": "202.5M.CB1498",
+    "name": "MUKESH PRAJAPAT",
+    "answers": {
+      "1": "D",
+      "2": "B",
+      "3": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025CSB1197 - HANZALA ZAID.HEIC": {
+    "entry_number": "2025.C.SB.1226",
+    "name": "MUHAMMED. REHAAN ST",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1158 - AM GOTH ARUN.jpg": {
+    "entry_number": "2025CSB1209",
+    "name": "KRISHAA. SHEETAL GOLGHATE",
+    "answers": {
+      "1": "B",
+      "3": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025.C.S.B.1190 - DUDDUPUDI RUPIKA.jpg": {
+    "entry_number": "2024CSB1057",
+    "name": "AMAN RAJ",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1",
+    "_verified_passes": 0
+  },
+  "2025CSB_25) - SAKSHAM.jpg": {
+    "entry_number": "2024CSB1215",
+    "name": "SARTHAK NITIN KESHAOWAR",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1223 - MISHRA RISHIKESH.jpg": {
+    "entry_number": "2025CSB1202",
+    "name": "Jatin single",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "2024MCB1403 - ARJUN.S.jpg": {
+    "entry_number": "2.0.25.C.SB.11.93",
+    "name": "GOURA.V",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1165 - ARSHI.jpg": {
+    "entry_number": "2025CS81195",
+    "name": "GUNJAN CHAUDHARY",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB.1221 - MENKUDLE. SHREYASH SUDHIR.jpg": {
+    "entry_number": "2025CSB.1221",
+    "name": "MENKUDLE. SHREYASH SUDHIR",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2.0.25.C.SB.11.93 - GOURA.V.jpg": {
+    "entry_number": "2025CSB1263",
+    "name": "TANMAY KUMAR JAYANT",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "4": "A",
+      "5": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1163 - ANURADHA KANAUJIYA.jpg": {
+    "entry_number": "202SHCB1528",
+    "name": "VEER",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025MCB1461 - AJITESH SINGH BHULLAR.HEIC": {
+    "entry_number": "2025.CSB.1187",
+    "name": "DHWANIT KALPESH PATEL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "202.5CS.B.11.83 - DHAWAL RASTOGI.jpg": {
+    "entry_number": "2025CSB1264",
+    "name": "TANUJ",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1235 - POORAB SINGHI.jpg": {
+    "entry_number": "2025CSB1205",
+    "name": "KEERAT SINGH VOHRA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4",
+    "_verified_passes": 0
+  },
+  "2024CSB1349 - HEMACHANDRAN V.jpg": {
+    "entry_number": "2025MCB1517",
+    "name": "SEERAT MEHTA",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025.MCB.1458 - ADARSH SINGH.jpg": {
+    "entry_number": "2025CSB1206",
+    "name": "KHUSH VARSHNEY",
+    "answers": {
+      "1": "C",
+      "2": "A",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1205 - KEERAT SINGH VOHRA.jpg": {
+    "entry_number": "2025CSB1247",
+    "name": "ROHIT KUMAR GOND",
+    "answers": {
+      "1": "D",
+      "2": "C",
+      "3": "C",
+      "4": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1192 - GORLE RUPESH.jpg": {
+    "entry_number": "2025MC031454",
+    "name": "Aayush Santosh Bhosale",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4",
+    "_verified_passes": 0
+  },
+  "2025CSB1164 - ARPIT...YADAV.jpg": {
+    "entry_number": "2025 CSB 1238",
+    "name": "PRATTOY DAS",
+    "answers": {
+      "1": "C",
+      "2": "A",
+      "3": "D",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5",
+    "_verified_passes": 0
+  },
+  "2024MCB1251 - ARAHANA GARG.jpg": {
+    "entry_number": "2025CSB1153",
+    "name": "ADARSH SHARMA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1",
+    "_verified_passes": 0
+  },
+  "2025MCB1483 - JATIN DAHIYA.jpg": {
+    "entry_number": "2024MCB1353",
+    "name": "Jaskaran Kara",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025M031454 - Aaywh Santosh Bhosale.jpg": {
+    "entry_number": "202SCSB118",
+    "name": "Daksh Gupta",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025MCB1470 - B. KASYAP.jpg": {
+    "entry_number": "2025CSB1267",
+    "name": "VINEET JATOL",
+    "answers": {
+      "1": "C",
+      "3": "C",
+      "5": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2015CSB1185 - DHRUV KUMAR GUPTA.jpg": {
+    "entry_number": "2025CSB1240",
+    "name": "RAGHAV ANAND",
+    "answers": {
+      "1": "C",
+      "2": "A",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025CSB1262 - TANISHA.jpg": {
+    "entry_number": "2025CSB1189",
+    "name": "DIVYA GUPTA",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1199 - HARSH THAPAR.jpg": {
+    "entry_number": "2025CSB1244",
+    "name": "RITIKA CHAUDHARY",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025MCB1485 - KASHISH AGGARWAL.jpg": {
+    "entry_number": "2025CSB1156",
+    "name": "AKANKSHA.. KUMARI",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1",
+    "_verified_passes": 0
+  },
+  "202SMCB1493 - MANSHA.jpg": {
+    "entry_number": "2025MCB1527",
+    "name": "VANSHIKA SINGH",
+    "answers": {
+      "2": "A",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025.C.SB.1226 - MUHAMMED. REHAAN ST.jpg": {
+    "entry_number": "2025MCB1496",
+    "name": "MEESALA GOUTHAMI",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1",
+    "_verified_passes": 0
+  },
+  "2025MCB1514 - SAMARTH JAIN.jpg": {
+    "entry_number": "2024CSB1203",
+    "name": "HARSHIT SAHU",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025CSB1189 - DIVYA GUPTA.jpg": {
+    "entry_number": "2025CSB1203",
+    "name": "JAYANTH KUMAR DAHIRE",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1",
+    "_verified_passes": 0
+  },
+  "2025 MCB1500 - NEELABH MISHRA.jpg": {
+    "entry_number": "2025CSB1266",
+    "name": "Varun Meena",
+    "answers": {
+      "1": "C",
+      "3": "C",
+      "4": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1187 - DHWANIT KALPESH PATEL.jpg": {
+    "entry_number": "2024CSB1225",
+    "name": "MOINAK GOSWAMI",
+    "answers": {
+      "1": "D",
+      "2": "A",
+      "3": "C",
+      "4": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "2025CSB1202 - Jatin single.jpg": {
+    "entry_number": "2025MCB1488",
+    "name": "K.SURYA TEJA",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1",
+    "_verified_passes": 0
+  },
+  "2024MCB1333 - BHANYA BANSAL.jpg": {
+    "entry_number": "2024MCB1403",
+    "name": "ARJUN.S",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB1479 - HARSHIL GOYAL.jpg": {
+    "entry_number": "2025.CSB.1246",
+    "name": "ROHAN YADAV",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1260 - SOMIL DHAWAN.jpg": {
+    "entry_number": "2025CSB1241",
+    "name": "RAM KRISHNA DAS",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025CSB1161 - ANKUSH RAJ.jpg": {
+    "entry_number": "2025.CSB1229",
+    "name": "NILAMBUJ. TRIPATHI",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1",
+    "_verified_passes": 0
+  },
+  "202.5 MCB1509 - RISHI KUMAWAT.jpg": {
+    "entry_number": "2025CSB1248",
+    "name": "RUDRA",
+    "answers": {
+      "1": "B",
+      "3": "B",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "2025CSB1250 - SAINYAM SANJOG SHARMA.jpg": {
+    "entry_number": "20.2.5.MCB.14.6.2",
+    "name": "AMEY JANGRA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1264 - TANUJ.jpg": {
+    "entry_number": "2025CSB1164",
+    "name": "ARPIT...YADAV",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025 MCB 1529 - VISHU. GARG.jpg": {
+    "entry_number": "2025MCB1455",
+    "name": "ABHINAV RASTOGI",
+    "answers": {
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4",
+    "_verified_passes": 0
+  },
+  "2025MCB1475 - DHARYAVEER SINGH.jpg": {
+    "entry_number": "2025MCB/530",
+    "name": "YASH NEHRA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1172 - BELADIYA ARYAN JITENDRA BHAI.jpg": {
+    "entry_number": "2024CSB1401",
+    "name": "ABHIJIT KISHAN KAMBLE",
+    "answers": {
+      "1": "B",
+      "3": "B",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1224 - MOHIT DHAKA.jpg": {
+    "entry_number": "2025MCB1506",
+    "name": "PRAVEEN VERMA",
+    "answers": {
+      "1": "A",
+      "2": "A",
+      "3": "C",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "202.5CSB1186 - Dhruvesh. Maithani.jpg": {
+    "entry_number": "2025CSB1641",
+    "name": "SHUBHAM KUMAR",
+    "answers": {
+      "2": "C",
+      "3": "C",
+      "4": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1",
+    "_verified_passes": 0
+  },
+  "2025CSB1228 - NAMIT JAIN.jpg": {
+    "entry_number": "2025MCB1499",
+    "name": "NANDASANA MALAY JAGDISHBHAI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025 MCB 1477 - EKAMJOT SINGH.jpg": {
+    "entry_number": "2025.CSB1.210",
+    "name": "KRRISH DAGAR",
+    "answers": {
+      "1": "C",
+      "3": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1156 - AKANKSHA KUMARI.jpg": {
+    "entry_number": "2024CSB1349",
+    "name": "HEMACHANDRAN V",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025MCB1489 - LAKSHYA GOSWAMI.jpg": {
+    "entry_number": "2025MCB1487",
+    "name": "Kratika verma",
+    "answers": {
+      "1": "B",
+      "3": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1505 - PARAM DAMANI.jpg": {
+    "entry_number": "2025CSB1169",
+    "name": "ASHLYN ALDRIN JOSE",
+    "answers": {
+      "1": "B",
+      "2": "BC",
+      "3": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB.19.66 - ARNAY SINGH.jpg": {
+    "entry_number": "2025CSB1255",
+    "name": "SATYAM BHARTI",
+    "answers": {
+      "3": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025C8B1237 - PRANJAL. AGARWAL.jpg": {
+    "entry_number": "2025MCB1510",
+    "name": "RITESH RAI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1503 - O. NIPUN TEJ REDDY.jpg": {
+    "entry_number": "2025MCB1460",
+    "name": "ADITYA NEGI",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "2025MCB1482 - JASHRAJ SINGH PARMAR.jpg": {
+    "entry_number": "2024MCB1333",
+    "name": "BHANYA BANSAL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB1499 - NANDASANA MALAY JAGDISHBHAI.jpg": {
+    "entry_number": "2025.MCB.1458",
+    "name": "ADARSH SINGH",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "202SCSB118 - Daksh Gupta.jpg": {
+    "entry_number": "2025.MCB.1478",
+    "name": "HARENDRA FAGERIYA",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "C",
+      "5": "B",
+      "16": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4",
+    "_verified_passes": 0
+  },
+  "2025CSB1241 - RAM KRISHNA DAS.jpg": {
+    "entry_number": "2025CSB/25",
+    "name": "SAKSHAM",
+    "answers": {
+      "1": "C",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4",
+    "_verified_passes": 0
+  },
+  "2025MCB1465 - ARMAAN SINGH.jpg": {
+    "entry_number": "2025CSB1177",
+    "name": "BUGATHA JAYRAM",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "B",
+      "4": "A",
+      "5": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "202.5.CSB.1.259 - SIDDA. VASUMAT.jpg": {
+    "entry_number": "2025CSB1222",
+    "name": "MINESH KUMAR MEENA",
+    "answers": {
+      "1": "A",
+      "2": "BC",
+      "3": "C",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20.25.MCB.1507 - PRITHVI.jpg": {
+    "entry_number": "2025CSB1252",
+    "name": "SAKSHAM GARG",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1188 - DIGVIJAYA SINGH.jpg": {
+    "entry_number": "2025CSB1163",
+    "name": "ANURADHA KANAUJIYA",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1220 - MEET KAMLESH TRIVEDI.jpg": {
+    "entry_number": "2025CSB1184",
+    "name": "DHIRAJ KUMAR",
+    "answers": {
+      "1": "A",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1263 - YASH KUMAR.jpg": {
+    "entry_number": "2025MCB1474",
+    "name": "DEBASIS PRADHAN",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "20.25.CSB.11.62 - ANSH GARG.jpg": {
+    "entry_number": "2025CSB1172",
+    "name": "BELADIYA ARYAN JITENDRA BHAI",
+    "answers": {
+      "1": "B",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1254 - SAKSHAT BANSAL.jpg": {
+    "entry_number": "2025CSB1224",
+    "name": "MOHIT DHAKA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB1511 - RONIT BISWAL.jpg": {
+    "entry_number": "2025MCB1482",
+    "name": "JASHRAJ SINGH PARMAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1231 - PARIDHI.jpg": {
+    "entry_number": "2025MCB1525",
+    "name": "SAI PRASANNA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1510 - RITESH RAI.jpg": {
+    "entry_number": "2025.C.S.B.1190",
+    "name": "DUDDUPUDI RUPIKA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1257 - SHALIN JAVARIA.jpg": {
+    "entry_number": "202565B1182",
+    "name": "Devam. Baba. Burhan",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1196 - GURNOOR SINGH.jpg": {
+    "entry_number": "2025CSB1234",
+    "name": "PIYUSH KUMAR",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025.MCB.1462 - AMEY JANGRA.jpg": {
+    "entry_number": "2025CSB1160",
+    "name": "ANJALI CHOUDHARY",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1204 - KANCHI AGGARWAL.jpg": {
+    "entry_number": "2025CSB1250",
+    "name": "SAINYAM SANJOGI SHARMA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1515 - SAMRAT SANJIVA.jpg": {
+    "entry_number": "2025CSB1245",
+    "name": "RITUL KUMAR",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2024CSB1203 - HARSHIT SAHU.jpg": {
+    "entry_number": "2025CSB1213",
+    "name": "LEEZA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2024CSB1057 - AMAN RAJ.jpg": {
+    "entry_number": "2025CSB1178",
+    "name": "CHANDAN SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1170 - AYUSH RAJ.jpg": {
+    "entry_number": "2025MCB1491",
+    "name": "MANISH",
+    "answers": {
+      "2": "A",
+      "3": "D",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1168 - ASHISH.jpg": {
+    "entry_number": "2025CSB1236",
+    "name": "PRAGAM DIXIT",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-central1",
+    "_verified_passes": 2
+  },
+  "2025CSB1236 - PRAGAM DIXIT.jpg": {
+    "entry_number": "2025MCB.19.66",
+    "name": "ARNAY SINGH",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1208 - KINUSON. RANJAN.jpg": {
+    "entry_number": "2025CSB1230",
+    "name": "OJASVI",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1",
+    "_verified_passes": 0
+  },
+  "2025CSB1256 - SAURABHRAJ SINGH.jpg": {
+    "entry_number": "2025MCB1484",
+    "name": "KARTIK MADAVI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1153 - ADARSH SHARMA.jpg": {
+    "entry_number": "2025CSB1159",
+    "name": "AMULYA KABRA",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1242 - RISHIT GUPTA.jpg": {
+    "entry_number": "2025CSB1201",
+    "name": "JASPREET KAUR",
+    "answers": {
+      "1": "A",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB1520 - SHREYANSH RAJ.jpg": {
+    "entry_number": "2025CSB1197",
+    "name": "HANZALA ZAID",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB_530 - YASH NEHRA.jpg": {
+    "entry_number": "2025CSB1218",
+    "name": "MANSI GOYAL",
+    "answers": {
+      "1": "A",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025.MCB1504 - PAGHADAL JENIS ALPESHBHAI.jpg": {
+    "entry_number": "2025M(B1522",
+    "name": "SURYA MADREKAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "C",
+      "5": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1526 - Manvith Vaisetti.jpg": {
+    "entry_number": "2025MCB1502",
+    "name": "NISHANT",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1176 - BOLKIKONDA SAIBHARGAV.jpg": {
+    "entry_number": "2025MCB1518",
+    "name": "SHIVAM GARG",
+    "answers": {
+      "1": "B",
+      "4": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025.C.SB.115.2 - ABHI DIPA VERMA.jpg": {
+    "entry_number": "2025CSB1161",
+    "name": "ANKUSH RAJ",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1154 - ADITYA.jpg": {
+    "entry_number": "2025.CSB1174",
+    "name": "BHOSALE HARSHVARDHAN",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "B",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1459 - ADITYA ANAND.jpg": {
+    "entry_number": "2025CSB1199",
+    "name": "HARSH THAPAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1173 - BHAVESH KUMAR.jpg": {
+    "entry_number": "2025CSB1157",
+    "name": "AMAN GUPTA",
+    "answers": {
+      "1": "B",
+      "2": "B",
+      "3": "D",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025CSB1214 - MAANINDER SINGH.jpg": {
+    "entry_number": "2025MCB1469",
+    "name": "ASHAMVEER SINGH SALLAN",
+    "answers": {
+      "1": "B",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1180 - CHAYAN JUNEJA.jpg": {
+    "entry_number": "2025CSB1170",
+    "name": "AYUSH RAJ",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025MCB1525 - SAI PRASANNA.jpg": {
+    "entry_number": "2025.C.S.B.1204",
+    "name": "KANCHI AGGARWAL",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "2025.CS.B.12.13 - LEEZA.jpg": {
+    "entry_number": "2024MCB1389",
+    "name": "SHOURYA PASTOR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "B",
+      "4": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1523 - TANISH TAKKAR.jpg": {
+    "entry_number": "2025CSB1263",
+    "name": "YASH KUMAR",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CSB1178 - CHANDAN SINGH.jpg": {
+    "entry_number": "2025MCB1472",
+    "name": "CHETAN YADAV",
+    "answers": {
+      "1": "C",
+      "2": "B",
+      "3": "B",
+      "4": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1467 - ARYAN DHAR.jpg": {
+    "entry_number": "2025CSB1235",
+    "name": "POORAB SINGHI",
+    "answers": {
+      "1": "B",
+      "2": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1175 - BIJJULA SAI AKSHAYA.jpg": {
+    "entry_number": "2025MCB1486",
+    "name": "K.SIRI.CHANDANA",
+    "answers": {
+      "1": "D",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "2025CS81195 - GUNJAN CHAUDHARY.jpg": {
+    "entry_number": "2025M.CB1513",
+    "name": "SAKSHI MEENA",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1464 - ANSHIKA SHARMA.jpg": {
+    "entry_number": "2025CSB1198",
+    "name": "HAPAVATH SHIVA KUMAR",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1252 - SAKSHAM GARG.jpg": {
+    "entry_number": "2025CSB1265",
+    "name": "TUSHAR",
+    "answers": {
+      "1": "C",
+      "2": "A",
+      "3": "C",
+      "4": "D",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "202.5CSB1151 - AASHIL. UBBOTT.jpg": {
+    "entry_number": "2025MCB1505",
+    "name": "PARAM DAMANI",
+    "answers": {
+      "1": "B",
+      "2": "A",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "2025MCB1456 - ABHIRAJ MAURYA.jpg": {
+    "entry_number": "2025MEBIS19",
+    "name": "Sh. Rawan / SHRAVAN",
+    "answers": {
+      "1": "B",
+      "2": "C",
+      "3": "D",
+      "4": "C",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  },
+  "2025CSB1243 - RITESH GUPTA.jpg": {
+    "entry_number": "2025MCB14.71",
+    "name": "CHALLA NIHARIKA",
+    "answers": {
+      "1": "B",
+      "3": "C",
+      "4": "A",
+      "5": "C"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  }
+}

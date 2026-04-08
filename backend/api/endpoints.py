@@ -921,7 +921,8 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
         )
 
     # Load already-processed files from DB (for resume)
-    already_done = {}  # file_name -> StudentResult dict
+    already_done = {}  # file_name -> result dict
+    already_done_by_id = {}  # file_id -> result dict (stable after inline rename)
     if existing_run and not force_reprocess:
         items = await optimized_db.list_pipeline_run_items(run_id)
         for it in items:
@@ -931,6 +932,9 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
                     if isinstance(rj, str):
                         rj = json.loads(rj)
                     already_done[it["file_name"]] = rj
+                    fid = rj.get("file_id") if isinstance(rj, dict) else None
+                    if fid:
+                        already_done_by_id[str(fid)] = rj
                 except Exception:
                     pass
 
@@ -938,6 +942,8 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
     errors = []
     temp_dir = tempfile.mkdtemp(prefix="sheets_")
     resumed_count = len(already_done)
+    entry_usage_for_rename: Dict[str, int] = {}
+    do_inline_rename = bool(getattr(request, "rename_drive_inline", False))
 
     try:
         # Download all sheets
@@ -964,9 +970,11 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
         # Process each file: skip if already done, else OCR → score → save immediately
         for idx, (local_path, sheet_file) in enumerate(successful_downloads):
             file_name = sheet_file["name"]
-            if file_name in already_done:
+            sid = str(sheet_file.get("id") or "")
+            rj_resume = already_done.get(file_name) or (already_done_by_id.get(sid) if sid else None)
+            if rj_resume is not None:
                 from models import StudentResult
-                _current_results.append(StudentResult(**already_done[file_name]))
+                _current_results.append(StudentResult(**rj_resume))
                 continue
 
             print(f"\n📄 Processing [{idx+1}/{len(successful_downloads)}]: {file_name}")
@@ -982,8 +990,23 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
                     continue
 
                 from models import StudentResult
-                student_result_dict = EvaluationService.match_and_score(_current_answer_key, extracted)
-                student_result = StudentResult(**student_result_dict)
+                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                student_result = student_result.model_copy(
+                    update={"file_id": sid or None, "file_name": file_name}
+                )
+
+                if do_inline_rename and sid:
+                    rdict = student_result.model_dump()
+                    mt = rename_service.classify_match(rdict)
+                    new_nm = rename_service.compute_new_name_for_student_sheet(
+                        file_name, rdict, mt, entry_usage_for_rename, skip_already_renamed=False
+                    )
+                    if new_nm and drive_service.rename_file(sid, new_nm):
+                        file_name = new_nm
+                        student_result = student_result.model_copy(
+                            update={"file_name": new_nm, "file_id": sid or None}
+                        )
+
                 _current_results.append(student_result)
 
                 # Save to DB immediately (benchmarking: persist as we go)
@@ -1836,17 +1859,24 @@ def rename_drive_files(request: RenameDriveFilesRequest):
 async def run_full_pipeline_with_rename(request: FullPipelineWithRenameRequest):
     """
     Enhanced one-click pipeline:
-    Drive folder → Extract answer key → OCR all sheets → Score
-    → Write to Google Sheets → Rename Drive files
+    Drive folder → Extract answer key → OCR each sheet → Score → rename that file on Drive (inline)
+    → Write to Google Sheets
 
-    Set rename_files=true (default) to auto-rename after processing.
-    Set dry_run_rename=true to preview renames without executing.
+    When rename_files=true and dry_run_rename=false, each sheet is renamed on Drive immediately
+    after it is processed (same file_id as OCR source — no batch correlation errors).
+
+    When dry_run_rename=true, no inline rename; returns a dry-run batch rename preview at the end.
     """
     global _last_pipeline_errors
 
-    # Step 1 & 2: Process drive folder
+    inline = bool(request.rename_files and not request.dry_run_rename)
+
+    # Step 1 & 2: Process drive folder (optional per-file Drive rename as each sheet completes)
     folder_result = await process_drive_folder(
-        ProcessFolderRequest(folder_url=request.drive_folder_url)
+        ProcessFolderRequest(
+            folder_url=request.drive_folder_url,
+            rename_drive_inline=inline,
+        )
     )
 
     # Step 3: Export to sheets
@@ -1857,9 +1887,9 @@ async def run_full_pipeline_with_rename(request: FullPipelineWithRenameRequest):
     except HTTPException as e:
         sheet_result = {"error": e.detail}
 
-    # Step 4: Rename Drive files
+    # Step 4: Batch rename only when dry-run preview requested (no inline renames happened)
     rename_result = None
-    if request.rename_files:
+    if request.rename_files and request.dry_run_rename:
         results_dicts = _get_results_for_rename(None)
         if results_dicts:
             master_students = _get_master_students_if_available()
@@ -1870,10 +1900,15 @@ async def run_full_pipeline_with_rename(request: FullPipelineWithRenameRequest):
                 results=results_dicts,
                 master_students=master_students,
                 error_file_names=error_names,
-                dry_run=request.dry_run_rename,
+                dry_run=True,
             )
         else:
             rename_result = {"message": "No results to rename files with"}
+    elif inline:
+        rename_result = {
+            "message": "Drive files were renamed inline during folder processing (per sheet, by file id).",
+            "inline_rename": True,
+        }
 
     return {
         "pipeline": folder_result,

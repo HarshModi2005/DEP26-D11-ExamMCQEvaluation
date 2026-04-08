@@ -68,6 +68,62 @@ class DriveRenameService:
         _, ext = os.path.splitext(filename)
         return ext  # e.g. ".jpg", ".heic"
 
+    def classify_match(self, result: Dict) -> str:
+        """Public wrapper for match category (confident / fuzzy / unmatched)."""
+        return self._classify_match(result)
+
+    def compute_new_name_for_student_sheet(
+        self,
+        old_name: str,
+        result: Dict,
+        match_type: str,
+        entry_usage_count: Dict[str, int],
+        skip_already_renamed: bool = False,
+    ) -> Optional[str]:
+        """
+        Target Drive filename for one student sheet, same rules as build_rename_map.
+        Mutates entry_usage_count for duplicate-entry suffixes. Returns None if unchanged / skipped.
+        """
+        ext = self._get_extension(old_name)
+        entry = str(result.get("entry_number", "")).strip()
+        name = str(result.get("name", "")).strip()
+        entry_clean = self._sanitize_name(entry)
+        name_clean = self._sanitize_name(name)
+        category = match_type
+
+        dup_suffix = ""
+        if entry_clean:
+            entry_usage_count[entry_clean] = entry_usage_count.get(entry_clean, 0) + 1
+            if entry_usage_count[entry_clean] > 1:
+                dup_suffix = f" (DUP{entry_usage_count[entry_clean] - 1})"
+
+        if category == "confident" and entry_clean:
+            parts = [entry_clean]
+            if name_clean:
+                parts.append(name_clean)
+            new_name = " - ".join(parts) + dup_suffix + ext
+        elif category == "fuzzy" and entry_clean:
+            parts = ["FUZZY", entry_clean]
+            if name_clean:
+                parts.append(name_clean)
+            new_name = " - ".join(parts) + dup_suffix + ext
+        elif entry_clean or name_clean:
+            ocr_parts = ["UNMATCHED"]
+            if entry_clean:
+                ocr_parts.append(f"OCR {entry_clean}")
+            if name_clean:
+                ocr_parts.append(f"OCR {name_clean}")
+            new_name = " - ".join(ocr_parts) + ext
+        else:
+            orig_clean = self._sanitize_name(os.path.splitext(old_name)[0], max_length=40)
+            new_name = f"UNMATCHED_NODATA - {orig_clean}{ext}"
+
+        if old_name == new_name:
+            return None
+        if skip_already_renamed and self.ALREADY_RENAMED_PATTERN.match(old_name):
+            return None
+        return new_name
+
     # ──────────────────────────────────────
     #  Building the Rename Map
     # ──────────────────────────────────────
@@ -79,7 +135,7 @@ class DriveRenameService:
         master_students: List[Dict] = None,
         answer_key_file_ids: List[str] = None,
         error_file_names: List[str] = None,
-        skip_already_renamed: bool = True,
+        skip_already_renamed: bool = False,
     ) -> List[Dict]:
         """
         Build a list of rename operations from processing results.
@@ -95,7 +151,8 @@ class DriveRenameService:
             answer_key_file_ids: Set of file IDs identified as answer keys.
             error_file_names: List of filenames that errored during processing.
             skip_already_renamed: If True, skip files whose names already
-                                  match the renamed pattern.
+                                  match the renamed pattern (re-run safe). If False,
+                                  recompute target names even for already-tagged files.
 
         Returns:
             List of rename operation dicts:
@@ -313,8 +370,8 @@ class DriveRenameService:
         used_result_indices = set()
 
         for i, r in enumerate(results):
-            src_file_id = r.get('_source_file_id', '')
-            src_file_name = r.get('_source_file_name', '')
+            src_file_id = str(r.get('_source_file_id') or r.get('file_id') or '').strip()
+            src_file_name = str(r.get('_source_file_name') or r.get('file_name') or '').strip()
 
             file_info = None
             if src_file_id:
@@ -435,7 +492,7 @@ class DriveRenameService:
         master_students: List[Dict] = None,
         error_file_names: List[str] = None,
         dry_run: bool = False,
-        skip_already_renamed: bool = True,
+        skip_already_renamed: bool = False,
     ) -> Dict:
         """
         Full pipeline: list folder → separate files → build rename map → execute.
@@ -446,7 +503,7 @@ class DriveRenameService:
             master_students: Master student list (for categorization).
             error_file_names: File names that errored during OCR.
             dry_run: If True, only preview without renaming.
-            skip_already_renamed: Skip files that appear already renamed.
+            skip_already_renamed: If True, skip files that appear already renamed.
 
         Returns:
             Rename summary.

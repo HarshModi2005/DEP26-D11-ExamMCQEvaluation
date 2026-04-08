@@ -310,7 +310,9 @@ class BatchEvaluationService:
                 unattempted_count=unattempted_count,
                 negative_deduction=negative_deduction,
                 details=details,
-                comments="; ".join(comments_list) if comments_list else ""
+                comments="; ".join(comments_list) if comments_list else "",
+                file_name=student_ocr_result.get("file_name"),
+                file_id=student_ocr_result.get("file_id"),
             )
             
         except Exception as e:
