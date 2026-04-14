@@ -154,8 +154,9 @@ def _extract_student_info_from_image(image_path: Path, api_key: str) -> Dict[str
 
 def _compile_cpp(source_path: Path, binary_path: Path, timeout_s: int = 20):
     """Compile C++ source code using g++."""
+    # Use -c to compile only (do not link), because LeetCode solutions don't have a main() function.
     proc = subprocess.run(
-        ["g++", str(source_path), "-O2", "-std=c++17", "-Wall", "-Wextra", "-o", str(binary_path)],
+        ["g++", "-c", str(source_path), "-O2", "-std=c++17", "-Wall", "-Wextra", "-o", str(binary_path)],
         capture_output=True,
         text=True,
         timeout=timeout_s,
