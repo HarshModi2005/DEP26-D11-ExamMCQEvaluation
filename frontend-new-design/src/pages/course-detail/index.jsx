@@ -33,6 +33,7 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
     const [form, setForm] = useState({
         name: '', totalMarks: '', negativeMarking: '0',
         subsheetName: '', driveFolderUrl: '', assigneeIds: [],
+        evaluationType: 'objective', codeEvaluationStyle: 'leetcode',
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -62,6 +63,8 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
                 driveFolderUrl: form.driveFolderUrl,
                 assigneeIds: form.assigneeIds,
                 createdBy: currentUserId,
+                evaluationType: form.evaluationType,
+                codeEvaluationStyle: form.evaluationType === 'code' ? form.codeEvaluationStyle : null,
             });
             onCreated(ev);
             onClose();
@@ -95,6 +98,49 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
                             className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
                             placeholder="e.g. Quiz 1, Mid Semester Exam" />
                     </div>
+
+                    {/* ── Evaluation Type Toggle ── */}
+                    <div>
+                        <label className="block text-sm font-medium text-text-primary mb-2">Evaluation Type</label>
+                        <div className="flex gap-2">
+                            {[{ value: 'objective', label: 'Objective', icon: 'FileText' }, { value: 'code', label: 'Code', icon: 'Code' }].map(opt => (
+                                <button key={opt.value} type="button"
+                                    onClick={() => setForm(prev => ({ ...prev, evaluationType: opt.value }))}
+                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-all ${form.evaluationType === opt.value
+                                        ? 'border-primary bg-primary-50 text-primary-700'
+                                        : 'border-border text-text-secondary hover:border-primary-200'
+                                        }`}>
+                                    <Icon name={opt.icon} size={16} />
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* ── Code Style (only when Code is selected) ── */}
+                    {form.evaluationType === 'code' && (
+                        <div>
+                            <label className="block text-sm font-medium text-text-primary mb-2">Code Evaluation Style</label>
+                            <div className="flex gap-2">
+                                <button type="button"
+                                    onClick={() => setForm(prev => ({ ...prev, codeEvaluationStyle: 'leetcode' }))}
+                                    className={`flex-1 px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-all ${form.codeEvaluationStyle === 'leetcode'
+                                        ? 'border-green-500 bg-green-50 text-green-700'
+                                        : 'border-border text-text-secondary hover:border-green-200'
+                                        }`}>
+                                    🧩 LeetCode Style
+                                </button>
+                                <button type="button"
+                                    onClick={() => setForm(prev => ({ ...prev, codeEvaluationStyle: 'codeforces' }))}
+                                    className={`flex-1 px-4 py-2.5 rounded-lg border-2 font-medium text-sm transition-all ${form.codeEvaluationStyle === 'codeforces'
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-border text-text-secondary hover:border-blue-200'
+                                        }`}>
+                                    ⚡ CP Style (Coming Soon)
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -710,6 +756,11 @@ const CourseDetail = () => {
                                                     <div className="flex-1">
                                                         <div className="flex items-center gap-3 mb-1">
                                                             <h4 className="font-semibold text-text-primary">{ev.name}</h4>
+                                                            {ev.evaluation_type === 'code' && (
+                                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                                                    {ev.code_evaluation_style === 'leetcode' ? '🧩 LeetCode' : '⚡ CP'} Code
+                                                                </span>
+                                                            )}
                                                             <StatusBadge status={ev.status} />
                                                         </div>
                                                         <p className="text-sm text-text-secondary mb-2">
