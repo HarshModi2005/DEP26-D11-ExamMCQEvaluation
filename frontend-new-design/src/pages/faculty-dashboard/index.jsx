@@ -505,8 +505,8 @@ const FacultyDashboard = () => {
                                                             {task.courses?.code || 'Course'}
                                                         </span>
                                                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.status === 'active' ? 'text-primary-700 bg-primary-50' :
-                                                                task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
-                                                                    'text-success-700 bg-success-50'
+                                                            task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
+                                                                'text-success-700 bg-success-50'
                                                             }`}>
                                                             {task.status}
                                                         </span>

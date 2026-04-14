@@ -461,7 +461,7 @@ class AnswerKeyService:
         type_aliases = ['type', 'question type', 'question_type', 'qtype', 'q_type']
         positive_aliases = ['positive marks', 'positive_marks', 'marks', 'positive', 'pos_marks', 'score']
         negative_aliases = ['negative marks', 'negative_marks', 'negative', 'neg_marks', 'penalty']
-        answer_aliases = ['correct answer', 'correct_answer', 'answer', 'correct', 'solution', 'key']
+        answer_aliases = ['correct answer', 'correct_answer', 'answer', 'correct', 'solution', 'key', 'name', 'slug', 'problem']
         
         for i, header in enumerate(headers):
             h = header.lower().strip()

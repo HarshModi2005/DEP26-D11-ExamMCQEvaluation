@@ -125,6 +125,35 @@ export const backendService = {
     },
 
     /**
+     * Upload and process a ZIP file through Code Evaluation
+     */
+    async processZipCodeEval(file, answerKeyData) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('answer_key_json', JSON.stringify(answerKeyData));
+
+        const res = await fetch(`${BACKEND_URL}/api/code-eval/process-zip`, {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'Code evaluation ZIP processing failed');
+        }
+        return res.json();
+    },
+
+    /**
+     * Process a Drive Folder through Code Evaluation
+     */
+    async processDriveCodeEval(driveFolderUrl, answerKeyData) {
+        return api('/code-eval/process-drive-folder', {
+            method: 'POST',
+            body: JSON.stringify({ folder_url: driveFolderUrl, answer_key: answerKeyData }),
+        });
+    },
+
+    /**
      * Export results to a Google Sheet (optionally a specific tab).
      * This now creates: marks sheet, studentResponse sheet, and Super Sheet entry.
      */

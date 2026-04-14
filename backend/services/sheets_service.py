@@ -1306,6 +1306,9 @@ class SheetsService:
 
         # Get all questions from answer key — handle both int and str keys
         answers_dict = answer_key.get('answers', {})
+        if not answers_dict:
+            # Fallback for code evaluation style
+            answers_dict = answer_key.get('problems', {})
         
         # Build a normalized lookup: int -> answer_entry_dict
         normalized_answers = {}
@@ -1357,12 +1360,13 @@ class SheetsService:
             if entry is None:
                 correct = ''
             elif isinstance(entry, dict):
-                correct = entry.get('correct_answer', '') or entry.get('correct_option', '') or ''
+                # Try typical objective fields, then code evaluation fields
+                correct = entry.get('correct_answer') or entry.get('correct_option') or entry.get('slug') or ''
             elif isinstance(entry, str):
                 correct = entry
             else:
-                # Could be an AnswerKeyEntry Pydantic object (shouldn't happen after model_dump, but just in case)
-                correct = getattr(entry, 'correct_answer', getattr(entry, 'correct_option', str(entry)))
+                # Could be an AnswerKeyEntry Pydantic object
+                correct = getattr(entry, 'correct_answer', getattr(entry, 'correct_option', getattr(entry, 'slug', str(entry))))
             answer_key_row.append(str(correct))
         
         print(f"📋 Student Response Sheet — Answer Key Row: {answer_key_row}")

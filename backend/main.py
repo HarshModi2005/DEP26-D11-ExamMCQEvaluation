@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api import endpoints
 from api import batch_endpoints
 from api import batch_endpoints_optimized
+from api import code_eval_endpoints
 
 
 @asynccontextmanager
@@ -45,6 +46,9 @@ app.include_router(batch_endpoints.router)
 
 # Ultra-optimized batch endpoints  →  /api/batch/*
 app.include_router(batch_endpoints_optimized.router)
+
+# Code evaluation endpoints  →  /api/code-eval/*
+app.include_router(code_eval_endpoints.router)
 
 
 @app.get("/")

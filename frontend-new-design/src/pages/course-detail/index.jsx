@@ -29,10 +29,11 @@ const StatusBadge = ({ status }) => {
 };
 
 // ─── Create Evaluation Modal ────────────────────────────────────────────────────
-const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClose, onCreated }) => {
+const CreateEvalModal = ({ courseId, course, courseTAs, instructor, currentUserId, onClose, onCreated }) => {
     const [form, setForm] = useState({
         name: '', totalMarks: '', negativeMarking: '0',
         subsheetName: '', driveFolderUrl: '', assigneeIds: [],
+        evaluationType: 'objective', codeEvaluationStyle: 'leetcode'
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -62,6 +63,8 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
                 driveFolderUrl: form.driveFolderUrl,
                 assigneeIds: form.assigneeIds,
                 createdBy: currentUserId,
+                evaluationType: form.evaluationType,
+                codeEvaluationStyle: form.evaluationType === 'code' ? form.codeEvaluationStyle : null,
             });
             onCreated(ev);
             onClose();
@@ -96,6 +99,20 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
                             placeholder="e.g. Quiz 1, Mid Semester Exam" />
                     </div>
 
+                    <div>
+                        <label className="block text-sm font-medium text-text-primary mb-2">Evaluation Type *</label>
+                        <div className="flex gap-6">
+                            <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                                <input type="radio" name="evaluationType" value="objective" checked={form.evaluationType === 'objective'} onChange={handleChange} className="text-primary focus:ring-primary h-4 w-4" />
+                                Objective Evaluation
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                                <input type="radio" name="evaluationType" value="code" checked={form.evaluationType === 'code'} onChange={handleChange} className="text-primary focus:ring-primary h-4 w-4" />
+                                Code Evaluation
+                            </label>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-text-primary mb-1">Total Marks</label>
@@ -119,6 +136,22 @@ const CreateEvalModal = ({ courseId, courseTAs, instructor, currentUserId, onClo
                             className="w-full px-3 py-2.5 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 transition-colors"
                             placeholder="e.g. Quiz1_Marks" />
                     </div>
+
+                    {form.evaluationType === 'code' && (
+                        <div>
+                            <label className="block text-sm font-medium text-text-primary mb-2">Code Evaluation Style *</label>
+                            <div className="flex gap-6">
+                                <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                                    <input type="radio" name="codeEvaluationStyle" value="leetcode" checked={form.codeEvaluationStyle === 'leetcode'} onChange={handleChange} className="text-primary focus:ring-primary h-4 w-4" />
+                                    LeetCode Style
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
+                                    <input type="radio" name="codeEvaluationStyle" value="codeforces" checked={form.codeEvaluationStyle === 'codeforces'} onChange={handleChange} className="text-primary focus:ring-primary h-4 w-4" />
+                                    Codeforces Style
+                                </label>
+                            </div>
+                        </div>
+                    )}
 
                     <div>
                         <label className="block text-sm font-medium text-text-primary mb-1">
@@ -560,6 +593,7 @@ const CourseDetail = () => {
             {showCreateEval && (
                 <CreateEvalModal
                     courseId={courseId}
+                    course={course}
                     courseTAs={tas}
                     instructor={course.profiles}
                     currentUserId={user?.id}
@@ -708,9 +742,12 @@ const CourseDetail = () => {
                                             <div key={ev.id} className="border border-border rounded-xl p-5 hover:border-primary-300 transition-colors">
                                                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                                     <div className="flex-1">
-                                                        <div className="flex items-center gap-3 mb-1">
+                                                        <div className="flex items-center gap-3 mb-1 flex-wrap">
                                                             <h4 className="font-semibold text-text-primary">{ev.name}</h4>
                                                             <StatusBadge status={ev.status} />
+                                                            {ev.evaluation_type === 'code' && (
+                                                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full border border-purple-200 capitalize">Code: {ev.code_evaluation_style}</span>
+                                                            )}
                                                         </div>
                                                         <p className="text-sm text-text-secondary mb-2">
                                                             {ev.total_marks > 0 ? `${ev.total_marks} marks` : 'Marks not set'}
