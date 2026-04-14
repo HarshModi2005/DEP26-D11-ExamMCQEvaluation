@@ -54,7 +54,7 @@ export const evaluationService = {
     /**
      * Create a new evaluation
      */
-    async createEvaluation({ courseId, name, totalMarks, negativeMarking, subsheetName, driveFolderUrl, assigneeIds, createdBy }) {
+    async createEvaluation({ courseId, name, totalMarks, negativeMarking, subsheetName, driveFolderUrl, assigneeIds, createdBy, evaluationType, codeEvaluationStyle }) {
         // Insert evaluation
         const { data: evaluation, error } = await supabase
             .from('evaluations')
@@ -65,6 +65,8 @@ export const evaluationService = {
                 negative_marking: negativeMarking || 0,
                 subsheet_name: subsheetName || null,
                 drive_folder_url: driveFolderUrl || null,
+                evaluation_type: evaluationType || 'objective',
+                code_evaluation_style: (evaluationType === 'code' ? codeEvaluationStyle : null) || null,
                 status: 'draft',
                 created_by: createdBy,
             })

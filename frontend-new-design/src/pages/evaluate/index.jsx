@@ -264,6 +264,186 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
     );
 };
 
+// ── Code Answer Key Panel ─────────────────
+const CodeAnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
+    const [mode, setMode] = useState('upload'); // 'view' (drive) | 'manual' | 'upload'
+    const [driveUrl, setDriveUrl] = useState(evaluation?.drive_folder_url || '');
+    const [loading, setLoading] = useState(false);
+    const [err, setErr] = useState('');
+    const [codeKeyJson, setCodeKeyJson] = useState(() => {
+        if (evaluation?.answer_key_data?.problems) {
+            return JSON.stringify(evaluation.answer_key_data, null, 2);
+        }
+        return `{
+  "problems": {
+    "1": { "slug": "two-sum", "marks": 2 },
+    "2": { "slug": "add-two-numbers", "marks": 3 }
+  }
+}`;
+    });
+    const [uploadFile, setUploadFile] = useState(null);
+    const hasKey = !!evaluation?.answer_key_data?.problems;
+
+    const translateToCodeFormat = (standardKey) => {
+        // Transforms answer_key: { answers: { "1": { correct_answer: "foo", positive_marks: 2} } }
+        // To: { problems: { "1": { slug: "foo", marks: 2 } }, total_questions: X }
+        if (!standardKey || !standardKey.answers) return standardKey;
+        const problems = {};
+        let totalMarks = 0;
+        for (const [qNum, data] of Object.entries(standardKey.answers)) {
+            const slug = data.correct_answer || data.correct_option || '';
+            const marks = data.positive_marks || 1;
+            problems[qNum] = { slug: slug, marks: marks };
+            totalMarks += marks;
+        }
+        return {
+            problems,
+            total_questions: Object.keys(problems).length,
+            total_marks: totalMarks
+        };
+    };
+
+    const handleKeyReceived = async (standardKey) => {
+        const codeFormatKey = translateToCodeFormat(standardKey);
+        await evaluationService.saveAnswerKey(evaluation.id, codeFormatKey);
+        onKeyLoaded(codeFormatKey);
+        setCodeKeyJson(JSON.stringify(codeFormatKey, null, 2));
+    };
+
+    const loadFromDrive = async () => {
+        if (!driveUrl) { setErr('Please enter a Drive folder URL.'); return; }
+        setLoading(true); setErr('');
+        try {
+            const res = await backendService.extractAnswerKeyFromDrive(driveUrl);
+            await handleKeyReceived(res.answer_key);
+        } catch (e) { setErr(e.message); }
+        finally { setLoading(false); }
+    };
+
+    const loadFromUpload = async () => {
+        if (!uploadFile) { setErr('Please select a file.'); return; }
+        setLoading(true); setErr('');
+        try {
+            const res = await backendService.uploadAnswerKey(uploadFile);
+            await handleKeyReceived(res.answer_key);
+        } catch (e) { setErr(e.message); }
+        finally { setLoading(false); }
+    };
+
+    const handleSaveManual = async () => {
+        setLoading(true); setErr('');
+        try {
+            const parsed = JSON.parse(codeKeyJson);
+            if (!parsed.problems || typeof parsed.problems !== 'object') {
+                throw new Error('JSON must contain a "problems" object with question numbers as keys.');
+            }
+            const totalQuestions = Object.keys(parsed.problems).length;
+            const totalMarks = Object.values(parsed.problems).reduce((sum, p) => sum + (p.marks || 0), 0);
+            const keyData = { ...parsed, total_questions: totalQuestions, total_marks: totalMarks };
+            await evaluationService.saveAnswerKey(evaluation.id, keyData);
+            onKeyLoaded(keyData);
+        } catch (e) { setErr('Invalid JSON: ' + e.message); }
+        finally { setLoading(false); }
+    };
+
+    return (
+        <div className="bg-surface border border-border rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <Icon name="Terminal" size={18} className="text-primary" />
+                    <h3 className="font-semibold text-text-primary">Code Answer Key</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full capitalize">
+                        {evaluation?.code_evaluation_style || 'leetcode'}
+                    </span>
+                    {hasKey && (
+                        <span className="flex items-center gap-1 text-xs text-success-600 font-medium">
+                            <Icon name="CheckCircle" size={14} />Loaded ({evaluation.answer_key_data?.total_questions} problems)
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            {/* Mode selector */}
+            <div className="flex border-b border-border">
+                {[['upload', 'Upload', 'Upload File'], ['view', 'FolderOpen', 'From Drive'], ['manual', 'Code', 'Manual JSON']].map(([m, icon, label]) => (
+                    <button key={m} onClick={() => setMode(m)}
+                        className={`flex-1 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${mode === m ? 'bg-primary-50 text-primary border-b-2 border-primary' : 'text-text-secondary hover:bg-secondary-50'}`}>
+                        <Icon name={icon} size={14} />
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            <div className="p-4 space-y-3">
+                {err && <div className="p-3 bg-error-50 border border-error-100 rounded-lg text-sm text-error">{err}</div>}
+
+                {/* From Drive */}
+                {mode === 'view' && (
+                    <div className="space-y-3">
+                        <p className="text-xs text-text-secondary">Extract the answer key file from the evaluation's Google Drive folder. Name the file <code className="bg-secondary-100 px-1 rounded">answer_key</code>.</p>
+                        <input type="url" value={driveUrl} onChange={e => setDriveUrl(e.target.value)}
+                            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                            placeholder="https://drive.google.com/drive/folders/..." />
+                        <button onClick={loadFromDrive} disabled={loading}
+                            className="w-full py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Download" size={14} />}
+                            {loading ? 'Extracting...' : 'Extract from Drive'}
+                        </button>
+                    </div>
+                )}
+
+                {/* Upload File */}
+                {mode === 'upload' && (
+                    <div className="space-y-3">
+                        <p className="text-xs text-text-secondary">Upload an Excel/CSV file with columns: <b>Question Number</b>, <b>Name</b> (problem slug), and <b>Positive Marks</b>.</p>
+                        <label className="block w-full border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-primary-300 transition-colors">
+                            <Icon name="Upload" size={20} className="mx-auto mb-2 text-secondary-400" />
+                            <p className="text-sm text-text-secondary">{uploadFile ? uploadFile.name : 'Click to select file'}</p>
+                            <input type="file" className="sr-only" accept=".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.txt"
+                                onChange={e => setUploadFile(e.target.files[0])} />
+                        </label>
+                        <button onClick={loadFromUpload} disabled={loading || !uploadFile}
+                            className="w-full py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Upload" size={14} />}
+                            {loading ? 'Uploading...' : 'Upload & Parse'}
+                        </button>
+                    </div>
+                )}
+
+                {/* Manual JSON */}
+                {mode === 'manual' && (
+                    <div className="space-y-3">
+                        <p className="text-xs text-text-secondary">Enter problem definitions as JSON. Each problem key is the question number. Use LeetCode slug names.</p>
+                        <textarea value={codeKeyJson} onChange={e => setCodeKeyJson(e.target.value)} rows={8}
+                            className="w-full px-3 py-2 border border-border rounded-lg text-xs font-mono focus:ring-2 focus:ring-primary-500 resize-none" />
+                        <button onClick={handleSaveManual} disabled={loading}
+                            className="w-full py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                            {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="Save" size={14} />}
+                            {loading ? 'Saving...' : 'Save Code Answer Key'}
+                        </button>
+                    </div>
+                )}
+
+                {/* Preview loaded problems */}
+                {mode !== 'manual' && hasKey && evaluation.answer_key_data?.problems && (
+                    <div className="mt-2 p-3 bg-success-50 border border-success-100 rounded-lg">
+                        <p className="text-xs font-semibold text-success-700 mb-2 flex items-center gap-1"><Icon name="CheckCircle" size={12} />Loaded Problems</p>
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                            {Object.entries(evaluation.answer_key_data.problems).map(([q, p]) => (
+                                <span key={q} className="px-1.5 py-0.5 border border-purple-200 bg-purple-50 rounded text-xs font-mono shadow-sm">
+                                    Q{q}: {p.slug || p} ({p.marks || 0}m)
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // ── Results Table ─────────────────────────
 const ResultsTable = ({ results, onCommentUpdate }) => {
     const [editingId, setEditingId] = useState(null);
@@ -427,7 +607,7 @@ const EvaluatePage = () => {
             if (!zipFile) { setError('Please select a ZIP file containing student answer sheets.'); return; }
         }
 
-        if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
+        if (evaluation?.evaluation_type !== 'code' && !evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
 
         setPipelineLoading(true);
         setError('');
@@ -439,9 +619,9 @@ const EvaluatePage = () => {
         const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
 
         setPipelineLog(prev => [...prev,
-            `Starting OCR pipeline (${modeText})...`,
-            `Source: ${sourceText}`,
-            forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.',
+        `Starting OCR pipeline (${modeText})...`,
+        `Source: ${sourceText}`,
+        forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.',
         ]);
 
         try {
@@ -458,11 +638,19 @@ const EvaluatePage = () => {
 
                 setPipelineProgress(0);
                 setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
-                pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+                if (evaluation?.evaluation_type === 'code') {
+                    pipelineResult = await backendService.processDriveCodeEval(url, evaluation.answer_key_data);
+                } else {
+                    pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+                }
             } else {
                 setPipelineProgress(0);
                 setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
-                pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
+                if (evaluation?.evaluation_type === 'code') {
+                    pipelineResult = await backendService.processZipCodeEval(zipFile, evaluation.answer_key_data);
+                } else {
+                    pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
+                }
             }
 
             const processedResults = pipelineResult.results || [];
@@ -483,7 +671,7 @@ const EvaluatePage = () => {
             const errorCount = pipelineResult.errors?.length || 0;
 
             const logLine = `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✓${processedResults.length} ✗${errorCount} ${cacheHits} cached | ${speed}/s`;
-            
+
             setPipelineProgress(processedResults.length > 0 ? 99 : processedPct);
             setPipelineLog(prev => [...prev, `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✅${processedResults.length} ❌${errorCount}`]);
 
@@ -522,7 +710,7 @@ const EvaluatePage = () => {
         } else if (!url) {
             setError('Please enter the Google Drive folder URL containing student answer sheets.'); return;
         }
-        if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
+        if (evaluation?.evaluation_type !== 'code' && !evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
 
         setPipelineLoading(true);
         setError('');
@@ -544,6 +732,38 @@ const EvaluatePage = () => {
             appendPipelineLog(isZipMode ? 'Processing ZIP file...' : 'Scanning Drive folder for sheets...');
 
             const startTime = Date.now();
+
+            // Code evaluation handles its own pipeline synchronously for now
+            if (evaluation?.evaluation_type === 'code') {
+                appendPipelineLog(`Starting synchronous Code Evaluation...`);
+                const pipelineResult = isZipMode
+                    ? await backendService.processZipCodeEval(zipFile, evaluation.answer_key_data)
+                    : await backendService.processDriveCodeEval(url, evaluation.answer_key_data);
+
+                const processedResults = pipelineResult.results || [];
+                const errorCount = pipelineResult.errors?.length || 0;
+                appendPipelineLog(`[OCR] ${processedResults.length} processed | ✅${processedResults.length} ❌${errorCount}`);
+
+                if (processedResults.length > 0) {
+                    appendPipelineLog('Saving results to database...');
+                    await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
+                    setPipelineProgress(99);
+
+                    await evaluationService.updateStatus(evaluationId, 'grading');
+                    setEvaluation(prev => ({ ...prev, status: 'grading' }));
+
+                    setRawOcrResults(processedResults);
+                    const fresh = await resultsService.getResultsByEvaluation(evaluationId);
+                    setResults(fresh || []);
+                    setPipelineProgress(100);
+                    appendPipelineLog(`Done! ${fresh.length} student results saved.`);
+                } else {
+                    appendPipelineLog('No results returned. Check the source folder or file.');
+                }
+                setPipelineLoading(false);
+                return;
+            }
+
             const started = isZipMode
                 ? await backendService.startZipProcessing(zipFile, evaluationId, forceReprocess, true)
                 : await backendService.startDriveFolderProcessing(url, evaluationId, forceReprocess);
@@ -575,11 +795,11 @@ const EvaluatePage = () => {
                     errors: errorCount,
                 }));
 
-                    if (status.status === 'completed') {
-                        pipelineResult = {
-                            results: status.results || [],
-                            errors: status.errors || [],
-                            processing_stats: status,
+                if (status.status === 'completed') {
+                    pipelineResult = {
+                        results: status.results || [],
+                        errors: status.errors || [],
+                        processing_stats: status,
                     };
                     break;
                 }
@@ -899,14 +1119,18 @@ const EvaluatePage = () => {
                         {/* ── LEFT PANEL ── */}
                         <div className="space-y-6">
 
-                            {/* Answer Key */}
-                            <AnswerKeyPanel evaluation={evaluation} onKeyLoaded={handleKeyLoaded} />
+                            {/* Answer Key or Code Config */}
+                            {evaluation?.evaluation_type === 'code' ? (
+                                <CodeAnswerKeyPanel evaluation={evaluation} onKeyLoaded={handleKeyLoaded} />
+                            ) : (
+                                <AnswerKeyPanel evaluation={evaluation} onKeyLoaded={handleKeyLoaded} />
+                            )}
 
                             {/* Run Pipeline */}
                             <div className="bg-surface border border-border rounded-xl overflow-hidden">
                                 <div className="p-4 border-b border-border flex items-center gap-2">
-                                    <Icon name="Cpu" size={18} className="text-primary" />
-                                    <h3 className="font-semibold text-text-primary">OCR Pipeline</h3>
+                                    <Icon name={evaluation?.evaluation_type === 'code' ? 'Terminal' : 'Cpu'} size={18} className="text-primary" />
+                                    <h3 className="font-semibold text-text-primary">{evaluation?.evaluation_type === 'code' ? 'Code Evaluation Pipeline' : 'OCR Pipeline'}</h3>
                                 </div>
                                 <div className="p-4 space-y-4">
                                     {/* Processing Mode Selector */}
