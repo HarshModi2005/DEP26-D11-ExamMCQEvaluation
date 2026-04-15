@@ -688,6 +688,12 @@ const EvaluatePage = () => {
     };
 
     const handleRunPipelineLive = async () => {
+        const isCodeEval = evaluation?.evaluation_type === 'code';
+        if (isCodeEval) {
+            // Code Evaluation currently only supports synchronous processing.
+            return handleRunPipeline();
+        }
+
         const isZipMode = processingMode === 'zip';
         const url = driveFolderUrl || evaluation?.drive_folder_url;
         if (isZipMode) {
