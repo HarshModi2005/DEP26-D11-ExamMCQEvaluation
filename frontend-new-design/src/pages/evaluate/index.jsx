@@ -264,6 +264,154 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
     );
 };
 
+// ── Code Answer Key Panel (LeetCode) ──────
+const CodeAnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
+    const [mode, setMode] = useState('upload'); // upload | manual
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [manualJson, setManualJson] = useState('{\n  "problems": {\n    "1": { "slug": "two-sum", "marks": 3 }\n  }\n}');
+    const [keyPreview, setKeyPreview] = useState(null);
+    const hasKey = !!evaluation?.answer_key_data?.problems;
+
+    const handleFileUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setLoading(true);
+        setError('');
+        try {
+            // Upload to the standard answer key endpoint (which parses Excel/CSV)
+            const res = await backendService.uploadAnswerKey(file);
+            const answerKey = res.answer_key;  // { total_questions, answers: { "1": { correct_answer, positive_marks, ... } } }
+            const answers = answerKey?.answers || {};
+
+            // Transform into code-eval format: { problems: { "1": { slug: "two-sum", marks: 3 } } }
+            const problems = {};
+            for (const [qNum, entry] of Object.entries(answers)) {
+                problems[String(qNum)] = {
+                    slug: String(entry.correct_answer || '').trim(),
+                    marks: entry.positive_marks || 1,
+                };
+            }
+            const codeKey = { problems, total_questions: Object.keys(problems).length };
+            setKeyPreview(codeKey);
+
+            // Save to Supabase
+            await evaluationService.saveAnswerKey(evaluation.id, codeKey);
+            onKeyLoaded(codeKey);
+        } catch (err) {
+            setError(err.message || 'Failed to parse answer key file.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleManualSubmit = async () => {
+        setError('');
+        setLoading(true);
+        try {
+            const parsed = JSON.parse(manualJson);
+            if (!parsed.problems) throw new Error('JSON must have a "problems" key.');
+            parsed.total_questions = Object.keys(parsed.problems).length;
+            setKeyPreview(parsed);
+
+            // Save to Supabase
+            await evaluationService.saveAnswerKey(evaluation.id, parsed);
+            onKeyLoaded(parsed);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-surface border border-border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+                <Icon name="Code" size={20} className="text-green-600" />
+                <h3 className="text-lg font-semibold text-text-primary">Code Answer Key</h3>
+                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">LeetCode</span>
+                {hasKey && <span className="ml-auto px-2 py-0.5 rounded-full text-xs font-medium bg-success-100 text-success-700">✓ Loaded</span>}
+            </div>
+
+            {/* Mode tabs */}
+            <div className="flex gap-2 mb-4">
+                {[{ id: 'upload', label: 'Upload File', icon: 'Upload' }, { id: 'manual', label: 'Manual JSON', icon: 'Edit3' }].map(tab => (
+                    <button key={tab.id} onClick={() => setMode(tab.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${mode === tab.id ? 'bg-primary text-white' : 'bg-secondary-100 text-text-secondary hover:bg-secondary-200'
+                            }`}>
+                        <Icon name={tab.icon} size={14} /> {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {error && <div className="mb-3 p-3 bg-error-50 border border-error-100 rounded-lg text-sm text-error">{error}</div>}
+
+            {mode === 'upload' && (
+                <div>
+                    {/* Expected format display */}
+                    <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                        <p className="text-xs font-semibold text-blue-700 mb-2">📋 Expected Excel/CSV Format:</p>
+                        <table className="w-full text-xs border-collapse">
+                            <thead>
+                                <tr className="bg-blue-100">
+                                    <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Question Number</th>
+                                    <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Name</th>
+                                    <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Positive Marks</th>
+                                    <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Negative Marks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">1</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600 font-mono">two-sum</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">3</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">1</td>
+                                </tr>
+                                <tr>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">2</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600 font-mono">add-two-numbers</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">5</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">1</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p className="text-xs text-blue-500 mt-1">The "Name" column should contain the LeetCode problem slug from the URL.</p>
+                    </div>
+                    <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload}
+                        className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 transition-colors" />
+                </div>
+            )}
+
+            {mode === 'manual' && (
+                <div>
+                    <textarea value={manualJson} onChange={e => setManualJson(e.target.value)}
+                        rows={8}
+                        className="w-full px-3 py-2 border border-border rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 transition-colors" />
+                    <button onClick={handleManualSubmit} disabled={loading}
+                        className="mt-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50">
+                        <Icon name="Check" size={14} /> {loading ? 'Saving...' : 'Apply Key'}
+                    </button>
+                </div>
+            )}
+
+            {loading && <p className="text-sm text-text-secondary mt-2 animate-pulse">Parsing & saving...</p>}
+
+            {(keyPreview || hasKey) && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-100 rounded-lg">
+                    <p className="text-sm font-semibold text-green-700 mb-1">
+                        ✅ Answer key loaded — {Object.keys((keyPreview || evaluation?.answer_key_data)?.problems || {}).length} problems
+                    </p>
+                    <div className="text-xs text-green-600 space-y-0.5">
+                        {Object.entries((keyPreview || evaluation?.answer_key_data)?.problems || {}).map(([q, def]) => (
+                            <div key={q}>Q{q}: <code className="bg-green-100 px-1 rounded">{def.slug}</code> ({def.marks} marks)</div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ── Results Table ─────────────────────────
 const ResultsTable = ({ results, onCommentUpdate }) => {
     const [editingId, setEditingId] = useState(null);
@@ -416,7 +564,8 @@ const EvaluatePage = () => {
 
     const handleKeyLoaded = (keyData) => {
         setEvaluation(prev => ({ ...prev, answer_key_data: keyData }));
-        setPipelineLog(prev => [...prev, `Answer key loaded — ${keyData.total_questions || '?'} questions`]);
+        const count = keyData.total_questions || Object.keys(keyData.problems || {}).length || '?';
+        setPipelineLog(prev => [...prev, `Answer key loaded — ${count} questions`]);
     };
 
     const handleRunPipeline = async () => {
@@ -439,9 +588,9 @@ const EvaluatePage = () => {
         const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
 
         setPipelineLog(prev => [...prev,
-            `Starting OCR pipeline (${modeText})...`,
-            `Source: ${sourceText}`,
-            forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.',
+        `Starting OCR pipeline (${modeText})...`,
+        `Source: ${sourceText}`,
+        forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.',
         ]);
 
         try {
@@ -449,20 +598,44 @@ const EvaluatePage = () => {
             const startTime = Date.now();
             const speed = "0.00";
 
-            if (processingMode === 'drive') {
-                const url = driveFolderUrl || evaluation?.drive_folder_url;
-                if (url !== evaluation.drive_folder_url) {
-                    await evaluationService.updateDriveFolderUrl(evaluationId, url);
-                    setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
-                }
+            const isCodeEval = evaluation?.evaluation_type === 'code';
 
-                setPipelineProgress(0);
-                setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
-                pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+            if (isCodeEval) {
+                // ── Code Evaluation Pipeline ──
+                const codeAnswerKey = evaluation?.answer_key_data || {};
+                setPipelineLog(prev => [...prev, `Starting synchronous Code Evaluation...`]);
+
+                if (processingMode === 'drive') {
+                    const url = driveFolderUrl || evaluation?.drive_folder_url;
+                    if (url !== evaluation.drive_folder_url) {
+                        await evaluationService.updateDriveFolderUrl(evaluationId, url);
+                        setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+                    }
+                    setPipelineProgress(0);
+                    setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
+                    pipelineResult = await backendService.processDriveCodeEval(url, codeAnswerKey);
+                } else {
+                    setPipelineProgress(0);
+                    setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
+                    pipelineResult = await backendService.processZipCodeEval(zipFile, codeAnswerKey);
+                }
             } else {
-                setPipelineProgress(0);
-                setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
-                pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
+                // ── Standard Objective Pipeline ──
+                if (processingMode === 'drive') {
+                    const url = driveFolderUrl || evaluation?.drive_folder_url;
+                    if (url !== evaluation.drive_folder_url) {
+                        await evaluationService.updateDriveFolderUrl(evaluationId, url);
+                        setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
+                    }
+
+                    setPipelineProgress(0);
+                    setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
+                    pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+                } else {
+                    setPipelineProgress(0);
+                    setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
+                    pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
+                }
             }
 
             const processedResults = pipelineResult.results || [];
@@ -483,7 +656,7 @@ const EvaluatePage = () => {
             const errorCount = pipelineResult.errors?.length || 0;
 
             const logLine = `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✓${processedResults.length} ✗${errorCount} ${cacheHits} cached | ${speed}/s`;
-            
+
             setPipelineProgress(processedResults.length > 0 ? 99 : processedPct);
             setPipelineLog(prev => [...prev, `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✅${processedResults.length} ❌${errorCount}`]);
 
@@ -515,6 +688,12 @@ const EvaluatePage = () => {
     };
 
     const handleRunPipelineLive = async () => {
+        const isCodeEval = evaluation?.evaluation_type === 'code';
+        if (isCodeEval) {
+            // Code Evaluation currently only supports synchronous processing.
+            return handleRunPipeline();
+        }
+
         const isZipMode = processingMode === 'zip';
         const url = driveFolderUrl || evaluation?.drive_folder_url;
         if (isZipMode) {
@@ -575,11 +754,11 @@ const EvaluatePage = () => {
                     errors: errorCount,
                 }));
 
-                    if (status.status === 'completed') {
-                        pipelineResult = {
-                            results: status.results || [],
-                            errors: status.errors || [],
-                            processing_stats: status,
+                if (status.status === 'completed') {
+                    pipelineResult = {
+                        results: status.results || [],
+                        errors: status.errors || [],
+                        processing_stats: status,
                     };
                     break;
                 }
@@ -767,14 +946,14 @@ const EvaluatePage = () => {
                 entry_number: r.entry_number || (r.students?.roll_number) || '',
                 name: r.name || (r.students?.name) || ''
             }));
-            
+
             // Pass the subsheet name to extract exported marks manually modified by user
             const res = await backendService.syncResultsWithSheet(course.master_sheet_url, mappedResults, evaluation?.subsheet_name);
-            
+
             // Save synchronized results directly back to DB
             if (res.results && res.results.length > 0) {
                 await resultsService.saveResults(evaluationId, course.id, res.results, user?.id);
-                
+
                 // Fetch fresh records to display
                 const fresh = await resultsService.getResultsByEvaluation(evaluationId);
                 setResults(fresh || []);
@@ -900,7 +1079,10 @@ const EvaluatePage = () => {
                         <div className="space-y-6">
 
                             {/* Answer Key */}
-                            <AnswerKeyPanel evaluation={evaluation} onKeyLoaded={handleKeyLoaded} />
+                            {evaluation?.evaluation_type === 'code'
+                                ? <CodeAnswerKeyPanel evaluation={evaluation} onKeyLoaded={handleKeyLoaded} />
+                                : <AnswerKeyPanel evaluation={evaluation} onKeyLoaded={handleKeyLoaded} />
+                            }
 
                             {/* Run Pipeline */}
                             <div className="bg-surface border border-border rounded-xl overflow-hidden">

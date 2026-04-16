@@ -262,4 +262,32 @@ export const backendService = {
             }),
         });
     },
+
+    // ── Code Evaluation Pipeline ──
+
+    async processZipCodeEval(file, answerKey) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('answer_key', JSON.stringify(answerKey));
+        const res = await fetch(`${BACKEND_URL}/api/code-eval/process-zip`, {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || `Code eval ZIP failed: ${res.status}`);
+        }
+        return res.json();
+    },
+
+    async processDriveCodeEval(folderUrl, answerKey) {
+        return api('/api/code-eval/process-drive-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_url: folderUrl,
+                answer_key: answerKey,
+            }),
+        });
+    },
 };

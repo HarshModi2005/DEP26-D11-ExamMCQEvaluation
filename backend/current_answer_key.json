@@ -1,42 +1,18 @@
 {
-  "total_questions": 5,
+  "total_questions": 1,
   "answers": {
     "1": {
       "question_type": "SMCQ",
-      "correct_answer": "B",
-      "positive_marks": 1.0,
-      "negative_marks": -0.25
-    },
-    "2": {
-      "question_type": "SMCQ",
-      "correct_answer": "A",
-      "positive_marks": 2.0,
-      "negative_marks": -0.5
-    },
-    "3": {
-      "question_type": "SMCQ",
-      "correct_answer": "C",
-      "positive_marks": 1.0,
-      "negative_marks": -0.25
-    },
-    "4": {
-      "question_type": "SMCQ",
-      "correct_answer": "A",
-      "positive_marks": 2.0,
-      "negative_marks": -0.5
-    },
-    "5": {
-      "question_type": "SMCQ",
-      "correct_answer": "C",
-      "positive_marks": 1.0,
-      "negative_marks": -0.25
+      "correct_answer": "TWO-SUM",
+      "positive_marks": 3.0,
+      "negative_marks": 1.0
     }
   },
   "negative_marking": 0.0,
   "metadata": {
-    "source_file": "answer_key.xlsx - Answer Key (4).csv",
-    "raw_question_count": 5,
-    "parsed_question_count": 5,
+    "source_file": "Untitled spreadsheet.xlsx",
+    "raw_question_count": 1,
+    "parsed_question_count": 1,
     "format": "comprehensive"
   }
 }
