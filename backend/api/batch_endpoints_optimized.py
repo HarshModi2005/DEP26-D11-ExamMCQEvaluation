@@ -1490,33 +1490,10 @@ async def purge_stale_eval_cache():
     Delete all __eval__ cache entries that were written before the answer-key-hash
     tracking fix (i.e., they have no _answer_key_hash embedded in the payload).
     This forces a fresh evaluation on the next run without re-doing OCR.
+
+    Backend-agnostic: works for both SQLite and Supabase cache drivers.
     """
-    import sqlite3 as _sqlite3
-
-    def _purge():
-        conn = _sqlite3.connect(cache_service.cache_db_path)
-        c = conn.cursor()
-        try:
-            # Get all __eval__ entries
-            c.execute("SELECT file_hash, ocr_result FROM result_cache WHERE file_name = '__eval__'")
-            rows = c.fetchall()
-            stale = []
-            for file_hash, ocr_json in rows:
-                try:
-                    data = json.loads(ocr_json)
-                    if "_answer_key_hash" not in data:
-                        stale.append(file_hash)
-                except Exception:
-                    stale.append(file_hash)
-            if stale:
-                c.executemany("DELETE FROM result_cache WHERE file_hash = ?", [(h,) for h in stale])
-                conn.commit()
-            return len(stale), len(rows)
-        finally:
-            conn.close()
-
-    loop = asyncio.get_event_loop()
-    purged, total = await loop.run_in_executor(None, _purge)
+    purged, total = await cache_service.purge_stale_eval_entries()
     return {
         "purged_stale_entries": purged,
         "total_eval_entries_before": total,

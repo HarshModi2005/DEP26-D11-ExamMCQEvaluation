@@ -21,3 +21,4 @@ pytesseract
 numpy
 opencv-python-headless
 Pillow
+asyncpg
