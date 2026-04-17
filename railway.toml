@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "cd backend && pip install --no-cache-dir -r requirements.txt"
+buildCommand = "cd backend && python3 -m pip install --no-cache-dir -r requirements.txt"
 
 [deploy]
 startCommand = "bash ./start.sh"
