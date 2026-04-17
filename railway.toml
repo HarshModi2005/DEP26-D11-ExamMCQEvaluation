@@ -3,6 +3,7 @@ builder = "NIXPACKS"
 buildCommand = "cd backend && python3 -m pip install --no-cache-dir -r requirements.txt"
 
 [deploy]
-startCommand = "bash ./start.sh"
+# Absolute path so it works even when container WORKDIR is /app/backend (./start.sh would miss repo-root start.sh).
+startCommand = "/bin/bash /app/backend/start.sh"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

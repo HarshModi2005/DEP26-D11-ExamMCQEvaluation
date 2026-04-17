@@ -17,5 +17,5 @@ COPY . .
 WORKDIR /app/backend
 EXPOSE 8000
 
-# Match local / PaaS convention: PORT optional
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Use backend/start.sh (GCP env bootstrap + uvicorn); survives WORKDIR=/app/backend
+CMD ["/bin/bash", "/app/backend/start.sh"]
