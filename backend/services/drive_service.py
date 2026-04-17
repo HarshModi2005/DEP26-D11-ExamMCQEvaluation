@@ -5,7 +5,7 @@ import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 
 class DriveService:
@@ -339,6 +339,48 @@ class DriveService:
     # ──────────────────────────────────────
     #  URL Parsing
     # ──────────────────────────────────────
+
+    @staticmethod
+    def extract_file_id(url_or_id: str) -> Optional[str]:
+        """
+        Extract a Google Drive file ID from a sharing URL, or return the string
+        if it already looks like a raw file ID.
+        """
+        s = (url_or_id or "").strip()
+        if not s:
+            return None
+        if "/file/d/" in s:
+            try:
+                part = s.split("/file/d/")[1]
+                if "?" in part:
+                    part = part.split("?")[0]
+                return part.split("/")[0]
+            except IndexError:
+                return None
+        if "drive.google.com" in s and "open?id=" in s:
+            try:
+                return s.split("open?id=")[1].split("&")[0]
+            except IndexError:
+                return None
+        if "docs.google.com/spreadsheets/d/" in s:
+            try:
+                part = s.split("/spreadsheets/d/")[1]
+                if "?" in part:
+                    part = part.split("?")[0]
+                return part.split("/")[0]
+            except IndexError:
+                return None
+        if "drive.google.com" in s and "/d/" in s and "/folders/" not in s:
+            try:
+                part = s.split("/d/")[1]
+                if "?" in part:
+                    part = part.split("?")[0]
+                return part.split("/")[0]
+            except IndexError:
+                return None
+        if re.match(r"^[a-zA-Z0-9_-]{25,}$", s):
+            return s
+        return None
 
     @staticmethod
     def extract_folder_id(url_or_id: str) -> str:
