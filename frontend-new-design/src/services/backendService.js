@@ -281,7 +281,8 @@ export const backendService = {
     },
 
     async processDriveCodeEval(folderUrl, answerKey) {
-        return api('/api/code-eval/process-drive-folder', {
+        // api() already prefixes BACKEND_URL + "/api" — do not repeat "/api" here.
+        return api('/code-eval/process-drive-folder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
