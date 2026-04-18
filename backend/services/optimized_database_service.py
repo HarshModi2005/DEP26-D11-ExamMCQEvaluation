@@ -439,11 +439,15 @@ class OptimizedDatabaseService:
         )
 
     def _find_incomplete_run_sync(self, source_type: str, source_ref: str) -> Optional[Dict[str, Any]]:
+        # Only `running` runs are considered resumable. A `failed` run represents
+        # a definite error state — resuming it would silently inherit the prior
+        # error context. Callers that really want to retry a failed run should
+        # pass its run_id explicitly.
         with self.pool.get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute(
-                "SELECT * FROM pipeline_runs WHERE source_type=? AND source_ref=? AND status IN ('running','failed') "
+                "SELECT * FROM pipeline_runs WHERE source_type=? AND source_ref=? AND status = 'running' "
                 "ORDER BY updated_at DESC LIMIT 1",
                 (source_type, source_ref),
             )

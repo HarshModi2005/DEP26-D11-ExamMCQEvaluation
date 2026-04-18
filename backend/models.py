@@ -131,6 +131,10 @@ class RenameDriveFilesRequest(BaseModel):
     dry_run: bool = False
     skip_already_renamed: bool = False
     results: Optional[List[Dict]] = None  # Pass results explicitly; falls back to in-memory
+    # Optional Google Sheet URL to pull the master student list from. If provided,
+    # rename can distinguish confident vs. fuzzy matches. If omitted, rename
+    # falls back to the most recently read sheet (cached by SheetsService).
+    sheet_url: Optional[str] = None
 
 
 class FullPipelineWithRenameRequest(BaseModel):
