@@ -542,19 +542,19 @@ const EvaluatePage = () => {
         }
     }, [evaluationId]);
 
-    useEffect(() => {
-        fetchData();
-        loadCacheStatus();
-    }, [fetchData]);
-
-    const loadCacheStatus = async () => {
+    const loadCacheStatus = useCallback(async () => {
         try {
-            const status = await backendService.getCacheStatus();
+            const status = await backendService.getCacheStatus(evaluationId);
             setCacheStatus(status);
         } catch (err) {
             console.warn('Failed to load cache status:', err);
         }
-    };
+    }, [evaluationId]);
+
+    useEffect(() => {
+        fetchData();
+        loadCacheStatus();
+    }, [fetchData, loadCacheStatus]);
 
     const appendPipelineLog = useCallback((line) => {
         if (!line) return;
@@ -946,17 +946,21 @@ const EvaluatePage = () => {
     };
 
     const handleClearResults = async () => {
-        if (!window.confirm("Are you sure you want to completely clear the Grading Results and OCR cache for this evaluation? You will start fresh with zero processed students.")) return;
+        if (!window.confirm("Clear the OCR/evaluation cache AND grading results for THIS quiz only? Caches for other evaluations are left untouched. You'll start fresh on the next run.")) return;
 
         setError('');
         setPipelineProgress(0);
-        setPipelineLog(['Clearing OCR cache and Grading Results...']);
+        setPipelineLog(['Clearing cache and grading results for this evaluation...']);
         try {
-            await backendService.clearCache();
+            const purge = await backendService.purgeCacheForEvaluation(evaluationId);
             await resultsService.clearResultsByEvaluation(evaluationId);
             setResults([]);
             setRawOcrResults([]);
-            setPipelineLog(prev => [...prev, 'Cache and results cleared successfully! Start a new pipeline run.']);
+            setPipelineLog(prev => [
+                ...prev,
+                `Removed ${purge?.removed ?? 0} cache row(s) scoped to this evaluation.`,
+                'Start a new pipeline run when ready.',
+            ]);
             await loadCacheStatus();
         } catch (err) {
             setError('Failed to clear results: ' + err.message);
@@ -1309,8 +1313,9 @@ const EvaluatePage = () => {
                                                 Force reprocess (bypass cache)
                                             </label>
                                             {cacheStatus && (
-                                                <span className="text-xs text-text-secondary">
-                                                    Cache: {cacheStatus.cache_stats?.total_entries || 0} files
+                                                <span className="text-xs text-text-secondary" title="Cached answer sheets for this quiz only.">
+                                                    Cache (this quiz):{' '}
+                                                    {cacheStatus.evaluation_cache?.evaluation_entries ?? 0} sheets
                                                 </span>
                                             )}
                                         </div>

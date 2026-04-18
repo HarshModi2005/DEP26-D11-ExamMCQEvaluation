@@ -12,6 +12,16 @@ const api = async (path, options = {}) => {
     return res.json();
 };
 
+// Cache rows are scoped by evaluation_id on the backend. Refuse to submit a
+// processing request without a real id — the backend will reject it too, but
+// failing fast here gives a better error message and avoids a wasted round-trip.
+const requireEvaluationId = (evaluationId, action) => {
+    if (!evaluationId || String(evaluationId).trim() === '' || String(evaluationId).trim().toLowerCase() === 'default') {
+        throw new Error(`Missing evaluationId for ${action}. Every processing run must be tied to a specific quiz so results cannot leak between evaluations.`);
+    }
+    return String(evaluationId).trim();
+};
+
 export const backendService = {
     /**
      * Load answer key from a Google Drive folder URL
@@ -62,25 +72,27 @@ export const backendService = {
     },
 
     async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'processDriveFolder');
         // Updated to use the ultra-optimized parallel pipelined endpoint
         const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
             body: JSON.stringify({
                 folder_url: driveFolderUrl,
-                evaluation_id: evaluationId,
+                evaluation_id: evalId,
                 rename_drive_inline: true,
             }),
         });
     },
 
     async startDriveFolderProcessing(driveFolderUrl, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'startDriveFolderProcessing');
         const url = forceReprocess ? '/batch/process-folder-optimized/start?force_reprocess=true' : '/batch/process-folder-optimized/start';
         return api(url, {
             method: 'POST',
             body: JSON.stringify({
                 folder_url: driveFolderUrl,
-                evaluation_id: evaluationId,
+                evaluation_id: evalId,
                 rename_drive_inline: true,
             }),
         });
@@ -138,9 +150,10 @@ export const backendService = {
      * via getProcessingStatus() just like the Drive flow.
      */
     async startPdfProcessing(file, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'startPdfProcessing');
         const formData = new FormData();
         formData.append('file', file);
-        if (evaluationId) formData.append('evaluation_id', evaluationId);
+        formData.append('evaluation_id', evalId);
 
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
@@ -155,9 +168,10 @@ export const backendService = {
     },
 
     async processPdfFile(file, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'processPdfFile');
         const formData = new FormData();
         formData.append('file', file);
-        if (evaluationId) formData.append('evaluation_id', evaluationId);
+        formData.append('evaluation_id', evalId);
 
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
@@ -276,10 +290,13 @@ export const backendService = {
     },
 
     /**
-     * Get cache status and statistics
+     * Get cache status and statistics.
+     * Pass ``evaluationId`` so the backend returns per-quiz row counts
+     * (``evaluation_cache``) — the global ``total_entries`` counts every quiz.
      */
-    async getCacheStatus() {
-        return api('/cache/status');
+    async getCacheStatus(evaluationId = null) {
+        const q = evaluationId ? `?evaluation_id=${encodeURIComponent(evaluationId)}` : '';
+        return api(`/cache/status${q}`);
     },
 
     /**
@@ -287,6 +304,16 @@ export const backendService = {
      */
     async clearCache() {
         return api('/cache/clear?confirm=true', { method: 'POST' });
+    },
+
+    /**
+     * Delete every cache row for a single evaluation (scoped purge).
+     * Use this when you want the next run to be fully fresh without nuking
+     * caches for other quizzes.
+     */
+    async purgeCacheForEvaluation(evaluationId) {
+        const evalId = requireEvaluationId(evaluationId, 'purgeCacheForEvaluation');
+        return api(`/cache/purge-evaluation/${encodeURIComponent(evalId)}`, { method: 'DELETE' });
     },
 
     /**

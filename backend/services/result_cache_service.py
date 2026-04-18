@@ -47,6 +47,30 @@ def _calculate_answer_key_hash(answer_key: Dict) -> str:
     return hashlib.sha256(key_content.encode()).hexdigest()
 
 
+# NOTE on keying scheme
+# ---------------------
+# Historically the cache wrote TWO rows per sheet:
+#   * OCR row  : file_hash = f"ocr:{evaluation_id}:{file_id}"
+#   * Eval row : file_hash = sha256(f"eval:{evaluation_id}:{file_id}:{ak_hash}")
+# Result: cache rows duplicated and, worse, stale global `_current_answer_key`
+# made quiz6 runs hit quiz5's eval rows for the same Drive file_id.
+#
+# The `sheet_cache_key` scheme below consolidates everything into ONE row per
+# (evaluation_id, file_id). The row holds both OCR (ocr_result) and the scored
+# result (evaluation_result); answer_key_hash in the column is authoritative.
+
+def sheet_cache_key(evaluation_id: str, file_id: str) -> str:
+    """
+    Deterministic, debuggable cache key for a single student sheet within an
+    evaluation. The `v2:` prefix guarantees no collision with legacy keys.
+    """
+    if not evaluation_id or not str(evaluation_id).strip():
+        raise ValueError("evaluation_id is required for sheet cache key")
+    if not file_id or not str(file_id).strip():
+        raise ValueError("file_id is required for sheet cache key")
+    return f"sheet:v2:{evaluation_id}:{file_id}"
+
+
 # ---------------------------------------------------------------------------
 # SQLite driver (legacy / local-dev)
 # ---------------------------------------------------------------------------
@@ -81,6 +105,15 @@ class _SqliteCacheDriver:
         c.execute("CREATE INDEX IF NOT EXISTS idx_answer_key_hash ON result_cache(answer_key_hash)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_last_accessed ON result_cache(last_accessed)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON result_cache(created_at)")
+
+        existing_cols = {row[1] for row in c.execute("PRAGMA table_info(result_cache)").fetchall()}
+        if "evaluation_id" not in existing_cols:
+            c.execute("ALTER TABLE result_cache ADD COLUMN evaluation_id TEXT")
+        if "file_id" not in existing_cols:
+            c.execute("ALTER TABLE result_cache ADD COLUMN file_id TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_evaluation_id ON result_cache(evaluation_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_eval_file ON result_cache(evaluation_id, file_id)")
+
         conn.commit()
         conn.close()
         print(f"✅ Result cache initialised (sqlite) at {self.cache_db_path}")
@@ -121,6 +154,12 @@ class _SqliteCacheDriver:
     async def stats(self) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.executor, self._stats_sync)
+
+    async def stats_for_evaluation(self, evaluation_id: str) -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor, self._stats_for_evaluation_sync, evaluation_id
+        )
 
     async def purge_stale_eval_entries(self) -> Tuple[int, int]:
         loop = asyncio.get_event_loop()
@@ -277,6 +316,54 @@ class _SqliteCacheDriver:
         finally:
             conn.close()
 
+    def _stats_for_evaluation_sync(self, evaluation_id: str) -> Dict[str, Any]:
+        """
+        Count cache rows that belong to a single evaluation.
+
+        Includes:
+          * rows with evaluation_id column set (new sheet:v2 scheme);
+          * legacy OCR rows keyed as ``ocr:<evaluation_id>:<file_id>`` before
+            the evaluation_id column existed.
+        """
+        conn = sqlite3.connect(self.cache_db_path)
+        c = conn.cursor()
+        try:
+            c.execute(
+                """
+                SELECT COUNT(*) FROM result_cache
+                 WHERE evaluation_id = ?
+                    OR (evaluation_id IS NULL AND (
+                          file_hash LIKE 'sheet:v2:' || ? || ':%'
+                       OR file_hash LIKE 'ocr:' || ? || ':%'
+                       ))
+                """,
+                (evaluation_id, evaluation_id, evaluation_id),
+            )
+            total = c.fetchone()[0] or 0
+            c.execute(
+                """
+                SELECT COUNT(*) FROM result_cache
+                 WHERE (evaluation_id = ?
+                    OR (evaluation_id IS NULL AND (
+                          file_hash LIKE 'sheet:v2:' || ? || ':%'
+                       OR file_hash LIKE 'ocr:' || ? || ':%'
+                       )))
+                   AND evaluation_result IS NOT NULL
+                   AND TRIM(evaluation_result) NOT IN ('', 'null', '{}')
+                """,
+                (evaluation_id, evaluation_id, evaluation_id),
+            )
+            scored = c.fetchone()[0] or 0
+            return {
+                "evaluation_entries": int(total),
+                "evaluation_fully_scored": int(scored),
+            }
+        except Exception as e:
+            print(f"Per-evaluation cache stats error: {e}")
+            return {"evaluation_entries": 0, "evaluation_fully_scored": 0}
+        finally:
+            conn.close()
+
     def _purge_stale_eval_sync(self) -> Tuple[int, int]:
         conn = sqlite3.connect(self.cache_db_path)
         c = conn.cursor()
@@ -295,6 +382,232 @@ class _SqliteCacheDriver:
                 c.executemany("DELETE FROM result_cache WHERE file_hash = ?", [(h,) for h in stale])
                 conn.commit()
             return len(stale), len(rows)
+        finally:
+            conn.close()
+
+    # ---- new single-row sheet cache API (scoped by evaluation_id + file_id) ----
+
+    async def get_sheet_cache(self, evaluation_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor, self._get_sheet_cache_sync, evaluation_id, file_id
+        )
+
+    async def upsert_sheet_ocr(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+    ) -> None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self.executor,
+            self._upsert_sheet_ocr_sync,
+            evaluation_id,
+            file_id,
+            file_name,
+            ocr_result,
+        )
+
+    async def upsert_sheet_evaluation(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+        evaluation_result: Dict[str, Any],
+        answer_key_hash: str,
+    ) -> None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self.executor,
+            self._upsert_sheet_eval_sync,
+            evaluation_id,
+            file_id,
+            file_name,
+            ocr_result,
+            evaluation_result,
+            answer_key_hash,
+        )
+
+    async def purge_evaluation(self, evaluation_id: str) -> int:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor, self._purge_evaluation_sync, evaluation_id
+        )
+
+    async def purge_stale_for_evaluation(
+        self, evaluation_id: str, current_answer_key_hash: str
+    ) -> int:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self._purge_stale_for_evaluation_sync,
+            evaluation_id,
+            current_answer_key_hash,
+        )
+
+    def _get_sheet_cache_sync(self, evaluation_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+        key = sheet_cache_key(evaluation_id, file_id)
+        conn = sqlite3.connect(self.cache_db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        try:
+            c.execute("SELECT * FROM result_cache WHERE file_hash = ?", (key,))
+            row = c.fetchone()
+            if not row:
+                return None
+            c.execute(
+                "UPDATE result_cache SET last_accessed = ?, access_count = access_count + 1 WHERE file_hash = ?",
+                (time.time(), key),
+            )
+            conn.commit()
+            ocr = None
+            eval_res = None
+            try:
+                ocr = json.loads(row["ocr_result"]) if row["ocr_result"] else None
+            except Exception:
+                ocr = None
+            try:
+                eval_res = json.loads(row["evaluation_result"]) if row["evaluation_result"] else None
+            except Exception:
+                eval_res = None
+            return {
+                "ocr_result": ocr,
+                "evaluation_result": eval_res,
+                "answer_key_hash": row["answer_key_hash"],
+                "file_name": row["file_name"],
+            }
+        except Exception as e:
+            print(f"Sheet cache lookup error: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def _upsert_sheet_ocr_sync(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+    ) -> None:
+        key = sheet_cache_key(evaluation_id, file_id)
+        ocr_json = json.dumps(ocr_result)
+        now = time.time()
+        conn = sqlite3.connect(self.cache_db_path)
+        c = conn.cursor()
+        try:
+            c.execute(
+                """
+                INSERT INTO result_cache
+                    (file_hash, file_name, ocr_result, evaluation_result, answer_key_hash,
+                     created_at, last_accessed, access_count, result_size,
+                     evaluation_id, file_id)
+                VALUES (?, ?, ?, NULL, NULL, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(file_hash) DO UPDATE SET
+                    file_name      = excluded.file_name,
+                    ocr_result     = excluded.ocr_result,
+                    last_accessed  = excluded.last_accessed,
+                    access_count   = result_cache.access_count + 1,
+                    result_size    = length(excluded.ocr_result) +
+                                     COALESCE(length(result_cache.evaluation_result), 0),
+                    evaluation_id  = excluded.evaluation_id,
+                    file_id        = excluded.file_id
+                """,
+                (key, file_name, ocr_json, now, now, len(ocr_json), evaluation_id, file_id),
+            )
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"Sheet cache OCR write error: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def _upsert_sheet_eval_sync(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+        evaluation_result: Dict[str, Any],
+        answer_key_hash: str,
+    ) -> None:
+        key = sheet_cache_key(evaluation_id, file_id)
+        ocr_json = json.dumps(ocr_result)
+        eval_json = json.dumps(evaluation_result)
+        size = len(ocr_json) + len(eval_json)
+        now = time.time()
+        conn = sqlite3.connect(self.cache_db_path)
+        c = conn.cursor()
+        try:
+            c.execute(
+                """
+                INSERT INTO result_cache
+                    (file_hash, file_name, ocr_result, evaluation_result, answer_key_hash,
+                     created_at, last_accessed, access_count, result_size,
+                     evaluation_id, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(file_hash) DO UPDATE SET
+                    file_name         = excluded.file_name,
+                    ocr_result        = excluded.ocr_result,
+                    evaluation_result = excluded.evaluation_result,
+                    answer_key_hash   = excluded.answer_key_hash,
+                    last_accessed     = excluded.last_accessed,
+                    access_count      = result_cache.access_count + 1,
+                    result_size       = excluded.result_size,
+                    evaluation_id     = excluded.evaluation_id,
+                    file_id           = excluded.file_id
+                """,
+                (
+                    key,
+                    file_name,
+                    ocr_json,
+                    eval_json,
+                    answer_key_hash,
+                    now,
+                    now,
+                    size,
+                    evaluation_id,
+                    file_id,
+                ),
+            )
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"Sheet cache EVAL write error: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def _purge_evaluation_sync(self, evaluation_id: str) -> int:
+        conn = sqlite3.connect(self.cache_db_path)
+        c = conn.cursor()
+        try:
+            c.execute("DELETE FROM result_cache WHERE evaluation_id = ?", (evaluation_id,))
+            conn.commit()
+            return c.rowcount or 0
+        finally:
+            conn.close()
+
+    def _purge_stale_for_evaluation_sync(
+        self, evaluation_id: str, current_answer_key_hash: str
+    ) -> int:
+        conn = sqlite3.connect(self.cache_db_path)
+        c = conn.cursor()
+        try:
+            c.execute(
+                """
+                DELETE FROM result_cache
+                 WHERE evaluation_id = ?
+                   AND answer_key_hash IS NOT NULL
+                   AND answer_key_hash != ?
+                """,
+                (evaluation_id, current_answer_key_hash),
+            )
+            conn.commit()
+            return c.rowcount or 0
         finally:
             conn.close()
 
@@ -346,6 +659,11 @@ class _SupabaseCacheDriver:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_result_cache_eval_only ON public.result_cache(file_name) WHERE file_name = '__eval__';"
                 )
+                # Per-evaluation scoping (migration 002) — idempotent.
+                await conn.execute("ALTER TABLE public.result_cache ADD COLUMN IF NOT EXISTS evaluation_id text;")
+                await conn.execute("ALTER TABLE public.result_cache ADD COLUMN IF NOT EXISTS file_id text;")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_result_cache_evaluation_id ON public.result_cache(evaluation_id);")
+                await conn.execute("CREATE INDEX IF NOT EXISTS idx_result_cache_eval_file ON public.result_cache(evaluation_id, file_id);")
             self._schema_ready = True
 
     @staticmethod
@@ -523,6 +841,42 @@ class _SupabaseCacheDriver:
             print(f"Cache stats error (supabase): {e}")
             return {}
 
+    async def stats_for_evaluation(self, evaluation_id: str) -> Dict[str, Any]:
+        await self._ensure_schema()
+        pool = await self._pool()
+        try:
+            async with pool.acquire() as conn:
+                total = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM public.result_cache
+                     WHERE evaluation_id = $1
+                        OR (evaluation_id IS NULL AND (
+                              file_hash LIKE 'sheet:v2:' || $1 || ':%'
+                           OR file_hash LIKE 'ocr:' || $1 || ':%'
+                           ))
+                    """,
+                    evaluation_id,
+                )
+                scored = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM public.result_cache
+                     WHERE (evaluation_id = $1
+                        OR (evaluation_id IS NULL AND (
+                              file_hash LIKE 'sheet:v2:' || $1 || ':%'
+                           OR file_hash LIKE 'ocr:' || $1 || ':%'
+                           )))
+                       AND evaluation_result IS NOT NULL
+                    """,
+                    evaluation_id,
+                )
+            return {
+                "evaluation_entries": int(total or 0),
+                "evaluation_fully_scored": int(scored or 0),
+            }
+        except Exception as e:
+            print(f"Per-evaluation cache stats error (supabase): {e}")
+            return {"evaluation_entries": 0, "evaluation_fully_scored": 0}
+
     async def purge_stale_eval_entries(self) -> Tuple[int, int]:
         await self._ensure_schema()
         pool = await self._pool()
@@ -542,6 +896,164 @@ class _SupabaseCacheDriver:
                 """
             )
             return int(purged or 0), int(total or 0)
+
+    # ---- new single-row sheet cache API (scoped by evaluation_id + file_id) ----
+
+    async def get_sheet_cache(self, evaluation_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+        await self._ensure_schema()
+        key = sheet_cache_key(evaluation_id, file_id)
+        pool = await self._pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    UPDATE public.result_cache
+                       SET last_accessed = now(),
+                           access_count  = access_count + 1
+                     WHERE file_hash = $1
+                    RETURNING ocr_result, evaluation_result, answer_key_hash, file_name
+                    """,
+                    key,
+                )
+            if not row:
+                return None
+            return {
+                "ocr_result": self._loads(row["ocr_result"]),
+                "evaluation_result": self._loads(row["evaluation_result"]),
+                "answer_key_hash": row["answer_key_hash"],
+                "file_name": row["file_name"],
+            }
+        except Exception as e:
+            print(f"Sheet cache lookup error (supabase): {e}")
+            return None
+
+    async def upsert_sheet_ocr(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+    ) -> None:
+        await self._ensure_schema()
+        key = sheet_cache_key(evaluation_id, file_id)
+        ocr_json = json.dumps(ocr_result)
+        pool = await self._pool()
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO public.result_cache
+                        (file_hash, file_name, ocr_result, evaluation_result, answer_key_hash,
+                         created_at, last_accessed, access_count, result_size,
+                         evaluation_id, file_id)
+                    VALUES ($1, $2, $3::jsonb, NULL, NULL, now(), now(), 1, $4, $5, $6)
+                    ON CONFLICT (file_hash) DO UPDATE SET
+                        file_name     = EXCLUDED.file_name,
+                        ocr_result    = EXCLUDED.ocr_result,
+                        last_accessed = now(),
+                        access_count  = public.result_cache.access_count + 1,
+                        result_size   = length(EXCLUDED.ocr_result::text) +
+                                        COALESCE(length(public.result_cache.evaluation_result::text), 0),
+                        evaluation_id = EXCLUDED.evaluation_id,
+                        file_id       = EXCLUDED.file_id
+                    """,
+                    key,
+                    file_name,
+                    ocr_json,
+                    len(ocr_json),
+                    evaluation_id,
+                    file_id,
+                )
+        except Exception as e:
+            print(f"Sheet cache OCR write error (supabase): {e}")
+            raise
+
+    async def upsert_sheet_evaluation(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+        evaluation_result: Dict[str, Any],
+        answer_key_hash: str,
+    ) -> None:
+        await self._ensure_schema()
+        key = sheet_cache_key(evaluation_id, file_id)
+        ocr_json = json.dumps(ocr_result)
+        eval_json = json.dumps(evaluation_result)
+        size = len(ocr_json) + len(eval_json)
+        pool = await self._pool()
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO public.result_cache
+                        (file_hash, file_name, ocr_result, evaluation_result, answer_key_hash,
+                         created_at, last_accessed, access_count, result_size,
+                         evaluation_id, file_id)
+                    VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, now(), now(), 1, $6, $7, $8)
+                    ON CONFLICT (file_hash) DO UPDATE SET
+                        file_name         = EXCLUDED.file_name,
+                        ocr_result        = EXCLUDED.ocr_result,
+                        evaluation_result = EXCLUDED.evaluation_result,
+                        answer_key_hash   = EXCLUDED.answer_key_hash,
+                        last_accessed     = now(),
+                        access_count      = public.result_cache.access_count + 1,
+                        result_size       = EXCLUDED.result_size,
+                        evaluation_id     = EXCLUDED.evaluation_id,
+                        file_id           = EXCLUDED.file_id
+                    """,
+                    key,
+                    file_name,
+                    ocr_json,
+                    eval_json,
+                    answer_key_hash,
+                    size,
+                    evaluation_id,
+                    file_id,
+                )
+        except Exception as e:
+            print(f"Sheet cache EVAL write error (supabase): {e}")
+            raise
+
+    async def purge_evaluation(self, evaluation_id: str) -> int:
+        await self._ensure_schema()
+        pool = await self._pool()
+        async with pool.acquire() as conn:
+            purged = await conn.fetchval(
+                """
+                WITH d AS (
+                    DELETE FROM public.result_cache
+                     WHERE evaluation_id = $1
+                 RETURNING 1
+                )
+                SELECT COUNT(*) FROM d
+                """,
+                evaluation_id,
+            )
+        return int(purged or 0)
+
+    async def purge_stale_for_evaluation(
+        self, evaluation_id: str, current_answer_key_hash: str
+    ) -> int:
+        await self._ensure_schema()
+        pool = await self._pool()
+        async with pool.acquire() as conn:
+            purged = await conn.fetchval(
+                """
+                WITH d AS (
+                    DELETE FROM public.result_cache
+                     WHERE evaluation_id = $1
+                       AND answer_key_hash IS NOT NULL
+                       AND answer_key_hash <> $2
+                 RETURNING 1
+                )
+                SELECT COUNT(*) FROM d
+                """,
+                evaluation_id,
+                current_answer_key_hash,
+            )
+        return int(purged or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -640,6 +1152,12 @@ class ResultCacheService:
     async def get_cache_stats(self) -> Dict[str, Any]:
         return await self._driver.stats()
 
+    async def get_cache_stats_for_evaluation(self, evaluation_id: str) -> Dict[str, Any]:
+        """Row counts scoped to one evaluation (see driver docstring)."""
+        if not evaluation_id or not str(evaluation_id).strip():
+            return {"evaluation_entries": 0, "evaluation_fully_scored": 0}
+        return await self._driver.stats_for_evaluation(str(evaluation_id).strip())
+
     async def purge_stale_eval_entries(self) -> Tuple[int, int]:
         """
         Delete __eval__ cache entries that were written before answer-key-hash
@@ -647,6 +1165,79 @@ class ResultCacheService:
         Returns (purged, total_before).
         """
         return await self._driver.purge_stale_eval_entries()
+
+    # ---- single-row sheet cache (evaluation_id + file_id) ----
+
+    async def get_sheet_cache(self, evaluation_id: str, file_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Return the single cache row for a (evaluation_id, file_id) pair, or None.
+
+        The returned dict has keys:
+            - ocr_result:        Dict or None
+            - evaluation_result: Dict or None
+            - answer_key_hash:   str or None   (None until scoring cached)
+            - file_name:         str
+        """
+        try:
+            return await self._driver.get_sheet_cache(evaluation_id, file_id)
+        except Exception as e:
+            print(f"⚠️  Sheet cache lookup failed for eval={evaluation_id} file={file_id}: {e}")
+            return None
+
+    async def upsert_sheet_ocr(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+    ) -> None:
+        """Write/refresh the OCR portion of a sheet row, leaving any existing
+        evaluation_result untouched in DB semantics (we overwrite ocr_result
+        and keep evaluation_result via the column-level UPDATE)."""
+        try:
+            await self._driver.upsert_sheet_ocr(evaluation_id, file_id, file_name, ocr_result)
+        except Exception as e:
+            print(f"⚠️  Sheet OCR cache write failed for eval={evaluation_id} file={file_id}: {e}")
+
+    async def upsert_sheet_evaluation(
+        self,
+        evaluation_id: str,
+        file_id: str,
+        file_name: str,
+        ocr_result: Dict[str, Any],
+        evaluation_result: Dict[str, Any],
+        answer_key_hash: str,
+    ) -> None:
+        """Write the fully scored result AND the OCR side-by-side in one row."""
+        try:
+            await self._driver.upsert_sheet_evaluation(
+                evaluation_id, file_id, file_name, ocr_result, evaluation_result, answer_key_hash
+            )
+        except Exception as e:
+            print(f"⚠️  Sheet eval cache write failed for eval={evaluation_id} file={file_id}: {e}")
+
+    async def purge_evaluation(self, evaluation_id: str) -> int:
+        """Delete every cache row for a single evaluation. Returns rows removed."""
+        try:
+            return await self._driver.purge_evaluation(evaluation_id)
+        except Exception as e:
+            print(f"⚠️  Purge evaluation failed for {evaluation_id}: {e}")
+            return 0
+
+    async def purge_stale_for_evaluation(
+        self, evaluation_id: str, current_answer_key_hash: str
+    ) -> int:
+        """
+        Delete rows in an evaluation whose cached answer_key_hash differs
+        from the one we're about to use. Keeps OCR-only rows (hash IS NULL).
+        """
+        try:
+            return await self._driver.purge_stale_for_evaluation(
+                evaluation_id, current_answer_key_hash
+            )
+        except Exception as e:
+            print(f"⚠️  Purge-stale for eval={evaluation_id} failed: {e}")
+            return 0
 
 
 # ---------------------------------------------------------------------------

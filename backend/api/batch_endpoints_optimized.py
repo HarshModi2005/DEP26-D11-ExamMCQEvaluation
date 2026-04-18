@@ -33,7 +33,6 @@ import base64
 import json
 import re
 import io
-import hashlib
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
@@ -729,10 +728,18 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
 #  TRUE STREAMING PIPELINE
 # ─────────────────────────────────────────────────────────────────────
 
-def _make_eval_cache_key(file_id: str, answer_key_hash: str, evaluation_id: str = "default") -> str:
-    """Stable cache key for a fully evaluated result (OCR + scoring), namespaced by evaluation AND answer key."""
-    raw = f"eval:{evaluation_id}:{file_id}:{answer_key_hash}"
-    return hashlib.sha256(raw.encode()).hexdigest()
+def _require_evaluation_id(evaluation_id: Optional[str]) -> str:
+    """
+    Cache rows are scoped by evaluation_id. Refuse to run the pipeline without
+    a real id — an empty string / "default" previously caused cache collisions
+    across quizzes (quiz5 results showing up in quiz6).
+    """
+    if not evaluation_id or not str(evaluation_id).strip() or str(evaluation_id).strip().lower() == "default":
+        raise HTTPException(
+            status_code=400,
+            detail="evaluation_id is required and must be unique per quiz; refusing to run with a missing/'default' id to prevent cross-evaluation cache leaks.",
+        )
+    return str(evaluation_id).strip()
 
 
 def _coerce_score(val) -> Optional[float]:
@@ -761,7 +768,7 @@ async def _process_sheets_optimized(
     student_sheets: List[Dict],
     answer_key,
     processing_id: str,
-    evaluation_id: str = "default",
+    evaluation_id: str,
     force_reprocess: bool = False,
     rename_drive_inline: bool = False,
 ):
@@ -793,6 +800,19 @@ async def _process_sheets_optimized(
     answer_key_hash = cache_service.get_answer_key_hash(
         {"answers": optimized_key["answers"], "negative_marking": optimized_key["negative_marking"]}
     )
+
+    # Before this run starts, drop any cached eval rows for this evaluation
+    # whose answer_key_hash disagrees with the key we're about to use. This
+    # means that swapping the answer key for a quiz forces a clean re-score
+    # and never serves stale numbers from a previous key.
+    try:
+        stale_removed = await cache_service.purge_stale_for_evaluation(
+            evaluation_id, answer_key_hash
+        )
+        if stale_removed:
+            print(f"🧹 Purged {stale_removed} stale cache row(s) for evaluation={evaluation_id} (ak changed)")
+    except Exception as purge_exc:
+        print(f"⚠️  Stale-cache purge failed for evaluation={evaluation_id}: {purge_exc}")
 
     # Shared HTTP session — large pool for many concurrent connections
     connector = aiohttp.TCPConnector(
@@ -971,28 +991,26 @@ async def _process_sheets_optimized(
         else:
             local_path = os.path.join(temp_dir, f"{idx}_{fname}")
             is_external_local = False
-        # Eval cache key now encodes the answer_key_hash so stale results
-        # from a previous answer key are automatically missed.
-        eval_cache_key = _make_eval_cache_key(file_id, answer_key_hash, evaluation_id)
-        ocr_cache_key = f"ocr:{evaluation_id}:{file_id}"
+        # Single-row cache per (evaluation_id, file_id). One fetch covers both
+        # OCR and scored result; `answer_key_hash` column decides freshness.
+        sheet_row = None
+        if not force_reprocess:
+            sheet_row = await cache_service.get_sheet_cache(evaluation_id, file_id)
 
         try:
             # ── STEP 1: Check FULL evaluation cache (OCR + scored result) ──
-            # If hit, we're done — no download, no OCR, no re-evaluation needed.
-            # IMPORTANT: Reject cached results with empty/UNREAD_ entry_number,
-            # AND reject if the embedded answer_key_hash doesn't match current one
-            # (prevents stale 0-score results from old answer keys being served).
-            eval_cached = None
-            if not force_reprocess:
-                eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
-
+            # Hit conditions:
+            #   * row exists and has a non-null evaluation_result
+            #   * stored answer_key_hash matches the current one (stale key → miss)
+            #   * cached entry_number is a real entry (not empty / UNREAD_)
+            eval_cached = (sheet_row or {}).get("evaluation_result") if sheet_row else None
             cached_entry = (eval_cached or {}).get("entry_number", "") if eval_cached else ""
-            cached_ak_hash = (eval_cached or {}).get("_answer_key_hash", "") if eval_cached else ""
+            cached_ak_hash = (sheet_row or {}).get("answer_key_hash", "") if sheet_row else ""
             eval_cache_valid = (
                 eval_cached
                 and _is_valid_cached_entry(cached_entry)
                 and "total_score" in eval_cached
-                and cached_ak_hash == answer_key_hash  # ← KEY FIX: reject stale answer key
+                and cached_ak_hash == answer_key_hash
             )
             if eval_cache_valid:
                 score = eval_cached.get('total_score', '?')
@@ -1025,16 +1043,14 @@ async def _process_sheets_optimized(
             elif eval_cached and not _is_valid_cached_entry(cached_entry):
                 print(f"  🔄 [PIPELINE] {fname}: eval cache INVALID entry='{cached_entry}' — re-processing")
             elif eval_cached and cached_ak_hash != answer_key_hash:
-                print(f"  🔄 [PIPELINE] {fname}: eval cache STALE answer-key (cached={cached_ak_hash[:8]}… current={answer_key_hash[:8]}…) — re-evaluating")
+                print(f"  🔄 [PIPELINE] {fname}: eval cache STALE answer-key (cached={str(cached_ak_hash)[:8]}… current={answer_key_hash[:8]}…) — re-evaluating")
             else:
                 print(f"  🔍 [PIPELINE] {fname}: no eval cache — proceeding to OCR")
 
             # ── STEP 2: Check OCR-only cache ──
-            # Reject OCR cache if entry_number is empty OR if it has zero answers
-            ocr_cached = None
-            if not force_reprocess:
-                ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
-            
+            # Same row: if OCR portion exists and looks valid, reuse it.
+            ocr_cached = (sheet_row or {}).get("ocr_result") if sheet_row else None
+
             # On retry passes, always skip OCR cache so we get a fresh read
             if not force_fresh_ocr and ocr_cached and _is_valid_ocr_result(ocr_cached):
                 ocr = ocr_cached
@@ -1130,7 +1146,7 @@ async def _process_sheets_optimized(
                         )
                     # Cache valid results
                     if _is_valid_ocr_result(ocr):
-                        await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
+                        await cache_service.upsert_sheet_ocr(evaluation_id, file_id, fname, ocr)
                     else:
                         print(f"  ⚠️ {phase_tag} {fname}: NOT caching (empty entry_number) — recorded as problem file")
                 else:
@@ -1206,12 +1222,18 @@ async def _process_sheets_optimized(
                     total_score=_coerce_score(scored_dict_for_map.get("total_score")),
                     max_score=_coerce_score(scored_dict_for_map.get("max_score")),
                 )
-                # ── STEP 6: Cache the fully evaluated result ──
+                # ── STEP 6: Cache the fully evaluated result (single row: OCR + eval) ──
                 try:
                     scored_dict = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
                     if _is_valid_cached_entry(scored_dict.get("entry_number", "")):
-                        scored_dict["_answer_key_hash"] = answer_key_hash
-                        await cache_service.cache_ocr_result("__eval__", scored_dict, file_hash=eval_cache_key)
+                        await cache_service.upsert_sheet_evaluation(
+                            evaluation_id=evaluation_id,
+                            file_id=file_id,
+                            file_name=fname,
+                            ocr_result=ocr,
+                            evaluation_result=scored_dict,
+                            answer_key_hash=answer_key_hash,
+                        )
                     else:
                         print(f"  ⚠️ {phase_tag} {fname}: NOT caching eval (UNREAD entry) — will retry next run")
                 except Exception as cache_exc:
@@ -1334,6 +1356,9 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
     start_time = _processing_stats.get(processing_id, {}).get("start_time", time.time())
     folder_id = DriveService.extract_folder_id(request.folder_url)
 
+    # Require a real evaluation_id up front — it scopes the cache.
+    evaluation_id = _require_evaluation_id(request.evaluation_id)
+
     try:
         # Discover files
         _processing_stats[processing_id]["status"] = "discovering_files"
@@ -1365,38 +1390,49 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
 
         print(f"📂 Discovered {total_sheets} student sheet(s) + {len(answer_key_files)} answer key file(s)")
 
-        # Load answer key
-        _current_answer_key = _get_answer_key()
-        if _current_answer_key is None or force_reprocess:
-            if answer_key_files:
-                _processing_stats[processing_id]["status"] = "loading_answer_key"
-                tmp = tempfile.mkdtemp(prefix="ak_")
-                try:
-                    local_ak = drive_service.download_answer_key(answer_key_files[0], tmp)
-                    _current_answer_key = answer_key_service.extract_answer_key(
-                        local_ak, answer_key_files[0].get("mimeType", "")
-                    )
-                    _set_answer_key(_current_answer_key)
-                finally:
-                    shutil.rmtree(tmp, ignore_errors=True)
-            else:
-                _current_answer_key = answer_key_service.load_from_disk()
-                _set_answer_key(_current_answer_key)
+        # ── Load the answer key FOR THIS RUN ──
+        # Previously we re-used the process-global `_current_answer_key` across
+        # runs, so starting quiz6 while quiz5's key was still loaded kept
+        # quiz5's `answer_key_hash` — which, combined with same Drive file_ids,
+        # served quiz5's cached eval rows for quiz6. That bug is fixed here by
+        # always resolving the key for the current request.
+        _processing_stats[processing_id]["status"] = "loading_answer_key"
+        _current_answer_key = None
+        if answer_key_files:
+            tmp = tempfile.mkdtemp(prefix="ak_")
+            try:
+                local_ak = drive_service.download_answer_key(answer_key_files[0], tmp)
+                _current_answer_key = answer_key_service.extract_answer_key(
+                    local_ak, answer_key_files[0].get("mimeType", "")
+                )
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        else:
+            # Fall back to whatever the UI explicitly loaded for THIS evaluation
+            # (set via /answer-key endpoints). Disk-cached keys are intentionally
+            # NOT used here — they leak across evaluations.
+            _current_answer_key = _get_answer_key()
+
+        # Sync the global for any legacy code paths that read it, but the
+        # pipeline itself uses the local reference from here on.
+        _set_answer_key(_current_answer_key)
 
         if not _current_answer_key:
-            raise HTTPException(status_code=400, detail="No answer key loaded.")
+            raise HTTPException(
+                status_code=400,
+                detail="No answer key for this evaluation. Include one in the Drive folder or load it via the Answer Key panel before running.",
+            )
         if not student_sheets:
             raise HTTPException(status_code=404, detail="No student sheets found.")
 
-        print(f"🚀 Starting pipeline: {total_sheets} sheets | Pro→Flash→Lite tier failover | Full eval cache enabled")
+        print(f"🚀 Starting pipeline: {total_sheets} sheets | evaluation={evaluation_id} | Full eval cache enabled")
 
-        # Run pipeline
-        eval_id = request.evaluation_id or "default"
+        # Run pipeline (cache is scoped to this evaluation_id).
         results, errors = await _process_sheets_optimized(
             student_sheets,
             _current_answer_key,
             processing_id,
-            eval_id,
+            evaluation_id,
             force_reprocess,
             rename_drive_inline=bool(request.rename_drive_inline),
         )
@@ -1631,6 +1667,28 @@ async def get_ocr_debug(processing_id: str):
         "empty_entry_files": empty_entries[:20],
         "empty_answers_files": empty_answers[:20],
         "ocr_results": combined,
+    }
+
+
+@router.delete("/cache/purge-evaluation/{evaluation_id}")
+async def purge_cache_for_evaluation(evaluation_id: str):
+    """
+    Delete every cache row that belongs to a single evaluation (quiz).
+
+    Use this when:
+      - an evaluation is deleted from the UI;
+      - you've swapped an evaluation's answer key and want to guarantee a
+        100% fresh re-score on the next run;
+      - you're debugging a cross-evaluation leak.
+
+    Returns the number of rows removed.
+    """
+    eval_id = _require_evaluation_id(evaluation_id)
+    removed = await cache_service.purge_evaluation(eval_id)
+    return {
+        "evaluation_id": eval_id,
+        "removed": removed,
+        "message": f"Removed {removed} cache row(s) for evaluation {eval_id}.",
     }
 
 
@@ -1891,7 +1949,7 @@ async def _run_process_pdf_optimized(
         }
 
         # ── STEP 4: Run the SAME optimized pipeline the Drive flow uses ───
-        eval_id = evaluation_id or "default"
+        eval_id = _require_evaluation_id(evaluation_id)
         results, errors = await _process_sheets_optimized(
             sheet_files,
             _current_answer_key,
