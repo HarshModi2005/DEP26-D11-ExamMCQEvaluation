@@ -133,6 +133,82 @@ export const backendService = {
     },
 
     /**
+     * Upload a single PDF where each page is one student's answer sheet.
+     * Returns {processing_id, status_url, mapping_url} — poll processing_id
+     * via getProcessingStatus() just like the Drive flow.
+     */
+    async startPdfProcessing(file, evaluationId, forceReprocess = false) {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (evaluationId) formData.append('evaluation_id', evaluationId);
+
+        const params = new URLSearchParams();
+        if (forceReprocess) params.append('force_reprocess', 'true');
+        const url = `/batch/process-pdf-optimized/start${params.toString() ? '?' + params.toString() : ''}`;
+
+        const res = await fetch(`${BACKEND_URL}/api${url}`, { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'PDF processing failed');
+        }
+        return res.json();
+    },
+
+    async processPdfFile(file, evaluationId, forceReprocess = false) {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (evaluationId) formData.append('evaluation_id', evaluationId);
+
+        const params = new URLSearchParams();
+        if (forceReprocess) params.append('force_reprocess', 'true');
+        const url = `/batch/process-pdf-optimized${params.toString() ? '?' + params.toString() : ''}`;
+
+        const res = await fetch(`${BACKEND_URL}/api${url}`, { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'PDF processing failed');
+        }
+        return res.json();
+    },
+
+    async getPdfMapping(processingId) {
+        return api(`/pdf-runs/${processingId}/mapping`);
+    },
+
+    async lookupPdfPage(processingId, pageNumber) {
+        return api(`/pdf-runs/${processingId}/page/${pageNumber}`);
+    },
+
+    async lookupPdfEntry(processingId, entryNumber) {
+        return api(`/pdf-runs/${processingId}/entry/${encodeURIComponent(entryNumber)}`);
+    },
+
+    getPdfPageImageUrl(processingId, pageNumber) {
+        return `${BACKEND_URL}/api/pdf-runs/${processingId}/page/${pageNumber}/image`;
+    },
+
+    // Build a download URL for the page-map CSV. `sheetUrl` is optional; when
+    // provided, the backend reconciles OCR names/entries against the master
+    // Google Sheet (same logic as /sync-results) and fills in matched columns.
+    getPdfMappingCsvUrl(processingId, sheetUrl = '', subsheetName = '') {
+        const params = new URLSearchParams();
+        if (sheetUrl) params.set('sheet_url', sheetUrl);
+        if (subsheetName) params.set('subsheet_name', subsheetName);
+        const q = params.toString();
+        return `${BACKEND_URL}/api/pdf-runs/${processingId}/mapping.csv${q ? `?${q}` : ''}`;
+    },
+
+    // Persist master-sheet matched entry_number/name onto pdf_page_map so the
+    // /page/{n} and /entry/{x} endpoints return the cleaned values.
+    async reconcilePdfMapping(processingId, sheetUrl, subsheetName) {
+        return api(`/pdf-runs/${processingId}/reconcile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sheet_url: sheetUrl, subsheet_name: subsheetName || null }),
+        });
+    },
+
+    /**
      * Export results to a Google Sheet (optionally a specific tab).
      * This now creates: marks sheet, studentResponse sheet, and Super Sheet entry.
      */

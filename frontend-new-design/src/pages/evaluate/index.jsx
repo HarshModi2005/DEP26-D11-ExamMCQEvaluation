@@ -516,7 +516,12 @@ const EvaluatePage = () => {
     const [exportMsg, setExportMsg] = useState('');
     const [driveFolderUrl, setDriveFolderUrl] = useState('');
     const [zipFile, setZipFile] = useState(null);
-    const [processingMode, setProcessingMode] = useState('drive'); // 'drive' | 'zip'
+    const [pdfFile, setPdfFile] = useState(null);
+    const [pdfRunId, setPdfRunId] = useState(null);
+    const [pdfMapping, setPdfMapping] = useState(null);
+    const [pdfLookupEntry, setPdfLookupEntry] = useState('');
+    const [pdfLookupResult, setPdfLookupResult] = useState(null);
+    const [processingMode, setProcessingMode] = useState('drive'); // 'drive' | 'zip' | 'pdf'
     const [forceReprocess, setForceReprocess] = useState(false);
     const [cacheStatus, setCacheStatus] = useState(null);
     const logEndRef = React.useRef(null);
@@ -574,6 +579,8 @@ const EvaluatePage = () => {
             if (!url) { setError('Please enter the Google Drive folder URL containing student answer sheets.'); return; }
         } else if (processingMode === 'zip') {
             if (!zipFile) { setError('Please select a ZIP file containing student answer sheets.'); return; }
+        } else if (processingMode === 'pdf') {
+            if (!pdfFile) { setError('Please select a PDF containing student answer sheets (one sheet per page).'); return; }
         }
 
         if (!evaluation?.answer_key_data) { setError('Please load an answer key first before running the pipeline.'); return; }
@@ -584,8 +591,13 @@ const EvaluatePage = () => {
         setPipelineSheetCount(null);
         lastProgressLogRef.current = '';
 
-        const modeText = processingMode === 'zip' ? 'ZIP file' : 'Drive folder';
-        const sourceText = processingMode === 'zip' ? zipFile.name : (driveFolderUrl || evaluation?.drive_folder_url);
+        const modeLabels = { drive: 'Drive folder', zip: 'ZIP file', pdf: 'PDF file' };
+        const modeText = modeLabels[processingMode] || 'source';
+        const sourceText = processingMode === 'zip'
+            ? zipFile.name
+            : processingMode === 'pdf'
+                ? pdfFile.name
+                : (driveFolderUrl || evaluation?.drive_folder_url);
 
         setPipelineLog(prev => [...prev,
         `Starting OCR pipeline (${modeText})...`,
@@ -631,6 +643,12 @@ const EvaluatePage = () => {
                     setPipelineProgress(0);
                     setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
                     pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+                } else if (processingMode === 'pdf') {
+                    setPipelineProgress(0);
+                    setPipelineLog(prev => [...prev, `Splitting & processing PDF: ${pdfFile.name}...`]);
+                    pipelineResult = await backendService.processPdfFile(pdfFile, evaluationId, forceReprocess);
+                    const runId = pipelineResult?.processing_stats?.run_id || pipelineResult?.processing_stats?.processing_id;
+                    if (runId) setPdfRunId(runId);
                 } else {
                     setPipelineProgress(0);
                     setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
@@ -661,20 +679,59 @@ const EvaluatePage = () => {
             setPipelineLog(prev => [...prev, `[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✅${processedResults.length} ❌${errorCount}`]);
 
             if (processedResults.length > 0) {
+                setRawOcrResults(processedResults);
+
+                // Auto-match OCR names/entries to the course's master Google
+                // Sheet before saving (so the UI never shows "JAIN" when the
+                // sheet has "NAMIT JAIN"). Non-fatal on failure.
+                let resultsToSave = processedResults;
+                const masterSheetUrl = evaluation?.courses?.master_sheet_url;
+                if (masterSheetUrl) {
+                    try {
+                        setPipelineLog(prev => [...prev, 'Matching names against master Google Sheet...']);
+                        const mappedForSync = processedResults.map(r => ({
+                            ...r,
+                            entry_number: r.entry_number || (r.students?.roll_number) || '',
+                            name: r.name || (r.students?.name) || ''
+                        }));
+                        const syncRes = await backendService.syncResultsWithSheet(
+                            masterSheetUrl, mappedForSync, evaluation?.subsheet_name
+                        );
+                        if (Array.isArray(syncRes?.results) && syncRes.results.length > 0) {
+                            resultsToSave = syncRes.results;
+                            const cleaned = syncRes.results.filter(r => r.ocr_name && r.name && r.ocr_name !== r.name).length;
+                            setPipelineLog(prev => [...prev, `Names matched to master sheet (${cleaned} corrected).`]);
+                        }
+                    } catch (syncErr) {
+                        setPipelineLog(prev => [...prev, `(Master-sheet match skipped: ${syncErr.message})`]);
+                    }
+                }
+
                 setPipelineLog(prev => [...prev, 'Saving results to database...']);
-                await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
+                await resultsService.saveResults(evaluationId, evaluation.course_id, resultsToSave, user?.id);
                 setPipelineProgress(99);
 
                 await evaluationService.updateStatus(evaluationId, 'grading');
                 setEvaluation(prev => ({ ...prev, status: 'grading' }));
 
-                // Store ALL raw OCR results for export (before DB filtering)
-                setRawOcrResults(processedResults);
-
                 const fresh = await resultsService.getResultsByEvaluation(evaluationId);
                 setResults(fresh || []);
                 setPipelineProgress(100);
                 setPipelineLog(prev => [...prev, `Done! ${fresh.length} student results saved.`]);
+
+                // For PDF runs, also reconcile the page-map on the backend so
+                // the CSV + /page/{n} lookups return the matched values.
+                if (processingMode === 'pdf' && pdfRunId && masterSheetUrl) {
+                    try {
+                        await backendService.reconcilePdfMapping(
+                            pdfRunId, masterSheetUrl, evaluation?.subsheet_name || null
+                        );
+                        const mapping = await backendService.getPdfMapping(pdfRunId);
+                        setPdfMapping(mapping);
+                    } catch (recErr) {
+                        setPipelineLog(prev => [...prev, `(Page-map reconcile skipped: ${recErr.message})`]);
+                    }
+                }
             } else {
                 setPipelineLog(prev => [...prev, 'No results returned. Check the source folder or file.']);
             }
@@ -695,9 +752,12 @@ const EvaluatePage = () => {
         }
 
         const isZipMode = processingMode === 'zip';
+        const isPdfMode = processingMode === 'pdf';
         const url = driveFolderUrl || evaluation?.drive_folder_url;
         if (isZipMode) {
             if (!zipFile) { setError('Please select a ZIP file containing student answer sheets.'); return; }
+        } else if (isPdfMode) {
+            if (!pdfFile) { setError('Please select a PDF containing student answer sheets (one sheet per page).'); return; }
         } else if (!url) {
             setError('Please enter the Google Drive folder URL containing student answer sheets.'); return;
         }
@@ -707,25 +767,38 @@ const EvaluatePage = () => {
         setError('');
         setPipelineProgress(0);
         setPipelineSheetCount(null);
+        setPdfMapping(null);
+        setPdfLookupResult(null);
         lastProgressLogRef.current = '';
 
-        appendPipelineLog(`Starting OCR pipeline (${isZipMode ? 'ZIP file' : 'Drive folder'})...`);
-        appendPipelineLog(`Source: ${isZipMode ? zipFile.name : url}`);
+        const modeLabels = { drive: 'Drive folder', zip: 'ZIP file', pdf: 'PDF file' };
+        const sourceText = isZipMode ? zipFile.name : (isPdfMode ? pdfFile.name : url);
+        appendPipelineLog(`Starting OCR pipeline (${modeLabels[processingMode]})...`);
+        appendPipelineLog(`Source: ${sourceText}`);
         appendPipelineLog(forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.');
 
         try {
-            if (!isZipMode && url !== evaluation.drive_folder_url) {
+            if (!isZipMode && !isPdfMode && url !== evaluation.drive_folder_url) {
                 await evaluationService.updateDriveFolderUrl(evaluationId, url);
                 setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
             }
 
             setPipelineProgress(0);
-            appendPipelineLog(isZipMode ? 'Processing ZIP file...' : 'Scanning Drive folder for sheets...');
+            const startMsg = isZipMode ? 'Processing ZIP file...'
+                : isPdfMode ? 'Splitting PDF into per-student pages...'
+                : 'Scanning Drive folder for sheets...';
+            appendPipelineLog(startMsg);
 
             const startTime = Date.now();
-            const started = isZipMode
-                ? await backendService.startZipProcessing(zipFile, evaluationId, forceReprocess, true)
-                : await backendService.startDriveFolderProcessing(url, evaluationId, forceReprocess);
+            let started;
+            if (isZipMode) {
+                started = await backendService.startZipProcessing(zipFile, evaluationId, forceReprocess, true);
+            } else if (isPdfMode) {
+                started = await backendService.startPdfProcessing(pdfFile, evaluationId, forceReprocess);
+                if (started?.processing_id) setPdfRunId(started.processing_id);
+            } else {
+                started = await backendService.startDriveFolderProcessing(url, evaluationId, forceReprocess);
+            }
             appendPipelineLog(`Live tracking started for ${started.run_id || started.processing_id}`);
 
             let pipelineResult = null;
@@ -790,18 +863,76 @@ const EvaluatePage = () => {
             appendPipelineLog(`[OCR] ${processedResults.length}/${totalSheets} (${processedPct}%) | ✅${processedResults.length} ❌${errorCount}`);
 
             if (processedResults.length > 0) {
+                setRawOcrResults(processedResults);
+
+                // ── Auto-match OCR names/entries against the course's master
+                // Google Sheet BEFORE saving, so the displayed roll-numbers and
+                // names are the canonical ones (e.g. OCR "JAIN" → "NAMIT JAIN").
+                // Falls back to the raw OCR results if the course has no master
+                // sheet configured or the matcher fails.
+                let resultsToSave = processedResults;
+                const masterSheetUrl = evaluation?.courses?.master_sheet_url;
+                if (masterSheetUrl) {
+                    try {
+                        appendPipelineLog('Matching names against master Google Sheet...');
+                        const mappedForSync = processedResults.map(r => ({
+                            ...r,
+                            entry_number: r.entry_number || (r.students?.roll_number) || '',
+                            name: r.name || (r.students?.name) || ''
+                        }));
+                        const syncRes = await backendService.syncResultsWithSheet(
+                            masterSheetUrl,
+                            mappedForSync,
+                            evaluation?.subsheet_name
+                        );
+                        if (Array.isArray(syncRes?.results) && syncRes.results.length > 0) {
+                            resultsToSave = syncRes.results;
+                            const cleaned = syncRes.results.filter(r => r.ocr_name && r.name && r.ocr_name !== r.name).length;
+                            appendPipelineLog(`Names matched to master sheet (${cleaned} corrected).`);
+                        }
+                    } catch (syncErr) {
+                        appendPipelineLog(`(Master-sheet match skipped: ${syncErr.message})`);
+                    }
+                }
+
                 appendPipelineLog('Saving results to database...');
-                await resultsService.saveResults(evaluationId, evaluation.course_id, processedResults, user?.id);
+                await resultsService.saveResults(evaluationId, evaluation.course_id, resultsToSave, user?.id);
                 setPipelineProgress(99);
 
                 await evaluationService.updateStatus(evaluationId, 'grading');
                 setEvaluation(prev => ({ ...prev, status: 'grading' }));
-                setRawOcrResults(processedResults);
 
                 const fresh = await resultsService.getResultsByEvaluation(evaluationId);
                 setResults(fresh || []);
                 setPipelineProgress(100);
                 appendPipelineLog(`Done! ${fresh.length} student results saved.`);
+
+                if (isPdfMode && started?.processing_id) {
+                    try {
+                        // If a master sheet is available, reconcile the PDF
+                        // page-map rows server-side so /page/{n} and /entry/{x}
+                        // also return the matched entry/name — and the CSV
+                        // download reflects it.
+                        if (masterSheetUrl) {
+                            try {
+                                await backendService.reconcilePdfMapping(
+                                    started.processing_id,
+                                    masterSheetUrl,
+                                    evaluation?.subsheet_name || null
+                                );
+                            } catch (recErr) {
+                                appendPipelineLog(`(Page-map master-sheet reconcile skipped: ${recErr.message})`);
+                            }
+                        }
+                        const mapping = await backendService.getPdfMapping(started.processing_id);
+                        setPdfMapping(mapping);
+                        const resolved = Object.keys(mapping.index?.entry_to_page || {}).length;
+                        const unresolved = (mapping.index?.unresolved_pages || []).length;
+                        appendPipelineLog(`PDF mapping built: ${resolved} page(s) matched, ${unresolved} unresolved.`);
+                    } catch (mapErr) {
+                        appendPipelineLog(`(Could not fetch PDF mapping: ${mapErr.message})`);
+                    }
+                }
             } else {
                 appendPipelineLog('No results returned. Check the source folder or file.');
             }
@@ -1109,6 +1240,13 @@ const EvaluatePage = () => {
                                                 <Icon name="Archive" size={14} />
                                                 ZIP Upload
                                             </button>
+                                            <button
+                                                onClick={() => setProcessingMode('pdf')}
+                                                className={`flex-1 py-2 px-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${processingMode === 'pdf' ? 'bg-primary text-white' : 'bg-surface text-text-secondary hover:bg-secondary-50'
+                                                    }`}>
+                                                <Icon name="FileText" size={14} />
+                                                PDF
+                                            </button>
                                         </div>
                                     </div>
 
@@ -1136,6 +1274,25 @@ const EvaluatePage = () => {
                                                 <input type="file" className="sr-only" accept=".zip"
                                                     onChange={e => setZipFile(e.target.files[0])} />
                                             </label>
+                                        </div>
+                                    )}
+
+                                    {/* PDF Mode */}
+                                    {processingMode === 'pdf' && (
+                                        <div>
+                                            <label className="block text-xs font-medium text-text-secondary mb-1">
+                                                PDF File (one student per page, name & roll on top)
+                                            </label>
+                                            <label className="block w-full border-2 border-dashed border-border rounded-lg p-4 text-center cursor-pointer hover:border-primary-300 transition-colors">
+                                                <Icon name="FileText" size={20} className="mx-auto mb-2 text-secondary-400" />
+                                                <p className="text-sm text-text-secondary">{pdfFile ? pdfFile.name : 'Click to select PDF file'}</p>
+                                                <input type="file" className="sr-only" accept=".pdf,application/pdf"
+                                                    onChange={e => setPdfFile(e.target.files[0])} />
+                                            </label>
+                                            <p className="text-xs text-text-tertiary mt-1">
+                                                Each page is treated as an independent answer sheet. Uses the same multi-region OCR
+                                                pipeline as Drive uploads — results are cached per page hash.
+                                            </p>
                                         </div>
                                     )}
 
@@ -1181,6 +1338,12 @@ const EvaluatePage = () => {
                                             <div className={`flex items-center gap-2 text-sm ${zipFile ? 'text-success-600' : 'text-secondary-400'}`}>
                                                 <Icon name={zipFile ? 'CheckCircle' : 'Circle'} size={16} />
                                                 ZIP file selected
+                                            </div>
+                                        )}
+                                        {processingMode === 'pdf' && (
+                                            <div className={`flex items-center gap-2 text-sm ${pdfFile ? 'text-success-600' : 'text-secondary-400'}`}>
+                                                <Icon name={pdfFile ? 'CheckCircle' : 'Circle'} size={16} />
+                                                PDF file selected
                                             </div>
                                         )}
                                     </div>
@@ -1254,6 +1417,116 @@ const EvaluatePage = () => {
                                     </div>
                                 )}
                             </div>
+
+                            {/* PDF Page Map — shown after a successful PDF run */}
+                            {pdfRunId && pdfMapping && (
+                                <div className="bg-surface border border-border rounded-xl overflow-hidden">
+                                    <div className="p-4 border-b border-border flex items-center gap-2">
+                                        <Icon name="BookOpen" size={18} className="text-primary" />
+                                        <h3 className="font-semibold text-text-primary">PDF Page Map</h3>
+                                        <a
+                                            href={backendService.getPdfMappingCsvUrl(
+                                                pdfRunId,
+                                                evaluation?.courses?.master_sheet_url || '',
+                                                evaluation?.subsheet_name || ''
+                                            )}
+                                            download={`pdf_page_map_${pdfRunId.slice(-10)}.csv`}
+                                            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-border text-text-secondary hover:bg-secondary-50 hover:text-primary"
+                                            title="Download page-number → student CSV (matched against master sheet if available)"
+                                        >
+                                            <Icon name="Download" size={12} />
+                                            CSV
+                                        </a>
+                                        <span className="text-xs text-text-tertiary">
+                                            run: {pdfRunId.slice(-10)}
+                                        </span>
+                                    </div>
+                                    <div className="p-4 space-y-3">
+                                        <div className="grid grid-cols-3 gap-2 text-center">
+                                            <div className="bg-primary-50 border border-primary-100 rounded-lg p-2">
+                                                <p className="text-lg font-bold text-primary">{pdfMapping.pdf_meta?.total_pages ?? '?'}</p>
+                                                <p className="text-xs text-primary-600">Total Pages</p>
+                                            </div>
+                                            <div className="bg-success-50 border border-success-100 rounded-lg p-2">
+                                                <p className="text-lg font-bold text-success-600">
+                                                    {Object.keys(pdfMapping.index?.entry_to_page || {}).length}
+                                                </p>
+                                                <p className="text-xs text-success-600">Matched</p>
+                                            </div>
+                                            <div className="bg-warning-50 border border-warning-100 rounded-lg p-2">
+                                                <p className="text-lg font-bold text-warning-700">
+                                                    {(pdfMapping.index?.unresolved_pages || []).length}
+                                                </p>
+                                                <p className="text-xs text-warning-700">Unresolved</p>
+                                            </div>
+                                        </div>
+
+                                        {Object.keys(pdfMapping.index?.duplicate_entries || {}).length > 0 && (
+                                            <div className="p-2 bg-warning-50 border border-warning-200 rounded text-xs text-warning-700">
+                                                <strong>Duplicate roll numbers detected:</strong>{' '}
+                                                {Object.entries(pdfMapping.index.duplicate_entries).slice(0, 4).map(
+                                                    ([entry, pages]) => `${entry} → pages ${pages.join(', ')}`
+                                                ).join('; ')}
+                                            </div>
+                                        )}
+
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={pdfLookupEntry}
+                                                onChange={e => setPdfLookupEntry(e.target.value)}
+                                                placeholder="Lookup by roll number…"
+                                                className="flex-1 px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                                                onKeyDown={e => { if (e.key === 'Enter') document.getElementById('pdf-lookup-btn')?.click(); }}
+                                            />
+                                            <button
+                                                id="pdf-lookup-btn"
+                                                onClick={async () => {
+                                                    if (!pdfLookupEntry.trim()) return;
+                                                    try {
+                                                        const res = await backendService.lookupPdfEntry(pdfRunId, pdfLookupEntry.trim());
+                                                        setPdfLookupResult(res);
+                                                    } catch (err) {
+                                                        setPdfLookupResult({ error: err.message });
+                                                    }
+                                                }}
+                                                className="px-3 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary-700">
+                                                Find
+                                            </button>
+                                        </div>
+
+                                        {pdfLookupResult && (
+                                            <div className="p-3 bg-secondary-50 rounded-lg text-sm">
+                                                {pdfLookupResult.error ? (
+                                                    <p className="text-error">{pdfLookupResult.error}</p>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        <p>
+                                                            <strong>{pdfLookupResult.entry_number}</strong> →{' '}
+                                                            {pdfLookupResult.pages?.length
+                                                                ? `page ${pdfLookupResult.pages.join(', ')}`
+                                                                : 'not found'}
+                                                            {pdfLookupResult.duplicate && (
+                                                                <span className="ml-2 text-warning-700">(duplicate!)</span>
+                                                            )}
+                                                        </p>
+                                                        {(pdfLookupResult.pages || []).map(p => (
+                                                            <a
+                                                                key={p}
+                                                                href={backendService.getPdfPageImageUrl(pdfRunId, p)}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="block text-xs text-primary hover:underline">
+                                                                Open rendered page {p} →
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Stats card if results exist */}
                             {results.length > 0 && (

@@ -27,6 +27,7 @@ from database import Database
 import asyncio
 import uuid
 import os
+import sys
 import json
 import tempfile
 import shutil
@@ -287,6 +288,25 @@ async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_
 #  HEALTH & STATUS
 # ═══════════════════════════════════════
 
+def _runtime_environment() -> dict:
+    """Which Python is running the API and whether PDF splitting is available."""
+    try:
+        import fitz  # PyMuPDF
+        ver = getattr(fitz, "version", None)
+        version_str = ver[0] if isinstance(ver, (list, tuple)) and ver else None
+        return {
+            "python_executable": sys.executable,
+            "pymupdf_available": True,
+            "pymupdf_version": version_str,
+        }
+    except Exception:
+        return {
+            "python_executable": sys.executable,
+            "pymupdf_available": False,
+            "pymupdf_version": None,
+        }
+
+
 @router.get("/status")
 async def get_status():
     # Get cache and database stats
@@ -300,6 +320,7 @@ async def get_status():
         "results_count": len(_current_results),
         "cache_stats": cache_stats,
         "database_stats": db_stats,
+        "runtime": _runtime_environment(),
         "optimization_features": {
             "batch_evaluation": True,
             "result_caching": True,

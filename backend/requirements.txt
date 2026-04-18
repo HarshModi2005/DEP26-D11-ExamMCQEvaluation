@@ -21,4 +21,5 @@ pytesseract
 numpy
 opencv-python-headless
 Pillow
+PyMuPDF
 asyncpg
