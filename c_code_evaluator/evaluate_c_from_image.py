@@ -60,30 +60,38 @@ def _encode_image_base64(image_path: Path) -> Tuple[str, str]:
 
 
 def _gemini_stream_generate_content(api_key: str, model: str, payload: dict, timeout_s: int) -> str:
+    import time as _time
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={api_key}"
-    resp = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=timeout_s)
-    if not resp.ok:
-        raise SystemExit(f"Gemini API error {resp.status_code}: {resp.text[:2000]}")
-    result = resp.json()
+    max_retries = 3
+    for attempt in range(max_retries):
+        resp = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=timeout_s)
+        if resp.status_code == 429:
+            wait = 2 ** attempt * 5  # 5s, 10s, 20s
+            print(f"  ⏳ Rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+            _time.sleep(wait)
+            continue
+        if not resp.ok:
+            raise RuntimeError(f"Gemini API error {resp.status_code}: {resp.text[:500]}")
+        result = resp.json()
 
-    parts: list[str] = []
-    if isinstance(result, list):
-        for chunk in result:
-            for cand in chunk.get("candidates", []) or []:
+        parts: list[str] = []
+        if isinstance(result, list):
+            for chunk in result:
+                for cand in chunk.get("candidates", []) or []:
+                    content = cand.get("content") or {}
+                    for part in content.get("parts", []) or []:
+                        text = part.get("text")
+                        if text:
+                            parts.append(text)
+        elif isinstance(result, dict):
+            for cand in result.get("candidates", []) or []:
                 content = cand.get("content") or {}
                 for part in content.get("parts", []) or []:
                     text = part.get("text")
                     if text:
                         parts.append(text)
-    elif isinstance(result, dict):
-        for cand in result.get("candidates", []) or []:
-            content = cand.get("content") or {}
-            for part in content.get("parts", []) or []:
-                text = part.get("text")
-                if text:
-                    parts.append(text)
-
-    return "".join(parts).strip()
+        return "".join(parts).strip()
+    raise RuntimeError(f"Gemini API rate limited after {max_retries} retries")
 
 
 def _vertex_stream_generate_content(
@@ -147,18 +155,27 @@ def _vertex_stream_generate_content(
 
 def _gemini_generate_content(api_key: str, model: str, payload: dict, timeout_s: int) -> str:
     """Non-streaming Gemini call for text-only requests (e.g. fix agent)."""
+    import time as _time
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    resp = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=timeout_s)
-    resp.raise_for_status()
-    result = resp.json()
-    parts: list[str] = []
-    for cand in result.get("candidates", []) or []:
-        content = cand.get("content") or {}
-        for part in content.get("parts", []) or []:
-            text = part.get("text")
-            if text:
-                parts.append(text)
-    return "".join(parts).strip()
+    max_retries = 3
+    for attempt in range(max_retries):
+        resp = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=timeout_s)
+        if resp.status_code == 429:
+            wait = 2 ** attempt * 5
+            print(f"  ⏳ Rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+            _time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        result = resp.json()
+        parts: list[str] = []
+        for cand in result.get("candidates", []) or []:
+            content = cand.get("content") or {}
+            for part in content.get("parts", []) or []:
+                text = part.get("text")
+                if text:
+                    parts.append(text)
+        return "".join(parts).strip()
+    raise RuntimeError(f"Gemini API rate limited after {max_retries} retries")
 
 
 def _vertex_generate_content(
@@ -241,23 +258,26 @@ def extract_c_code_from_image(
         "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
     }
 
+    raw = None
+    # Try Vertex AI first, fall back to API key on failure
     if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
         project_id = vertex_project_id or DEFAULT_VERTEX_PROJECT
-        if not project_id:
-            raise SystemExit(
-                "GOOGLE_APPLICATION_CREDENTIALS is set, but project id is missing. "
-                "Set GOOGLE_CLOUD_PROJECT (or pass --vertex-project-id)."
-            )
-        raw = _vertex_stream_generate_content(
-            project_id=project_id,
-            location=vertex_location,
-            model=model,
-            payload=payload,
-            timeout_s=timeout_s,
-        )
-    else:
+        if project_id:
+            try:
+                raw = _vertex_stream_generate_content(
+                    project_id=project_id,
+                    location=vertex_location,
+                    model=model,
+                    payload=payload,
+                    timeout_s=timeout_s,
+                )
+            except (SystemExit, Exception) as ve:
+                print(f"  ⚠️ Vertex AI OCR failed, falling back to API key: {ve}")
+                raw = None
+
+    if raw is None:
         if not api_key:
-            raise SystemExit(
+            raise RuntimeError(
                 "Missing API key. Set one of GOOGLE_API_KEY / VERTEX_AI_API_KEY / GEMINI_API_KEY "
                 "or pass --api-key (or set GOOGLE_APPLICATION_CREDENTIALS for Vertex auth)."
             )
@@ -689,20 +709,25 @@ def fix_ocr_syntax_errors(
         "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4096},
     }
 
+    raw = None
     if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
         project_id = vertex_project_id or DEFAULT_VERTEX_PROJECT
-        if not project_id:
-            raise SystemExit("Vertex: project id missing. Set GOOGLE_CLOUD_PROJECT.")
-        raw = _vertex_generate_content(
-            project_id=project_id,
-            location=vertex_location,
-            model=model,
-            payload=payload,
-            timeout_s=timeout_s,
-        )
-    else:
+        if project_id:
+            try:
+                raw = _vertex_generate_content(
+                    project_id=project_id,
+                    location=vertex_location,
+                    model=model,
+                    payload=payload,
+                    timeout_s=timeout_s,
+                )
+            except (SystemExit, Exception) as ve:
+                print(f"  ⚠️ Vertex fix agent failed, falling back to API key: {ve}")
+                raw = None
+
+    if raw is None:
         if not api_key:
-            raise SystemExit("Missing API key for fix agent.")
+            raise RuntimeError("Missing API key for fix agent.")
         raw = _gemini_generate_content(
             api_key=api_key, model=model, payload=payload, timeout_s=timeout_s
         )
@@ -748,20 +773,25 @@ def fix_input_output_format_only(
         "generationConfig": {"temperature": 0.0, "maxOutputTokens": 4096},
     }
 
+    raw = None
     if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
         project_id = vertex_project_id or DEFAULT_VERTEX_PROJECT
-        if not project_id:
-            raise SystemExit("Vertex: project id missing. Set GOOGLE_CLOUD_PROJECT.")
-        raw = _vertex_generate_content(
-            project_id=project_id,
-            location=vertex_location,
-            model=model,
-            payload=payload,
-            timeout_s=timeout_s,
-        )
-    else:
+        if project_id:
+            try:
+                raw = _vertex_generate_content(
+                    project_id=project_id,
+                    location=vertex_location,
+                    model=model,
+                    payload=payload,
+                    timeout_s=timeout_s,
+                )
+            except (SystemExit, Exception) as ve:
+                print(f"  ⚠️ Vertex IO fix agent failed, falling back to API key: {ve}")
+                raw = None
+
+    if raw is None:
         if not api_key:
-            raise SystemExit("Missing API key for fix agent.")
+            raise RuntimeError("Missing API key for IO fix agent.")
         raw = _gemini_generate_content(
             api_key=api_key, model=model, payload=payload, timeout_s=timeout_s
         )

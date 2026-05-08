@@ -12,6 +12,16 @@ const api = async (path, options = {}) => {
     return res.json();
 };
 
+// Cache rows are scoped by evaluation_id on the backend. Refuse to submit a
+// processing request without a real id — the backend will reject it too, but
+// failing fast here gives a better error message and avoids a wasted round-trip.
+const requireEvaluationId = (evaluationId, action) => {
+    if (!evaluationId || String(evaluationId).trim() === '' || String(evaluationId).trim().toLowerCase() === 'default') {
+        throw new Error(`Missing evaluationId for ${action}. Every processing run must be tied to a specific quiz so results cannot leak between evaluations.`);
+    }
+    return String(evaluationId).trim();
+};
+
 export const backendService = {
     /**
      * Load answer key from a Google Drive folder URL
@@ -62,25 +72,27 @@ export const backendService = {
     },
 
     async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'processDriveFolder');
         // Updated to use the ultra-optimized parallel pipelined endpoint
         const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
             body: JSON.stringify({
                 folder_url: driveFolderUrl,
-                evaluation_id: evaluationId,
+                evaluation_id: evalId,
                 rename_drive_inline: true,
             }),
         });
     },
 
     async startDriveFolderProcessing(driveFolderUrl, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'startDriveFolderProcessing');
         const url = forceReprocess ? '/batch/process-folder-optimized/start?force_reprocess=true' : '/batch/process-folder-optimized/start';
         return api(url, {
             method: 'POST',
             body: JSON.stringify({
                 folder_url: driveFolderUrl,
-                evaluation_id: evaluationId,
+                evaluation_id: evalId,
                 rename_drive_inline: true,
             }),
         });
@@ -130,6 +142,84 @@ export const backendService = {
             throw new Error(err.detail || 'ZIP processing failed');
         }
         return res.json();
+    },
+
+    /**
+     * Upload a single PDF where each page is one student's answer sheet.
+     * Returns {processing_id, status_url, mapping_url} — poll processing_id
+     * via getProcessingStatus() just like the Drive flow.
+     */
+    async startPdfProcessing(file, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'startPdfProcessing');
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('evaluation_id', evalId);
+
+        const params = new URLSearchParams();
+        if (forceReprocess) params.append('force_reprocess', 'true');
+        const url = `/batch/process-pdf-optimized/start${params.toString() ? '?' + params.toString() : ''}`;
+
+        const res = await fetch(`${BACKEND_URL}/api${url}`, { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'PDF processing failed');
+        }
+        return res.json();
+    },
+
+    async processPdfFile(file, evaluationId, forceReprocess = false) {
+        const evalId = requireEvaluationId(evaluationId, 'processPdfFile');
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('evaluation_id', evalId);
+
+        const params = new URLSearchParams();
+        if (forceReprocess) params.append('force_reprocess', 'true');
+        const url = `/batch/process-pdf-optimized${params.toString() ? '?' + params.toString() : ''}`;
+
+        const res = await fetch(`${BACKEND_URL}/api${url}`, { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(err.detail || 'PDF processing failed');
+        }
+        return res.json();
+    },
+
+    async getPdfMapping(processingId) {
+        return api(`/pdf-runs/${processingId}/mapping`);
+    },
+
+    async lookupPdfPage(processingId, pageNumber) {
+        return api(`/pdf-runs/${processingId}/page/${pageNumber}`);
+    },
+
+    async lookupPdfEntry(processingId, entryNumber) {
+        return api(`/pdf-runs/${processingId}/entry/${encodeURIComponent(entryNumber)}`);
+    },
+
+    getPdfPageImageUrl(processingId, pageNumber) {
+        return `${BACKEND_URL}/api/pdf-runs/${processingId}/page/${pageNumber}/image`;
+    },
+
+    // Build a download URL for the page-map CSV. `sheetUrl` is optional; when
+    // provided, the backend reconciles OCR names/entries against the master
+    // Google Sheet (same logic as /sync-results) and fills in matched columns.
+    getPdfMappingCsvUrl(processingId, sheetUrl = '', subsheetName = '') {
+        const params = new URLSearchParams();
+        if (sheetUrl) params.set('sheet_url', sheetUrl);
+        if (subsheetName) params.set('subsheet_name', subsheetName);
+        const q = params.toString();
+        return `${BACKEND_URL}/api/pdf-runs/${processingId}/mapping.csv${q ? `?${q}` : ''}`;
+    },
+
+    // Persist master-sheet matched entry_number/name onto pdf_page_map so the
+    // /page/{n} and /entry/{x} endpoints return the cleaned values.
+    async reconcilePdfMapping(processingId, sheetUrl, subsheetName) {
+        return api(`/pdf-runs/${processingId}/reconcile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sheet_url: sheetUrl, subsheet_name: subsheetName || null }),
+        });
     },
 
     /**
@@ -200,10 +290,13 @@ export const backendService = {
     },
 
     /**
-     * Get cache status and statistics
+     * Get cache status and statistics.
+     * Pass ``evaluationId`` so the backend returns per-quiz row counts
+     * (``evaluation_cache``) — the global ``total_entries`` counts every quiz.
      */
-    async getCacheStatus() {
-        return api('/cache/status');
+    async getCacheStatus(evaluationId = null) {
+        const q = evaluationId ? `?evaluation_id=${encodeURIComponent(evaluationId)}` : '';
+        return api(`/cache/status${q}`);
     },
 
     /**
@@ -211,6 +304,16 @@ export const backendService = {
      */
     async clearCache() {
         return api('/cache/clear?confirm=true', { method: 'POST' });
+    },
+
+    /**
+     * Delete every cache row for a single evaluation (scoped purge).
+     * Use this when you want the next run to be fully fresh without nuking
+     * caches for other quizzes.
+     */
+    async purgeCacheForEvaluation(evaluationId) {
+        const evalId = requireEvaluationId(evaluationId, 'purgeCacheForEvaluation');
+        return api(`/cache/purge-evaluation/${encodeURIComponent(evalId)}`, { method: 'DELETE' });
     },
 
     /**
@@ -281,7 +384,8 @@ export const backendService = {
     },
 
     async processDriveCodeEval(folderUrl, answerKey) {
-        return api('/api/code-eval/process-drive-folder', {
+        // api() already prefixes BACKEND_URL + "/api" — do not repeat "/api" here.
+        return api('/code-eval/process-drive-folder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -1,0 +1,9 @@
+# Optional local OCR backends (install in addition to backend/requirements.txt):
+#   pip install -r requirements-local-ocr.txt
+#
+# Paddle (recommended first): better than Tesseract on many photos.
+paddlepaddle>=2.6.0
+paddleocr>=2.7.0
+#
+# EasyOCR (optional): pulls in PyTorch — large download; good multilingual fallback.
+# easyocr>=1.7.0

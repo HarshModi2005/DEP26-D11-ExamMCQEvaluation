@@ -196,6 +196,27 @@ class OptimizedDatabaseService:
                 )
             ''')
 
+            # PDF page → student mapping (populated only for source_type='pdf' runs).
+            # Lets the UI jump from a page number to the scored student (and vice-versa)
+            # without scanning all pipeline_run_items.
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS pdf_page_map (
+                    run_id TEXT NOT NULL,
+                    pdf_hash TEXT NOT NULL,
+                    page_number INTEGER NOT NULL,
+                    page_index INTEGER NOT NULL,
+                    file_id TEXT,
+                    file_name TEXT,
+                    entry_number TEXT,
+                    name TEXT,
+                    status TEXT NOT NULL,             -- 'processed' | 'error' | 'unresolved'
+                    total_score REAL,
+                    max_score REAL,
+                    created_at REAL DEFAULT (julianday('now')),
+                    PRIMARY KEY (run_id, page_number)
+                )
+            ''')
+
             # If the DB already existed with an older schema, CREATE TABLE IF NOT EXISTS
             # will not add new columns. Ensure required columns exist before indexing.
             self._ensure_schema(conn)
@@ -211,6 +232,8 @@ class OptimizedDatabaseService:
             c.execute('CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_pipeline_runs_updated ON pipeline_runs(updated_at)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_pipeline_items_status ON pipeline_run_items(status)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_pdf_page_map_hash ON pdf_page_map(pdf_hash)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_pdf_page_map_entry ON pdf_page_map(entry_number)')
             
             conn.commit()
         
@@ -448,6 +471,106 @@ class OptimizedDatabaseService:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute("SELECT * FROM pipeline_run_items WHERE run_id=? ORDER BY created_at ASC", (run_id,))
+            return [dict(r) for r in c.fetchall()]
+
+    # ──────────────────────────────────────
+    #  PDF page ↔ student mapping
+    # ──────────────────────────────────────
+
+    async def upsert_pdf_page_map(
+        self,
+        run_id: str,
+        pdf_hash: str,
+        page_number: int,
+        page_index: int,
+        status: str,
+        file_id: Optional[str] = None,
+        file_name: Optional[str] = None,
+        entry_number: Optional[str] = None,
+        name: Optional[str] = None,
+        total_score: Optional[float] = None,
+        max_score: Optional[float] = None,
+    ) -> None:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self.executor,
+            self._upsert_pdf_page_map_sync,
+            run_id, pdf_hash, page_number, page_index, status,
+            file_id, file_name, entry_number, name, total_score, max_score,
+        )
+
+    def _upsert_pdf_page_map_sync(
+        self,
+        run_id: str,
+        pdf_hash: str,
+        page_number: int,
+        page_index: int,
+        status: str,
+        file_id: Optional[str],
+        file_name: Optional[str],
+        entry_number: Optional[str],
+        name: Optional[str],
+        total_score: Optional[float],
+        max_score: Optional[float],
+    ) -> None:
+        with self.pool.get_connection() as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT OR REPLACE INTO pdf_page_map "
+                "(run_id, pdf_hash, page_number, page_index, file_id, file_name, "
+                " entry_number, name, status, total_score, max_score, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, julianday('now'))",
+                (run_id, pdf_hash, int(page_number), int(page_index),
+                 file_id, file_name, entry_number, name, status,
+                 total_score, max_score),
+            )
+            conn.commit()
+
+    async def list_pdf_page_map(self, run_id: str) -> List[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.executor, self._list_pdf_page_map_sync, run_id)
+
+    def _list_pdf_page_map_sync(self, run_id: str) -> List[Dict[str, Any]]:
+        with self.pool.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT * FROM pdf_page_map WHERE run_id=? ORDER BY page_number ASC",
+                (run_id,),
+            )
+            return [dict(r) for r in c.fetchall()]
+
+    async def get_pdf_page(self, run_id: str, page_number: int) -> Optional[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor, self._get_pdf_page_sync, run_id, page_number
+        )
+
+    def _get_pdf_page_sync(self, run_id: str, page_number: int) -> Optional[Dict[str, Any]]:
+        with self.pool.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT * FROM pdf_page_map WHERE run_id=? AND page_number=?",
+                (run_id, int(page_number)),
+            )
+            row = c.fetchone()
+            return dict(row) if row else None
+
+    async def find_pdf_page_by_entry(self, run_id: str, entry_number: str) -> List[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor, self._find_pdf_page_by_entry_sync, run_id, entry_number
+        )
+
+    def _find_pdf_page_by_entry_sync(self, run_id: str, entry_number: str) -> List[Dict[str, Any]]:
+        with self.pool.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                "SELECT * FROM pdf_page_map WHERE run_id=? AND entry_number=? ORDER BY page_number ASC",
+                (run_id, entry_number),
+            )
             return [dict(r) for r in c.fetchall()]
     
     def _batch_add_students_sync(self, students: List[Student]) -> int:

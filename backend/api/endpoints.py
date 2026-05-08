@@ -5,7 +5,7 @@ Routes for the objective answer sheet evaluation pipeline.
 Auth is handled entirely by Supabase on the frontend.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from models import (
@@ -27,6 +27,7 @@ from database import Database
 import asyncio
 import uuid
 import os
+import sys
 import json
 import tempfile
 import shutil
@@ -287,6 +288,25 @@ async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_
 #  HEALTH & STATUS
 # ═══════════════════════════════════════
 
+def _runtime_environment() -> dict:
+    """Which Python is running the API and whether PDF splitting is available."""
+    try:
+        import fitz  # PyMuPDF
+        ver = getattr(fitz, "version", None)
+        version_str = ver[0] if isinstance(ver, (list, tuple)) and ver else None
+        return {
+            "python_executable": sys.executable,
+            "pymupdf_available": True,
+            "pymupdf_version": version_str,
+        }
+    except Exception:
+        return {
+            "python_executable": sys.executable,
+            "pymupdf_available": False,
+            "pymupdf_version": None,
+        }
+
+
 @router.get("/status")
 async def get_status():
     # Get cache and database stats
@@ -300,6 +320,7 @@ async def get_status():
         "results_count": len(_current_results),
         "cache_stats": cache_stats,
         "database_stats": db_stats,
+        "runtime": _runtime_environment(),
         "optimization_features": {
             "batch_evaluation": True,
             "result_caching": True,
@@ -1537,10 +1558,21 @@ async def optimize_database():
 
 
 @router.get("/cache/status")
-async def get_cache_status():
-    """Get detailed cache status and statistics."""
+async def get_cache_status(evaluation_id: Optional[str] = Query(None)):
+    """Get detailed cache status and statistics.
+
+    When ``evaluation_id`` is provided (UUID of a quiz), the response also
+    includes ``evaluation_cache`` with row counts **only** for that quiz.
+    Without it, ``cache_stats.total_entries`` is the global row count across
+    all evaluations — which is misleading on a per-quiz screen.
+    """
     cache_stats = await cache_service.get_cache_stats()
-    
+    evaluation_cache = None
+    if evaluation_id and str(evaluation_id).strip():
+        evaluation_cache = await cache_service.get_cache_stats_for_evaluation(
+            str(evaluation_id).strip()
+        )
+
     # Get cache recommendations
     recommendations = []
     cache_size_mb = cache_stats.get('total_size_mb', 0)
@@ -1566,12 +1598,15 @@ async def get_cache_status():
             "action": "Cache will improve performance as more files are processed"
         })
     
-    return {
+    out = {
         "cache_stats": cache_stats,
         "recommendations": recommendations,
         "cache_enabled": True,
-        "max_size_mb": 500
+        "max_size_mb": 500,
     }
+    if evaluation_cache is not None:
+        out["evaluation_cache"] = evaluation_cache
+    return out
 
 
 @router.post("/cache/clear")

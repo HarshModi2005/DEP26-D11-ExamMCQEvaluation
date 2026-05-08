@@ -139,7 +139,7 @@ def _extract_text_from_html(html: str) -> str:
 def _parse_example_pairs_from_content(content_html: str) -> List[Tuple[str, str]]:
     text = _extract_text_from_html(content_html)
     pattern = re.compile(
-        r"Input:\s*(.*?)\s*Output:\s*(.*?)(?=(?:\n\s*Input:)|(?:\n\s*Constraints:)|\Z)",
+        r"Input:\s*(.*?)\s*Output:\s*(.*?)(?=(?:\n\s*Input:)|(?:\n\s*Constraints:)|(?:\n\s*Example\s*\d)|(?:\n\s*\n\s*\n)|\Z)",
         flags=re.IGNORECASE | re.DOTALL,
     )
     pairs: List[Tuple[str, str]] = []
@@ -147,6 +147,10 @@ def _parse_example_pairs_from_content(content_html: str) -> List[Tuple[str, str]
         raw_input = m.group(1).strip()
         raw_output = m.group(2).strip()
         raw_output = re.split(r"\n\s*Explanation\s*:", raw_output, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        # Take only the first line of the output (the actual value)
+        first_line = raw_output.split("\n")[0].strip()
+        if first_line:
+            raw_output = first_line
         if raw_input and raw_output:
             pairs.append((raw_input, raw_output))
     return pairs

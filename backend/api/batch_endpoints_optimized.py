@@ -33,7 +33,6 @@ import base64
 import json
 import re
 import io
-import hashlib
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
@@ -729,10 +728,28 @@ async def _db_writer_worker(queue: asyncio.Queue, processing_id: str):
 #  TRUE STREAMING PIPELINE
 # ─────────────────────────────────────────────────────────────────────
 
-def _make_eval_cache_key(file_id: str, answer_key_hash: str, evaluation_id: str = "default") -> str:
-    """Stable cache key for a fully evaluated result (OCR + scoring), namespaced by evaluation AND answer key."""
-    raw = f"eval:{evaluation_id}:{file_id}:{answer_key_hash}"
-    return hashlib.sha256(raw.encode()).hexdigest()
+def _require_evaluation_id(evaluation_id: Optional[str]) -> str:
+    """
+    Cache rows are scoped by evaluation_id. Refuse to run the pipeline without
+    a real id — an empty string / "default" previously caused cache collisions
+    across quizzes (quiz5 results showing up in quiz6).
+    """
+    if not evaluation_id or not str(evaluation_id).strip() or str(evaluation_id).strip().lower() == "default":
+        raise HTTPException(
+            status_code=400,
+            detail="evaluation_id is required and must be unique per quiz; refusing to run with a missing/'default' id to prevent cross-evaluation cache leaks.",
+        )
+    return str(evaluation_id).strip()
+
+
+def _coerce_score(val) -> Optional[float]:
+    """Coerce a possibly-None / string score to float, swallowing bad values."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
 
 
 # ── Per-run OCR debug dump ────────────────────────────────────────────────────
@@ -751,7 +768,7 @@ async def _process_sheets_optimized(
     student_sheets: List[Dict],
     answer_key,
     processing_id: str,
-    evaluation_id: str = "default",
+    evaluation_id: str,
     force_reprocess: bool = False,
     rename_drive_inline: bool = False,
 ):
@@ -784,6 +801,19 @@ async def _process_sheets_optimized(
         {"answers": optimized_key["answers"], "negative_marking": optimized_key["negative_marking"]}
     )
 
+    # Before this run starts, drop any cached eval rows for this evaluation
+    # whose answer_key_hash disagrees with the key we're about to use. This
+    # means that swapping the answer key for a quiz forces a clean re-score
+    # and never serves stale numbers from a previous key.
+    try:
+        stale_removed = await cache_service.purge_stale_for_evaluation(
+            evaluation_id, answer_key_hash
+        )
+        if stale_removed:
+            print(f"🧹 Purged {stale_removed} stale cache row(s) for evaluation={evaluation_id} (ak changed)")
+    except Exception as purge_exc:
+        print(f"⚠️  Stale-cache purge failed for evaluation={evaluation_id}: {purge_exc}")
+
     # Shared HTTP session — large pool for many concurrent connections
     connector = aiohttp.TCPConnector(
         limit=256,
@@ -812,9 +842,17 @@ async def _process_sheets_optimized(
     db_queue: asyncio.Queue = asyncio.Queue()
     writer_task = asyncio.create_task(_db_writer_worker(db_queue, processing_id))
 
-    # High concurrency — token buckets do the pacing, not a semaphore
-    # Use a generous semaphore just to cap memory from too many in-flight downloads
-    download_sem = asyncio.Semaphore(50)
+    # Cap how many sheets run download+OCR+eval at once. Without this, one task per file
+    # (e.g. 199) can spike RAM and get the worker OOM-killed on 512MB hosts — looks like a
+    # "random" restart. Tune with PIPELINE_MAX_CONCURRENT (try 6–12 on 512MB).
+    _pmc_raw = os.getenv("PIPELINE_MAX_CONCURRENT", "").strip()
+    if _pmc_raw:
+        _pipeline_max = max(1, min(int(_pmc_raw), 500))
+    else:
+        _pipeline_max = 24
+    pipeline_sem = asyncio.Semaphore(_pipeline_max)
+    # Downloads cannot exceed pipeline slots meaningfully; keep inner cap aligned to reduce FD spikes
+    download_sem = asyncio.Semaphore(min(50, max(8, _pipeline_max * 2)))
     lock = asyncio.Lock()
     rename_usage_lock = asyncio.Lock()
     entry_usage_for_rename: Dict[str, int] = {}
@@ -861,36 +899,118 @@ async def _process_sheets_optimized(
             return False
         return _is_valid_cached_entry(ocr_dict.get("entry_number", ""))
 
-    async def _handle(sheet_file: dict, idx: int, is_retry: bool = False, force_fresh_ocr: bool = False):
+    # ── PDF page mapping (no-op unless sheet_file has _pdf_meta) ──────
+    # Populated incrementally as each page finishes. Kept both in
+    # `_processing_stats[processing_id]["pdf_index"]` (fast lookup) and
+    # persisted via `optimized_db.upsert_pdf_page_map` (survives restarts).
+    run_id_for_mapping: Optional[str] = _processing_stats[processing_id].get("run_id")
+
+    async def _record_pdf_mapping(
+        sheet_file: dict,
+        status: str,
+        entry_number: str = "",
+        name: str = "",
+        total_score: Optional[float] = None,
+        max_score: Optional[float] = None,
+    ) -> None:
+        meta = sheet_file.get("_pdf_meta")
+        if not meta:
+            return
+        page_number = int(meta.get("page_number") or 0)
+        page_index = int(meta.get("page_index") or 0)
+        pdf_hash = str(meta.get("pdf_hash") or "")
+        file_id = sheet_file.get("id") or ""
+        fname = sheet_file.get("name") or ""
+        entry_clean = str(entry_number or "").strip()
+        if entry_clean.startswith("UNREAD_") or not entry_clean:
+            mapping_status = "unresolved" if status == "processed" else status
+            mapping_entry = ""  # keep blank in map so entry lookups don't match UNREAD_
+        else:
+            mapping_status = status
+            mapping_entry = entry_clean
+
+        # In-memory index
+        idx_bucket = _processing_stats[processing_id].setdefault("pdf_index", {
+            "pdf_name": meta.get("pdf_name", ""),
+            "pdf_hash": pdf_hash,
+            "total_pages": _processing_stats[processing_id].get("total_files", 0),
+            "page_to_entry": {},
+            "page_to_name": {},
+            "entry_to_page": {},
+            "name_to_pages": {},
+            "unresolved_pages": [],
+            "duplicate_entries": {},
+        })
+        idx_bucket["page_to_entry"][page_number] = mapping_entry
+        idx_bucket["page_to_name"][page_number] = name or ""
+        if mapping_entry:
+            # Detect duplicates: same entry showing up on a different page
+            existing = idx_bucket["entry_to_page"].get(mapping_entry)
+            if existing is not None and existing != page_number:
+                dupes = idx_bucket["duplicate_entries"].setdefault(mapping_entry, [existing])
+                if page_number not in dupes:
+                    dupes.append(page_number)
+            idx_bucket["entry_to_page"][mapping_entry] = page_number
+        if name:
+            idx_bucket["name_to_pages"].setdefault(name.strip().lower(), []).append(page_number)
+        if mapping_status in ("unresolved", "error") and page_number not in idx_bucket["unresolved_pages"]:
+            idx_bucket["unresolved_pages"].append(page_number)
+
+        # DB persistence (best-effort — never block the pipeline on a DB write)
+        if run_id_for_mapping:
+            try:
+                await optimized_db.upsert_pdf_page_map(
+                    run_id=run_id_for_mapping,
+                    pdf_hash=pdf_hash,
+                    page_number=page_number,
+                    page_index=page_index,
+                    status=mapping_status,
+                    file_id=file_id,
+                    file_name=fname,
+                    entry_number=mapping_entry or None,
+                    name=name or None,
+                    total_score=total_score,
+                    max_score=max_score,
+                )
+            except Exception as db_exc:
+                print(f"  ⚠️ [PDF-MAP] DB write failed for page {page_number}: {db_exc}")
+
+    async def _handle_core(sheet_file: dict, idx: int, is_retry: bool = False, force_fresh_ocr: bool = False):
         """Process a single sheet. Set is_retry=True for phase-2 retries."""
         nonlocal success_count, cache_hit_count  # noqa: E741
         fname = sheet_file["name"]
         phase_tag = "[RETRY]" if is_retry else "[PIPELINE]"
         print(f"\n{'─'*60}\n  📄 {phase_tag} [{idx+1}/{total}] START: {fname}")
         file_id = sheet_file["id"]
-        local_path = os.path.join(temp_dir, f"{idx}_{fname}")
-        # Eval cache key now encodes the answer_key_hash so stale results
-        # from a previous answer key are automatically missed.
-        eval_cache_key = _make_eval_cache_key(file_id, answer_key_hash, evaluation_id)
-        ocr_cache_key = f"ocr:{evaluation_id}:{file_id}"
+        # If the caller already materialised the file on local disk (ZIP / PDF
+        # ingress), use that path directly and skip the Drive download below.
+        external_local = sheet_file.get("local_path")
+        if external_local and os.path.exists(external_local):
+            local_path = external_local
+            is_external_local = True
+        else:
+            local_path = os.path.join(temp_dir, f"{idx}_{fname}")
+            is_external_local = False
+        # Single-row cache per (evaluation_id, file_id). One fetch covers both
+        # OCR and scored result; `answer_key_hash` column decides freshness.
+        sheet_row = None
+        if not force_reprocess:
+            sheet_row = await cache_service.get_sheet_cache(evaluation_id, file_id)
 
         try:
             # ── STEP 1: Check FULL evaluation cache (OCR + scored result) ──
-            # If hit, we're done — no download, no OCR, no re-evaluation needed.
-            # IMPORTANT: Reject cached results with empty/UNREAD_ entry_number,
-            # AND reject if the embedded answer_key_hash doesn't match current one
-            # (prevents stale 0-score results from old answer keys being served).
-            eval_cached = None
-            if not force_reprocess:
-                eval_cached = await cache_service.get_cached_ocr_result("__eval__", file_hash=eval_cache_key)
-
+            # Hit conditions:
+            #   * row exists and has a non-null evaluation_result
+            #   * stored answer_key_hash matches the current one (stale key → miss)
+            #   * cached entry_number is a real entry (not empty / UNREAD_)
+            eval_cached = (sheet_row or {}).get("evaluation_result") if sheet_row else None
             cached_entry = (eval_cached or {}).get("entry_number", "") if eval_cached else ""
-            cached_ak_hash = (eval_cached or {}).get("_answer_key_hash", "") if eval_cached else ""
+            cached_ak_hash = (sheet_row or {}).get("answer_key_hash", "") if sheet_row else ""
             eval_cache_valid = (
                 eval_cached
                 and _is_valid_cached_entry(cached_entry)
                 and "total_score" in eval_cached
-                and cached_ak_hash == answer_key_hash  # ← KEY FIX: reject stale answer key
+                and cached_ak_hash == answer_key_hash
             )
             if eval_cache_valid:
                 score = eval_cached.get('total_score', '?')
@@ -907,20 +1027,30 @@ async def _process_sheets_optimized(
                     _log_progress(processing_id, processed, total, success_count,
                                   len(errors), cache_hit_count, start_t, from_cache=True)
                 await db_queue.put(student_result)
+                # Record PDF mapping from the cached payload as well.
+                cached_payload = student_result if isinstance(student_result, dict) else (
+                    student_result.model_dump() if hasattr(student_result, "model_dump") else dict(eval_cached)
+                )
+                await _record_pdf_mapping(
+                    sheet_file,
+                    status="processed",
+                    entry_number=str(cached_payload.get("entry_number", "") or ""),
+                    name=str(cached_payload.get("name", "") or ""),
+                    total_score=_coerce_score(cached_payload.get("total_score")),
+                    max_score=_coerce_score(cached_payload.get("max_score")),
+                )
                 return
             elif eval_cached and not _is_valid_cached_entry(cached_entry):
                 print(f"  🔄 [PIPELINE] {fname}: eval cache INVALID entry='{cached_entry}' — re-processing")
             elif eval_cached and cached_ak_hash != answer_key_hash:
-                print(f"  🔄 [PIPELINE] {fname}: eval cache STALE answer-key (cached={cached_ak_hash[:8]}… current={answer_key_hash[:8]}…) — re-evaluating")
+                print(f"  🔄 [PIPELINE] {fname}: eval cache STALE answer-key (cached={str(cached_ak_hash)[:8]}… current={answer_key_hash[:8]}…) — re-evaluating")
             else:
                 print(f"  🔍 [PIPELINE] {fname}: no eval cache — proceeding to OCR")
 
             # ── STEP 2: Check OCR-only cache ──
-            # Reject OCR cache if entry_number is empty OR if it has zero answers
-            ocr_cached = None
-            if not force_reprocess:
-                ocr_cached = await cache_service.get_cached_ocr_result(local_path, file_hash=ocr_cache_key)
-            
+            # Same row: if OCR portion exists and looks valid, reuse it.
+            ocr_cached = (sheet_row or {}).get("ocr_result") if sheet_row else None
+
             # On retry passes, always skip OCR cache so we get a fresh read
             if not force_fresh_ocr and ocr_cached and _is_valid_ocr_result(ocr_cached):
                 ocr = ocr_cached
@@ -942,21 +1072,26 @@ async def _process_sheets_optimized(
                     _processing_stats[processing_id]["cache_misses"] = \
                         _processing_stats[processing_id].get("cache_misses", 0) + 1
 
-                # ── STEP 3: Download ──
-                print(f"  ⬇️  {phase_tag} {fname}: downloading (file_id={file_id})")
-                async with download_sem:
-                    ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
-                if not ok:
-                    print(f"  ❌ [PIPELINE] {fname}: DOWNLOAD FAILED")
-                    async with lock:
-                        errors.append({"file": fname, "error": "Download failed", "file_id": file_id})
-                        _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
-                        _problem_files.setdefault(processing_id, []).append(
-                            {"name": fname, "id": file_id, "reason": "download_failed", "entry_number": "", "answers_count": 0}
-                        )
-                    return
-                file_size_kb = os.path.getsize(local_path) / 1024 if os.path.exists(local_path) else 0
-                print(f"  ✅ [PIPELINE] {fname}: downloaded ({file_size_kb:.0f} KB) → {local_path}")
+                # ── STEP 3: Download (skipped when a local_path was provided) ──
+                if is_external_local:
+                    file_size_kb = os.path.getsize(local_path) / 1024 if os.path.exists(local_path) else 0
+                    print(f"  📂 [PIPELINE] {fname}: using provided local file ({file_size_kb:.0f} KB) → {local_path}")
+                else:
+                    print(f"  ⬇️  {phase_tag} {fname}: downloading (file_id={file_id})")
+                    async with download_sem:
+                        ok = await asyncio.to_thread(drive_service.download_file, file_id, local_path)
+                    if not ok:
+                        print(f"  ❌ [PIPELINE] {fname}: DOWNLOAD FAILED")
+                        async with lock:
+                            errors.append({"file": fname, "error": "Download failed", "file_id": file_id})
+                            _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+                            _problem_files.setdefault(processing_id, []).append(
+                                {"name": fname, "id": file_id, "reason": "download_failed", "entry_number": "", "answers_count": 0}
+                            )
+                        await _record_pdf_mapping(sheet_file, status="error")
+                        return
+                    file_size_kb = os.path.getsize(local_path) / 1024 if os.path.exists(local_path) else 0
+                    print(f"  ✅ [PIPELINE] {fname}: downloaded ({file_size_kb:.0f} KB) → {local_path}")
 
                 # ── STEP 4: OCR (rate-limited, multi-tier, multi-region) ──
                 ocr = await _ocr_one(session, local_path, _get_headers, project_id, answer_key=answer_key)
@@ -1011,7 +1146,7 @@ async def _process_sheets_optimized(
                         )
                     # Cache valid results
                     if _is_valid_ocr_result(ocr):
-                        await cache_service.cache_ocr_result(local_path, ocr, file_hash=ocr_cache_key)
+                        await cache_service.upsert_sheet_ocr(evaluation_id, file_id, fname, ocr)
                     else:
                         print(f"  ⚠️ {phase_tag} {fname}: NOT caching (empty entry_number) — recorded as problem file")
                 else:
@@ -1023,10 +1158,11 @@ async def _process_sheets_optimized(
                     print(f"  🔁 {phase_tag} {fname}: OCR error in phase-1 — queuing for PHASE-2 retry")
                     async with lock:
                         retry_queue.append((sheet_file, idx))
-                    try:
-                        os.path.exists(local_path) and os.remove(local_path)
-                    except Exception:
-                        pass
+                    if not is_external_local:
+                        try:
+                            os.path.exists(local_path) and os.remove(local_path)
+                        except Exception:
+                            pass
                     return
                 # Phase-2 (retry) still failed — hard error
                 print(f"  ❌ {phase_tag} {fname}: FATAL OCR error after retry — {ocr['error']}")
@@ -1037,10 +1173,12 @@ async def _process_sheets_optimized(
                 async with lock:
                     errors.append({"file": fname, "error": ocr["error"], "file_id": file_id})
                     _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
-                try:
-                    os.path.exists(local_path) and os.remove(local_path)
-                except Exception:
-                    pass
+                await _record_pdf_mapping(sheet_file, status="error")
+                if not is_external_local:
+                    try:
+                        os.path.exists(local_path) and os.remove(local_path)
+                    except Exception:
+                        pass
                 return
 
             # ── STEP 5: Evaluate ──
@@ -1064,17 +1202,38 @@ async def _process_sheets_optimized(
                 async with lock:
                     errors.append({"file": fname, "error": student_result["error"], "file_id": file_id})
                     _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+                await _record_pdf_mapping(
+                    sheet_file,
+                    status="error",
+                    entry_number=ocr.get("entry_number", ""),
+                    name=ocr.get("name", ""),
+                )
             else:
                 student_result, fname = await _rename_one(fname, file_id, student_result)
                 scored_entry = getattr(student_result, 'entry_number', None) or (student_result.get('entry_number') if isinstance(student_result, dict) else '')
                 scored_score = getattr(student_result, 'total_score', None) or (student_result.get('total_score') if isinstance(student_result, dict) else '?')
                 print(f"  ✅ {phase_tag} {fname}: DONE | entry={scored_entry!r} score={scored_score}")
-                # ── STEP 6: Cache the fully evaluated result ──
+                scored_dict_for_map = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
+                await _record_pdf_mapping(
+                    sheet_file,
+                    status="processed",
+                    entry_number=str(scored_dict_for_map.get("entry_number", "") or ""),
+                    name=str(scored_dict_for_map.get("name", "") or ""),
+                    total_score=_coerce_score(scored_dict_for_map.get("total_score")),
+                    max_score=_coerce_score(scored_dict_for_map.get("max_score")),
+                )
+                # ── STEP 6: Cache the fully evaluated result (single row: OCR + eval) ──
                 try:
                     scored_dict = student_result.model_dump() if hasattr(student_result, "model_dump") else dict(student_result)
                     if _is_valid_cached_entry(scored_dict.get("entry_number", "")):
-                        scored_dict["_answer_key_hash"] = answer_key_hash
-                        await cache_service.cache_ocr_result("__eval__", scored_dict, file_hash=eval_cache_key)
+                        await cache_service.upsert_sheet_evaluation(
+                            evaluation_id=evaluation_id,
+                            file_id=file_id,
+                            file_name=fname,
+                            ocr_result=ocr,
+                            evaluation_result=scored_dict,
+                            answer_key_hash=answer_key_hash,
+                        )
                     else:
                         print(f"  ⚠️ {phase_tag} {fname}: NOT caching eval (UNREAD entry) — will retry next run")
                 except Exception as cache_exc:
@@ -1100,16 +1259,25 @@ async def _process_sheets_optimized(
             async with lock:
                 errors.append({"file": fname, "error": str(exc), "file_id": file_id})
                 _processing_stats[processing_id]["processed_files"] = len(results) + len(errors)
+            await _record_pdf_mapping(sheet_file, status="error")
 
         finally:
-            try:
-                os.path.exists(local_path) and os.remove(local_path)
-            except Exception:
-                pass
+            # Only clean up files that the pipeline itself downloaded. External
+            # local files (ZIP / PDF-split) are owned by the calling endpoint.
+            if not is_external_local:
+                try:
+                    os.path.exists(local_path) and os.remove(local_path)
+                except Exception:
+                    pass
+
+    async def _handle(sheet_file: dict, idx: int, is_retry: bool = False, force_fresh_ocr: bool = False):
+        async with pipeline_sem:
+            await _handle_core(sheet_file, idx, is_retry=is_retry, force_fresh_ocr=force_fresh_ocr)
 
     try:
         # ── PHASE 1: process ALL files with tight retry budget ────────────
         _processing_stats[processing_id]["status"] = "streaming_pipeline"
+        print(f"  ⚙️  [PIPELINE] concurrency cap: {_pipeline_max} in-flight sheets (PIPELINE_MAX_CONCURRENT)")
         tasks = [asyncio.create_task(_handle(sf, i)) for i, sf in enumerate(student_sheets)]
         await asyncio.gather(*tasks)
 
@@ -1188,6 +1356,9 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
     start_time = _processing_stats.get(processing_id, {}).get("start_time", time.time())
     folder_id = DriveService.extract_folder_id(request.folder_url)
 
+    # Require a real evaluation_id up front — it scopes the cache.
+    evaluation_id = _require_evaluation_id(request.evaluation_id)
+
     try:
         # Discover files
         _processing_stats[processing_id]["status"] = "discovering_files"
@@ -1219,38 +1390,49 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
 
         print(f"📂 Discovered {total_sheets} student sheet(s) + {len(answer_key_files)} answer key file(s)")
 
-        # Load answer key
-        _current_answer_key = _get_answer_key()
-        if _current_answer_key is None or force_reprocess:
-            if answer_key_files:
-                _processing_stats[processing_id]["status"] = "loading_answer_key"
-                tmp = tempfile.mkdtemp(prefix="ak_")
-                try:
-                    local_ak = drive_service.download_answer_key(answer_key_files[0], tmp)
-                    _current_answer_key = answer_key_service.extract_answer_key(
-                        local_ak, answer_key_files[0].get("mimeType", "")
-                    )
-                    _set_answer_key(_current_answer_key)
-                finally:
-                    shutil.rmtree(tmp, ignore_errors=True)
-            else:
-                _current_answer_key = answer_key_service.load_from_disk()
-                _set_answer_key(_current_answer_key)
+        # ── Load the answer key FOR THIS RUN ──
+        # Previously we re-used the process-global `_current_answer_key` across
+        # runs, so starting quiz6 while quiz5's key was still loaded kept
+        # quiz5's `answer_key_hash` — which, combined with same Drive file_ids,
+        # served quiz5's cached eval rows for quiz6. That bug is fixed here by
+        # always resolving the key for the current request.
+        _processing_stats[processing_id]["status"] = "loading_answer_key"
+        _current_answer_key = None
+        if answer_key_files:
+            tmp = tempfile.mkdtemp(prefix="ak_")
+            try:
+                local_ak = drive_service.download_answer_key(answer_key_files[0], tmp)
+                _current_answer_key = answer_key_service.extract_answer_key(
+                    local_ak, answer_key_files[0].get("mimeType", "")
+                )
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        else:
+            # Fall back to whatever the UI explicitly loaded for THIS evaluation
+            # (set via /answer-key endpoints). Disk-cached keys are intentionally
+            # NOT used here — they leak across evaluations.
+            _current_answer_key = _get_answer_key()
+
+        # Sync the global for any legacy code paths that read it, but the
+        # pipeline itself uses the local reference from here on.
+        _set_answer_key(_current_answer_key)
 
         if not _current_answer_key:
-            raise HTTPException(status_code=400, detail="No answer key loaded.")
+            raise HTTPException(
+                status_code=400,
+                detail="No answer key for this evaluation. Include one in the Drive folder or load it via the Answer Key panel before running.",
+            )
         if not student_sheets:
             raise HTTPException(status_code=404, detail="No student sheets found.")
 
-        print(f"🚀 Starting pipeline: {total_sheets} sheets | Pro→Flash→Lite tier failover | Full eval cache enabled")
+        print(f"🚀 Starting pipeline: {total_sheets} sheets | evaluation={evaluation_id} | Full eval cache enabled")
 
-        # Run pipeline
-        eval_id = request.evaluation_id or "default"
+        # Run pipeline (cache is scoped to this evaluation_id).
         results, errors = await _process_sheets_optimized(
             student_sheets,
             _current_answer_key,
             processing_id,
-            eval_id,
+            evaluation_id,
             force_reprocess,
             rename_drive_inline=bool(request.rename_drive_inline),
         )
@@ -1339,6 +1521,10 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
                 for old_id in sorted_ids[:-50]:
                     _processing_stats[old_id]["results"] = []
                     _processing_stats.pop(old_id, None)
+                    # Drop the rendered PDF pages too if any are still on disk.
+                    stale_dir = _pdf_work_dirs.pop(old_id, None)
+                    if stale_dir:
+                        shutil.rmtree(stale_dir, ignore_errors=True)
         except Exception:
             pass
 
@@ -1484,39 +1670,38 @@ async def get_ocr_debug(processing_id: str):
     }
 
 
+@router.delete("/cache/purge-evaluation/{evaluation_id}")
+async def purge_cache_for_evaluation(evaluation_id: str):
+    """
+    Delete every cache row that belongs to a single evaluation (quiz).
+
+    Use this when:
+      - an evaluation is deleted from the UI;
+      - you've swapped an evaluation's answer key and want to guarantee a
+        100% fresh re-score on the next run;
+      - you're debugging a cross-evaluation leak.
+
+    Returns the number of rows removed.
+    """
+    eval_id = _require_evaluation_id(evaluation_id)
+    removed = await cache_service.purge_evaluation(eval_id)
+    return {
+        "evaluation_id": eval_id,
+        "removed": removed,
+        "message": f"Removed {removed} cache row(s) for evaluation {eval_id}.",
+    }
+
+
 @router.delete("/batch/purge-stale-eval-cache")
 async def purge_stale_eval_cache():
     """
     Delete all __eval__ cache entries that were written before the answer-key-hash
     tracking fix (i.e., they have no _answer_key_hash embedded in the payload).
     This forces a fresh evaluation on the next run without re-doing OCR.
+
+    Backend-agnostic: works for both SQLite and Supabase cache drivers.
     """
-    import sqlite3 as _sqlite3
-
-    def _purge():
-        conn = _sqlite3.connect(cache_service.cache_db_path)
-        c = conn.cursor()
-        try:
-            # Get all __eval__ entries
-            c.execute("SELECT file_hash, ocr_result FROM result_cache WHERE file_name = '__eval__'")
-            rows = c.fetchall()
-            stale = []
-            for file_hash, ocr_json in rows:
-                try:
-                    data = json.loads(ocr_json)
-                    if "_answer_key_hash" not in data:
-                        stale.append(file_hash)
-                except Exception:
-                    stale.append(file_hash)
-            if stale:
-                c.executemany("DELETE FROM result_cache WHERE file_hash = ?", [(h,) for h in stale])
-                conn.commit()
-            return len(stale), len(rows)
-        finally:
-            conn.close()
-
-    loop = asyncio.get_event_loop()
-    purged, total = await loop.run_in_executor(None, _purge)
+    purged, total = await cache_service.purge_stale_eval_entries()
     return {
         "purged_stale_entries": purged,
         "total_eval_entries_before": total,
@@ -1660,3 +1845,656 @@ async def clear_problem_files(processing_id: str):
     """Clear the in-memory problem-file tracker for a given run."""
     removed = _problem_files.pop(processing_id, None)
     return {"cleared": removed is not None, "count_removed": len(removed) if removed else 0}
+
+
+# ═════════════════════════════════════════════════════════════════════
+#  PDF PIPELINE — one PDF containing all student sheets, one page each
+# ═════════════════════════════════════════════════════════════════════
+
+from fastapi import UploadFile, File, Form
+from fastapi.responses import FileResponse
+
+# Map processing_id -> absolute path of the rendered-pages tempdir.
+# Kept alive so the /pdf-runs/{processing_id}/page/{n}/image endpoint can
+# still serve pages after the pipeline has finished.
+_pdf_work_dirs: Dict[str, str] = {}
+
+
+async def _run_process_pdf_optimized(
+    processing_id: str,
+    pdf_path: str,
+    pdf_filename: str,
+    evaluation_id: Optional[str] = None,
+    force_reprocess: bool = False,
+):
+    """
+    Render each page of `pdf_path` → JPEG → feed into the existing optimized
+    batch pipeline as if each page were an independent Drive sheet.
+
+    The PDF-rendered JPEGs live in a dedicated temp dir that outlives
+    the pipeline run (so the UI can fetch them via the page-image endpoint).
+    """
+    from services.pdf_split_service import split_pdf_to_pages
+
+    start_time = _processing_stats.get(processing_id, {}).get("start_time", time.time())
+
+    try:
+        # ── STEP 1: Split the PDF into page images ────────────────────────
+        _processing_stats[processing_id]["status"] = "splitting_pdf"
+        pdf_work_dir = tempfile.mkdtemp(prefix="pdf_pages_")
+        _pdf_work_dirs[processing_id] = pdf_work_dir
+        _processing_stats[processing_id]["pdf_work_dir"] = pdf_work_dir
+
+        try:
+            sheet_files, pdf_meta = await asyncio.to_thread(
+                split_pdf_to_pages, pdf_path, pdf_work_dir
+            )
+        except ImportError as exc:
+            _processing_stats[processing_id].update({
+                "status": "failed",
+                "error": str(exc),
+                "total_time": time.time() - start_time,
+            })
+            return
+        except Exception as exc:
+            _processing_stats[processing_id].update({
+                "status": "failed",
+                "error": f"PDF split failed: {exc}",
+                "total_time": time.time() - start_time,
+            })
+            return
+
+        total_sheets = len(sheet_files)
+        _processing_stats[processing_id]["total_files"] = total_sheets
+        _processing_stats[processing_id]["pdf_meta"] = pdf_meta
+        print(f"📄 PDF split: {pdf_meta['pdf_name']} → {total_sheets} page(s) at {pdf_meta['render_dpi']} DPI")
+
+        # ── STEP 2: Ensure an answer key is loaded ────────────────────────
+        _current_answer_key = _get_answer_key()
+        if _current_answer_key is None:
+            _current_answer_key = answer_key_service.load_from_disk()
+            if _current_answer_key:
+                _set_answer_key(_current_answer_key)
+        if _current_answer_key is None:
+            _processing_stats[processing_id].update({
+                "status": "failed",
+                "error": "No answer key loaded. Upload/set an answer key before running the PDF pipeline.",
+                "total_time": time.time() - start_time,
+            })
+            return
+
+        # ── STEP 3: Persist the pipeline_run record (processing_id == run_id) ──
+        try:
+            await optimized_db.create_pipeline_run(
+                run_id=processing_id,
+                source_type="pdf",
+                source_ref=pdf_filename,
+                total_files=total_sheets,
+            )
+            _processing_stats[processing_id]["run_id"] = processing_id
+        except Exception as db_exc:
+            print(f"⚠️ create_pipeline_run failed for PDF run: {db_exc}")
+
+        # Seed the in-memory pdf_index so it's visible as soon as processing starts
+        _processing_stats[processing_id]["pdf_index"] = {
+            "pdf_name": pdf_meta.get("pdf_name", ""),
+            "pdf_hash": pdf_meta.get("pdf_hash", ""),
+            "total_pages": total_sheets,
+            "page_to_entry": {},
+            "page_to_name": {},
+            "entry_to_page": {},
+            "name_to_pages": {},
+            "unresolved_pages": [],
+            "duplicate_entries": {},
+        }
+
+        # ── STEP 4: Run the SAME optimized pipeline the Drive flow uses ───
+        eval_id = _require_evaluation_id(evaluation_id)
+        results, errors = await _process_sheets_optimized(
+            sheet_files,
+            _current_answer_key,
+            processing_id,
+            eval_id,
+            force_reprocess,
+            rename_drive_inline=False,  # no Drive for PDF runs
+        )
+
+        # ── STEP 5: Mark run complete ──────────────────────────────────────
+        total_time = time.time() - start_time
+        _processing_stats[processing_id].update({
+            "status": "completed",
+            "total_time": total_time,
+            "avg_time_per_file": total_time / total_sheets if total_sheets else 0,
+            "success_rate": len(results) / total_sheets if total_sheets else 0,
+        })
+
+        try:
+            await optimized_db.update_pipeline_run_progress(
+                run_id=processing_id,
+                processed_files=len(results),
+                cache_hits=_processing_stats[processing_id].get("cache_hits", 0),
+                errors=errors,
+                status="completed",
+            )
+        except Exception as db_exc:
+            print(f"⚠️ update_pipeline_run_progress failed: {db_exc}")
+
+        # Normalize + filter UNREAD_ entries (same semantics as Drive flow)
+        normalized_results = []
+        for r in results:
+            if hasattr(r, 'model_dump'):
+                normalized_results.append(r.model_dump())
+            elif isinstance(r, dict):
+                normalized_results.append(r)
+            else:
+                normalized_results.append(dict(r))
+
+        display_results = [r for r in normalized_results if not str(r.get("entry_number", "")).startswith("UNREAD_")]
+        unread_results  = [r for r in normalized_results if     str(r.get("entry_number", "")).startswith("UNREAD_")]
+        if unread_results:
+            _processing_stats[processing_id]["unread_sheets"] = len(unread_results)
+
+        _processing_stats[processing_id].update({
+            "results": display_results,
+            "errors": errors,
+            "answer_key_source": _current_answer_key.metadata.get("source_file", "loaded"),
+        })
+        print(f"✅ PDF run {processing_id} complete: {len(display_results)}/{total_sheets} scored")
+
+    except Exception as exc:
+        _processing_stats[processing_id].update({
+            "status": "failed",
+            "error": str(exc),
+            "total_time": time.time() - start_time,
+        })
+        print(f"❌ PDF run {processing_id} FAILED: {exc}")
+
+    finally:
+        # Delete the uploaded PDF — we've already rendered the pages we need.
+        try:
+            os.path.exists(pdf_path) and os.remove(pdf_path)
+        except Exception:
+            pass
+
+
+@router.post("/batch/process-pdf-optimized/start")
+async def start_process_pdf_optimized(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    evaluation_id: Optional[str] = Form(None),
+    force_reprocess: bool = False,
+):
+    """
+    Kick off PDF processing in the background. Returns a processing_id that
+    the frontend polls via /api/batch/processing-status/{processing_id} —
+    identical polling surface to the Drive-optimized flow, with added
+    PDF-specific fields (pdf_meta, pdf_index, pdf_work_dir).
+    """
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a .pdf")
+
+    start_time = time.time()
+    processing_id = f"pdf_{int(start_time * 1000)}"
+    _initialize_processing_stats(processing_id, start_time)
+
+    # Persist the upload to a temp location — background task will delete it after split
+    tmp_upload_dir = tempfile.mkdtemp(prefix="pdf_upload_")
+    saved_pdf_path = os.path.join(tmp_upload_dir, file.filename)
+    try:
+        with open(saved_pdf_path, "wb") as fh:
+            while True:
+                chunk = await file.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+    except Exception as exc:
+        shutil.rmtree(tmp_upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {exc}")
+
+    background_tasks.add_task(
+        _run_process_pdf_optimized,
+        processing_id,
+        saved_pdf_path,
+        file.filename,
+        evaluation_id,
+        force_reprocess,
+    )
+    return {
+        "processing_id": processing_id,
+        "status": "started",
+        "status_url": f"/api/batch/processing-status/{processing_id}",
+        "mapping_url": f"/api/pdf-runs/{processing_id}/mapping",
+    }
+
+
+@router.post("/batch/process-pdf-optimized")
+async def process_pdf_optimized(
+    file: UploadFile = File(...),
+    evaluation_id: Optional[str] = Form(None),
+    force_reprocess: bool = False,
+):
+    """
+    Synchronous PDF pipeline — blocks until every page is scored.
+    Prefer the `/start` variant for UIs that want live progress.
+    """
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a .pdf")
+
+    start_time = time.time()
+    processing_id = f"pdf_{int(start_time * 1000)}"
+    _initialize_processing_stats(processing_id, start_time)
+
+    tmp_upload_dir = tempfile.mkdtemp(prefix="pdf_upload_")
+    saved_pdf_path = os.path.join(tmp_upload_dir, file.filename)
+    try:
+        with open(saved_pdf_path, "wb") as fh:
+            while True:
+                chunk = await file.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+    except Exception as exc:
+        shutil.rmtree(tmp_upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {exc}")
+
+    await _run_process_pdf_optimized(
+        processing_id,
+        saved_pdf_path,
+        file.filename,
+        evaluation_id,
+        force_reprocess,
+    )
+    stats = _processing_stats.get(processing_id, {})
+    if stats.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=stats.get("error", "PDF processing failed"))
+    return PipelineSummary(
+        total_students_processed=len(stats.get("results", [])),
+        answer_key_source=stats.get("answer_key_source", "loaded"),
+        results=stats.get("results", []),
+        errors=stats.get("errors", []),
+        processing_stats=stats,
+    ).model_dump()
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  PDF LOOKUP ENDPOINTS — page ↔ student without brute search
+# ─────────────────────────────────────────────────────────────────────
+
+@router.get("/pdf-runs/{processing_id}/mapping")
+async def get_pdf_mapping(processing_id: str):
+    """Return the full page↔student index for a PDF run (in-memory + DB merge)."""
+    stats = _processing_stats.get(processing_id)
+    if not stats and processing_id not in _pdf_work_dirs:
+        raise HTTPException(status_code=404, detail=f"PDF run {processing_id!r} not found")
+
+    index = (stats or {}).get("pdf_index") or {}
+    pdf_meta = (stats or {}).get("pdf_meta") or {
+        "pdf_name": index.get("pdf_name", ""),
+        "pdf_hash": index.get("pdf_hash", ""),
+        "total_pages": index.get("total_pages", 0),
+    }
+
+    # Merge in any rows already persisted (covers server-restart resume cases).
+    try:
+        db_rows = await optimized_db.list_pdf_page_map(processing_id)
+    except Exception:
+        db_rows = []
+
+    return {
+        "processing_id": processing_id,
+        "status": (stats or {}).get("status", "unknown"),
+        "pdf_meta": pdf_meta,
+        "index": index,
+        "db_rows": db_rows,
+        "unresolved_count": len(index.get("unresolved_pages", [])),
+        "duplicate_entries": index.get("duplicate_entries", {}),
+    }
+
+
+@router.get("/pdf-runs/{processing_id}/page/{page_number}")
+async def get_pdf_page_info(processing_id: str, page_number: int):
+    """Look up `{entry_number, name, ...}` for a given 1-based page number.
+
+    Prefers the master-sheet-matched values when a ``/reconcile`` has been
+    applied; otherwise falls back to raw OCR values.
+    """
+    stats = _processing_stats.get(processing_id) or {}
+    idx = stats.get("pdf_index") or {}
+    matched_entry = idx.get("matched_page_to_entry", {}).get(page_number) \
+        or idx.get("matched_page_to_entry", {}).get(str(page_number))
+    matched_name  = idx.get("matched_page_to_name",  {}).get(page_number) \
+        or idx.get("matched_page_to_name",  {}).get(str(page_number))
+    ocr_entry = idx.get("page_to_entry", {}).get(page_number) or idx.get("page_to_entry", {}).get(str(page_number))
+    ocr_name  = idx.get("page_to_name",  {}).get(page_number) or idx.get("page_to_name",  {}).get(str(page_number))
+
+    row = None
+    try:
+        row = await optimized_db.get_pdf_page(processing_id, int(page_number))
+    except Exception:
+        pass
+
+    if not row and ocr_entry is None and ocr_name is None and matched_entry is None:
+        raise HTTPException(status_code=404, detail=f"Page {page_number} not found in run {processing_id!r}")
+
+    return {
+        "processing_id": processing_id,
+        "page_number": int(page_number),
+        "entry_number": matched_entry or (row or {}).get("entry_number") or ocr_entry or "",
+        "name":         matched_name  or (row or {}).get("name")         or ocr_name  or "",
+        "ocr_entry_number": ocr_entry or "",
+        "ocr_name":         ocr_name  or "",
+        "status":       (row or {}).get("status")       or ("processed" if ocr_entry else "unresolved"),
+        "total_score":  (row or {}).get("total_score"),
+        "max_score":    (row or {}).get("max_score"),
+        "file_name":    (row or {}).get("file_name"),
+        "file_id":      (row or {}).get("file_id"),
+    }
+
+
+@router.get("/pdf-runs/{processing_id}/entry/{entry_number}")
+async def get_pdf_entry_info(processing_id: str, entry_number: str):
+    """Reverse lookup: given a roll number, return which page(s) it appeared on.
+
+    Matches against both raw-OCR entry numbers and the master-sheet-reconciled
+    entry numbers, so you can find a student by either the OCR value or the
+    canonical roll from the master sheet.
+    """
+    stats = _processing_stats.get(processing_id) or {}
+    idx = stats.get("pdf_index") or {}
+    pages: set = set()
+
+    live_page = idx.get("entry_to_page", {}).get(entry_number)
+    if live_page is not None:
+        pages.add(int(live_page))
+    matched_live = idx.get("matched_entry_to_page", {}).get(entry_number)
+    if matched_live is not None:
+        pages.add(int(matched_live))
+
+    rows = []
+    try:
+        rows = await optimized_db.find_pdf_page_by_entry(processing_id, entry_number)
+    except Exception:
+        pass
+    for r in rows:
+        if r.get("page_number") is not None:
+            pages.add(int(r["page_number"]))
+
+    if not pages and not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Entry {entry_number!r} not found in run {processing_id!r}",
+        )
+    pages_sorted = sorted(pages)
+    return {
+        "processing_id": processing_id,
+        "entry_number": entry_number,
+        "pages": pages_sorted,
+        "duplicate": len(pages_sorted) > 1,
+        "rows": rows,
+    }
+
+
+async def _collect_pdf_mapping_rows(processing_id: str) -> List[Dict[str, Any]]:
+    """Return the per-page mapping as a list of plain dicts.
+
+    Source priority:
+      1. `pdf_page_map` table (populated during the pipeline via `_record_pdf_mapping`).
+      2. In-memory `_processing_stats[pid]["pdf_index"]` (fresh during the run,
+         used when the DB write hasn't flushed yet or for runs the DB lost).
+    """
+    stats = _processing_stats.get(processing_id) or {}
+    idx = stats.get("pdf_index") or {}
+    pdf_meta = stats.get("pdf_meta") or {}
+
+    db_rows: List[Dict[str, Any]] = []
+    try:
+        db_rows = await optimized_db.list_pdf_page_map(processing_id) or []
+    except Exception as exc:
+        print(f"⚠️ CSV builder: list_pdf_page_map failed for {processing_id!r}: {exc}")
+
+    by_page: Dict[int, Dict[str, Any]] = {}
+    for r in db_rows:
+        try:
+            pn = int(r.get("page_number"))
+        except Exception:
+            continue
+        by_page[pn] = r
+
+    total_pages = int(
+        pdf_meta.get("total_pages")
+        or idx.get("total_pages")
+        or stats.get("total_files")
+        or (max(by_page) if by_page else 0)
+    )
+    unresolved = set(idx.get("unresolved_pages", []) or [])
+
+    rows: List[Dict[str, Any]] = []
+    for page_number in range(1, total_pages + 1):
+        db = by_page.get(page_number) or {}
+        # Prefer the in-memory OCR values (written every pass); DB row is the
+        # persistent fallback.
+        ocr_entry = (
+            idx.get("page_to_entry", {}).get(page_number)
+            or idx.get("page_to_entry", {}).get(str(page_number))
+            or db.get("entry_number")
+            or ""
+        )
+        ocr_name = (
+            idx.get("page_to_name", {}).get(page_number)
+            or idx.get("page_to_name", {}).get(str(page_number))
+            or db.get("name")
+            or ""
+        )
+        file_id = db.get("file_id") or f"pdf:{(pdf_meta.get('pdf_hash') or '')[:16]}:p{page_number - 1}"
+        file_name = db.get("file_name") or f"{pdf_meta.get('pdf_stem', 'page')}__page_{page_number:03d}.jpg"
+        status = db.get("status") or ("unresolved" if page_number in unresolved else ("processed" if ocr_entry else "unknown"))
+        rows.append({
+            "page_number": page_number,
+            "file_id": file_id,
+            "file_name": file_name,
+            "ocr_entry_number": str(ocr_entry or ""),
+            "ocr_name": str(ocr_name or ""),
+            "matched_entry_number": "",
+            "matched_name": "",
+            "total_score": db.get("total_score", ""),
+            "max_score": db.get("max_score", ""),
+            "status": status,
+        })
+    return rows
+
+
+def _apply_master_match_to_rows(rows: List[Dict[str, Any]], sheet_url: str, subsheet_name: Optional[str]) -> Dict[str, Any]:
+    """Run the existing sheets matcher over the row list; fills matched_* columns.
+
+    Returns a summary dict with counts so the endpoint can expose stats.
+    """
+    from services.sheets_service import SheetsService
+    sheets_service = SheetsService()
+
+    # Build minimal result-dicts that sync_results_with_master knows how to match.
+    proxy_results = [{
+        "entry_number": r["ocr_entry_number"],
+        "name": r["ocr_name"],
+        "file_id": r["file_id"],
+        "_page_number": r["page_number"],
+    } for r in rows]
+
+    try:
+        synced = sheets_service.sync_results_with_master(sheet_url, proxy_results, subsheet_name or None)
+    except Exception as exc:
+        return {"matched": 0, "error": f"master-sheet match failed: {exc}"}
+
+    by_page = {s.get("_page_number"): s for s in (synced or []) if isinstance(s, dict)}
+    matched_count = 0
+    for r in rows:
+        s = by_page.get(r["page_number"])
+        if not s:
+            continue
+        # sync_results_with_master writes the master-sheet entry/name back onto entry_number/name
+        # and preserves the original OCR values in ocr_entry_number / ocr_name.
+        if s.get("entry_number") and s.get("entry_number") != r["ocr_entry_number"]:
+            r["matched_entry_number"] = str(s.get("entry_number") or "")
+        else:
+            r["matched_entry_number"] = str(s.get("entry_number") or r["ocr_entry_number"] or "")
+        if s.get("name") and s.get("name") != r["ocr_name"]:
+            r["matched_name"] = str(s.get("name") or "")
+        else:
+            r["matched_name"] = str(s.get("name") or r["ocr_name"] or "")
+        if (r["matched_entry_number"] and r["matched_entry_number"] != r["ocr_entry_number"]) \
+                or (r["matched_name"] and r["matched_name"] != r["ocr_name"]):
+            matched_count += 1
+    return {"matched": matched_count, "total": len(rows)}
+
+
+@router.get("/pdf-runs/{processing_id}/mapping.csv")
+async def export_pdf_mapping_csv(
+    processing_id: str,
+    sheet_url: Optional[str] = None,
+    subsheet_name: Optional[str] = None,
+):
+    """
+    Download the page ↔ student mapping as CSV.
+
+    Columns: page_number, file_name, ocr_entry_number, ocr_name,
+             matched_entry_number, matched_name, total_score, max_score, status.
+
+    If ``sheet_url`` is provided, the OCR values are reconciled against the
+    master Google Sheet for the course — same matching logic as the
+    "Sync from Sheet" button — and the matched_* columns are populated.
+    """
+    from fastapi.responses import StreamingResponse
+    import csv as _csv
+
+    if processing_id not in _processing_stats and processing_id not in _pdf_work_dirs:
+        raise HTTPException(status_code=404, detail=f"PDF run {processing_id!r} not found")
+
+    rows = await _collect_pdf_mapping_rows(processing_id)
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="Mapping is empty — the PDF run may still be in progress or was cleaned up.",
+        )
+
+    match_summary = None
+    if sheet_url:
+        match_summary = _apply_master_match_to_rows(rows, sheet_url, subsheet_name)
+
+    buf = io.StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow([
+        "page_number", "file_name",
+        "ocr_entry_number", "ocr_name",
+        "matched_entry_number", "matched_name",
+        "total_score", "max_score", "status",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["page_number"], r["file_name"],
+            r["ocr_entry_number"], r["ocr_name"],
+            r["matched_entry_number"], r["matched_name"],
+            r["total_score"], r["max_score"], r["status"],
+        ])
+
+    csv_bytes = buf.getvalue().encode("utf-8")
+    headers = {
+        "Content-Disposition": f'attachment; filename="pdf_page_map_{processing_id}.csv"',
+    }
+    if match_summary:
+        headers["X-Master-Match-Summary"] = json.dumps(match_summary)
+    return StreamingResponse(iter([csv_bytes]), media_type="text/csv", headers=headers)
+
+
+@router.post("/pdf-runs/{processing_id}/reconcile")
+async def reconcile_pdf_mapping(
+    processing_id: str,
+    payload: Dict[str, Any],
+):
+    """
+    Re-run the master-sheet matcher against the current mapping and persist
+    the matched entry_number/name onto the `pdf_page_map` rows (so subsequent
+    /page/{n} and /entry/{x} lookups return the cleaned values).
+
+    Body: { "sheet_url": "…", "subsheet_name": "…" (optional) }
+    """
+    sheet_url = (payload or {}).get("sheet_url")
+    subsheet_name = (payload or {}).get("subsheet_name")
+    if not sheet_url:
+        raise HTTPException(status_code=400, detail="sheet_url is required")
+    if processing_id not in _processing_stats and processing_id not in _pdf_work_dirs:
+        raise HTTPException(status_code=404, detail=f"PDF run {processing_id!r} not found")
+
+    rows = await _collect_pdf_mapping_rows(processing_id)
+    summary = _apply_master_match_to_rows(rows, sheet_url, subsheet_name)
+
+    # Mirror matched values into the in-memory index so the /mapping endpoint reflects them.
+    stats = _processing_stats.get(processing_id) or {}
+    idx = stats.get("pdf_index") or {}
+    idx.setdefault("matched_page_to_entry", {})
+    idx.setdefault("matched_page_to_name", {})
+    idx.setdefault("matched_entry_to_page", {})
+
+    # Persist into pdf_page_map so lookups get the matched values.
+    pdf_meta = stats.get("pdf_meta") or {}
+    pdf_hash = pdf_meta.get("pdf_hash", "")
+    for r in rows:
+        if not r["matched_entry_number"] and not r["matched_name"]:
+            continue
+        idx["matched_page_to_entry"][r["page_number"]] = r["matched_entry_number"]
+        idx["matched_page_to_name"][r["page_number"]]  = r["matched_name"]
+        if r["matched_entry_number"]:
+            idx["matched_entry_to_page"][r["matched_entry_number"]] = r["page_number"]
+        try:
+            await optimized_db.upsert_pdf_page_map(
+                run_id=processing_id,
+                pdf_hash=pdf_hash,
+                page_number=r["page_number"],
+                page_index=r["page_number"] - 1,
+                status=r.get("status") or "processed",
+                file_id=r["file_id"],
+                file_name=r["file_name"],
+                entry_number=(r["matched_entry_number"] or r["ocr_entry_number"] or None),
+                name=(r["matched_name"] or r["ocr_name"] or None),
+                total_score=_coerce_score(r.get("total_score")),
+                max_score=_coerce_score(r.get("max_score")),
+            )
+        except Exception as db_exc:
+            print(f"⚠️ reconcile: db upsert failed for page {r['page_number']}: {db_exc}")
+
+    return {
+        "processing_id": processing_id,
+        "summary": summary,
+        "rows": rows,
+    }
+
+
+@router.get("/pdf-runs/{processing_id}/page/{page_number}/image")
+async def get_pdf_page_image(processing_id: str, page_number: int):
+    """Stream back the rendered JPEG for a given page of the uploaded PDF."""
+    work_dir = _pdf_work_dirs.get(processing_id) or (_processing_stats.get(processing_id) or {}).get("pdf_work_dir")
+    if not work_dir or not os.path.isdir(work_dir):
+        raise HTTPException(status_code=404, detail="Rendered pages unavailable (already cleaned up)")
+
+    pdf_meta = (_processing_stats.get(processing_id) or {}).get("pdf_meta") or {}
+    pdf_stem = pdf_meta.get("pdf_stem")
+    candidate = None
+    if pdf_stem:
+        candidate = os.path.join(work_dir, f"{pdf_stem}__page_{page_number:03d}.jpg")
+    if not candidate or not os.path.exists(candidate):
+        # Fallback: glob for any page file matching this page number.
+        import glob as _glob
+        matches = _glob.glob(os.path.join(work_dir, f"*__page_{page_number:03d}.jpg"))
+        candidate = matches[0] if matches else None
+    if not candidate or not os.path.exists(candidate):
+        raise HTTPException(status_code=404, detail=f"Page {page_number} image not found")
+    return FileResponse(candidate, media_type="image/jpeg")
+
+
+@router.delete("/pdf-runs/{processing_id}")
+async def cleanup_pdf_run(processing_id: str):
+    """Free up the disk space used by a PDF run's rendered pages."""
+    work_dir = _pdf_work_dirs.pop(processing_id, None)
+    if work_dir:
+        shutil.rmtree(work_dir, ignore_errors=True)
+    if processing_id in _processing_stats:
+        _processing_stats[processing_id].pop("pdf_work_dir", None)
+    return {"cleaned": bool(work_dir)}

@@ -12,10 +12,22 @@ from api import code_eval_endpoints
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing extra needed (services self-initialise)
+    # Startup: warm up Supabase pool if cache is configured to use it
+    import os
+    if os.getenv("CACHE_BACKEND", "sqlite").strip().lower() == "supabase":
+        try:
+            from services.supabase_client import get_pool
+            await get_pool()
+        except Exception as e:
+            print(f"⚠️  Supabase pool init failed at startup: {e}")
     yield
     # Shutdown: cleanly close any remaining connection pools
     await endpoints.optimized_ocr.cleanup()
+    try:
+        from services.supabase_client import close_pool
+        await close_pool()
+    except Exception as e:
+        print(f"⚠️  Supabase pool close failed at shutdown: {e}")
 
 
 app = FastAPI(
