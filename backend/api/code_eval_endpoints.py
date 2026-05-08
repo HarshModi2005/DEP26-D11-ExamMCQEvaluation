@@ -11,6 +11,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import asyncio
 import json
+import math
 import os
 import re
 import shutil
@@ -367,12 +368,21 @@ def _process_single_image(
         tc_total = eval_result.get("testcase_total", 0)
         all_passed = tc_passed == tc_total and tc_total > 0
 
-        q_score = marks if all_passed else 0
+        partial_allowed = problem_def.get("partial_marking_allowed", False)
+
+        if all_passed:
+            q_score = marks
+        elif partial_allowed and tc_total > 0:
+            q_score = math.floor(marks * tc_passed / tc_total)
+        else:
+            q_score = 0
         total_score += q_score
-        print(f"  📊 Q{q_num}: {tc_passed}/{tc_total} passed → score={q_score}/{marks}")
+        print(f"  📊 Q{q_num}: {tc_passed}/{tc_total} passed → score={q_score}/{marks}{' (partial)' if partial_allowed and not all_passed and q_score > 0 else ''}")
 
         if all_passed:
             correct_count += 1
+        elif partial_allowed and q_score > 0:
+            correct_count += 1  # Count as partially correct
         else:
             incorrect_count += 1
 
@@ -380,12 +390,13 @@ def _process_single_image(
             "question_number": int(q_num),
             "marked": f"{tc_passed}/{tc_total} passed",
             "correct": slug,
-            "result": "correct" if all_passed else "incorrect",
+            "result": "correct" if all_passed else ("partial" if partial_allowed and q_score > 0 else "incorrect"),
             "score": q_score,
             "test_cases_passed": tc_passed,
             "test_cases_total": tc_total,
+            "partial_marking_allowed": partial_allowed,
         })
-        problem_notes.append(f"Q{q_num}: {tc_passed}/{tc_total} passed")
+        problem_notes.append(f"Q{q_num}: {tc_passed}/{tc_total} passed{' (partial: ' + str(q_score) + '/' + str(int(marks)) + ')' if partial_allowed and not all_passed and q_score > 0 else ''}")
 
     print(f"  🏁 Final: {total_score}/{max_score}, correct={correct_count}, incorrect={incorrect_count}")
     return {

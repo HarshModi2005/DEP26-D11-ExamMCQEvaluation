@@ -220,11 +220,18 @@ class AnswerKeyService:
                             except (ValueError, IndexError):
                                 negative_marks = 0.0
                         
+                        # Get partial marking allowed
+                        partial_allowed = False
+                        if col_indices['partial'] is not None and col_indices['partial'] < len(row):
+                            partial_val = row[col_indices['partial']].strip().upper()
+                            partial_allowed = (partial_val == 'A')
+
                         answers[q_num] = {
                             "question_type": q_type,
                             "correct_answer": correct_answer,
                             "positive_marks": positive_marks,
-                            "negative_marks": negative_marks
+                            "negative_marks": negative_marks,
+                            "partial_marking_allowed": partial_allowed
                         }
                     else:
                         # Try legacy parsing
@@ -299,11 +306,18 @@ class AnswerKeyService:
                     except (ValueError, TypeError):
                         negative_marks = 0.0
 
+                # Get partial marking allowed
+                partial_allowed = False
+                if col_indices['partial'] is not None and col_indices['partial'] < len(row) and row[col_indices['partial']]:
+                    partial_val = str(row[col_indices['partial']]).strip().upper()
+                    partial_allowed = (partial_val == 'A')
+
                 answers[q_num] = {
                     "question_type": q_type,
                     "correct_answer": correct_answer,
                     "positive_marks": positive_marks,
-                    "negative_marks": negative_marks
+                    "negative_marks": negative_marks,
+                    "partial_marking_allowed": partial_allowed
                 }
             except (ValueError, IndexError):
                 continue
@@ -445,7 +459,8 @@ class AnswerKeyService:
                 'type': None,
                 'positive_marks': None,
                 'negative_marks': None,
-                'correct_answer': None
+                'correct_answer': None,
+                'partial': None
             }
         
         col_indices = {
@@ -453,7 +468,8 @@ class AnswerKeyService:
             'type': None,
             'positive_marks': None,
             'negative_marks': None,
-            'correct_answer': None
+            'correct_answer': None,
+            'partial': None
         }
         
         # Column name mappings
@@ -462,6 +478,7 @@ class AnswerKeyService:
         positive_aliases = ['positive marks', 'positive_marks', 'marks', 'positive', 'pos_marks', 'score']
         negative_aliases = ['negative marks', 'negative_marks', 'negative', 'neg_marks', 'penalty']
         answer_aliases = ['correct answer', 'correct_answer', 'answer', 'correct', 'solution', 'key', 'name', 'slug', 'problem']
+        partial_aliases = ['partial', 'partial marking', 'partial_marking', 'partial marking allowed', 'partial_marking_allowed']
         
         for i, header in enumerate(headers):
             h = header.lower().strip()
@@ -476,6 +493,8 @@ class AnswerKeyService:
                 col_indices['negative_marks'] = i
             elif h in answer_aliases and col_indices['correct_answer'] is None:
                 col_indices['correct_answer'] = i
+            elif h in partial_aliases and col_indices['partial'] is None:
+                col_indices['partial'] = i
         
         # If question_number not found, assume first column
         if col_indices['question_number'] is None:
@@ -607,12 +626,14 @@ class AnswerKeyService:
                     correct_answer = value.get("correct_answer", "").strip().upper()
                     positive_marks = float(value.get("positive_marks", 1.0))
                     negative_marks = float(value.get("negative_marks", 0.0))
+                    partial_marking_allowed = bool(value.get("partial_marking_allowed", False))
                     
                     answers[q_num] = AnswerKeyEntry(
                         question_type=question_type,
                         correct_answer=correct_answer,
                         positive_marks=positive_marks,
-                        negative_marks=negative_marks
+                        negative_marks=negative_marks,
+                        partial_marking_allowed=partial_marking_allowed
                     )
                 else:
                     # Legacy format: {"correct_option": "A", "marks": 1.0}

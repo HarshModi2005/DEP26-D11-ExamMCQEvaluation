@@ -34,6 +34,7 @@ class AnswerKeyEntry(BaseModel):
     correct_answer: str  # "A", "AC", "BCD", "2.5", "7.0", etc.
     positive_marks: float = 1.0
     negative_marks: float = 0.0
+    partial_marking_allowed: bool = False
     
     # Legacy compatibility
     @property

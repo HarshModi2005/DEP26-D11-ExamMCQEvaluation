@@ -290,6 +290,7 @@ const CodeAnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                 problems[String(qNum)] = {
                     slug: String(entry.correct_answer || '').trim(),
                     marks: entry.positive_marks || 1,
+                    partial_marking_allowed: entry.partial_marking_allowed || false,
                 };
             }
             const codeKey = { problems, total_questions: Object.keys(problems).length };
@@ -358,6 +359,7 @@ const CodeAnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                                     <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Name</th>
                                     <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Positive Marks</th>
                                     <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Negative Marks</th>
+                                    <th className="border border-blue-200 px-2 py-1 text-left text-blue-800">Partial Marking</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -366,16 +368,18 @@ const CodeAnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600 font-mono">two-sum</td>
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600">3</td>
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600">1</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600 font-semibold">A</td>
                                 </tr>
                                 <tr>
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600">2</td>
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600 font-mono">add-two-numbers</td>
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600">5</td>
                                     <td className="border border-blue-200 px-2 py-1 text-blue-600">1</td>
+                                    <td className="border border-blue-200 px-2 py-1 text-blue-600">NA</td>
                                 </tr>
                             </tbody>
                         </table>
-                        <p className="text-xs text-blue-500 mt-1">The "Name" column should contain the LeetCode problem slug from the URL.</p>
+                        <p className="text-xs text-blue-500 mt-1">The "Name" column should contain the LeetCode problem slug from the URL. "Partial Marking": <strong>A</strong> = allowed (proportional marks), <strong>NA</strong> = not allowed.</p>
                     </div>
                     <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload}
                         className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 transition-colors" />
@@ -403,7 +407,13 @@ const CodeAnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                     </p>
                     <div className="text-xs text-green-600 space-y-0.5">
                         {Object.entries((keyPreview || evaluation?.answer_key_data)?.problems || {}).map(([q, def]) => (
-                            <div key={q}>Q{q}: <code className="bg-green-100 px-1 rounded">{def.slug}</code> ({def.marks} marks)</div>
+                            <div key={q} className="flex items-center gap-1.5">
+                                <span>Q{q}: <code className="bg-green-100 px-1 rounded">{def.slug}</code> ({def.marks} marks)</span>
+                                {def.partial_marking_allowed
+                                    ? <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium">Partial</span>
+                                    : <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">No Partial</span>
+                                }
+                            </div>
                         ))}
                     </div>
                 </div>
