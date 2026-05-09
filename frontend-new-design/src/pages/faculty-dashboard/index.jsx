@@ -467,14 +467,6 @@ const FacultyDashboard = () => {
                         <PageHeader
                             title="My Pending Tasks"
                             description="Tasks assigned to you across all your courses."
-                            actions={
-                                <button
-                                    onClick={() => navigate('/kanban-board')}
-                                    className="px-4 py-2 text-sm bg-secondary-100 text-secondary-700 hover:bg-secondary-200 rounded-lg font-medium flex items-center gap-2 transition-colors"
-                                >
-                                    View Full Board <Icon name="ArrowRight" size={16} />
-                                </button>
-                            }
                         />
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -492,18 +484,17 @@ const FacultyDashboard = () => {
                                         </div>
                                         <div className="space-y-3 flex-1">
                                             {columnTasks.map(task => (
-                                                <div key={task.id} 
+                                                <div key={task.id}
                                                     className="bg-surface border border-border p-3.5 rounded-lg shadow-sm hover:shadow transition-shadow cursor-pointer hover:border-primary-300"
                                                     onClick={() => navigate(`/course/${task.course_id}`)}>
                                                     <div className="flex justify-between items-start mb-2">
                                                         <span className="text-xs font-semibold text-text-secondary bg-secondary-100 px-2 py-0.5 rounded">
                                                             {task.courses?.code || 'Course'}
                                                         </span>
-                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                                            task.status === 'active' ? 'text-primary-700 bg-primary-50' :
-                                                            task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
-                                                            'text-success-700 bg-success-50'
-                                                        }`}>
+                                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${task.status === 'active' ? 'text-primary-700 bg-primary-50' :
+                                                                task.status === 'grading' ? 'text-warning-700 bg-warning-50' :
+                                                                    'text-success-700 bg-success-50'
+                                                            }`}>
                                                             {task.status}
                                                         </span>
                                                     </div>
