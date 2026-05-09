@@ -355,6 +355,37 @@ const RemoveStudentModal = ({ student, onConfirm, onClose }) => {
     );
 };
 
+const AlreadyMemberModal = ({ onClose }) => {
+    return (
+        <div className="fixed inset-0 z-[200] bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-border">
+                <div className="flex items-center justify-between p-6 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-error-50 rounded-lg flex items-center justify-center">
+                            <Icon name="AlertTriangle" size={20} className="text-error" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-text-primary">Already a Member</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-secondary-100 rounded-lg transition-colors">
+                        <Icon name="X" size={20} className="text-secondary-500" />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <p className="text-text-primary mb-6">
+                        This user is already a part of the course. You cannot send an invitation to them again.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose}
+                            className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm">
+                            Understood
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────────────
 const CourseDetail = () => {
     const { courseId } = useParams();
@@ -395,6 +426,9 @@ const CourseDetail = () => {
     // Remove TA confirmation
     const [showRemoveTAModal, setShowRemoveTAModal] = useState(false);
     const [taToRemove, setTaToRemove] = useState(null);
+
+    // Already Member confirmation
+    const [showAlreadyMemberModal, setShowAlreadyMemberModal] = useState(false);
 
     // Withdraw invitation confirmation
     const [showWithdrawInviteModal, setShowWithdrawInviteModal] = useState(false);
@@ -517,7 +551,13 @@ const CourseDetail = () => {
             setInviteEmail('');
             setTimeout(() => { setShowInviteModal(false); setInviteSuccess(''); }, 1500);
         } catch (err) {
-            setInviteError(err.message);
+            if (err.code === 'ALREADY_MEMBER' || err.message === 'ALREADY_MEMBER') {
+                setShowInviteModal(false);
+                setShowAlreadyMemberModal(true);
+                setInviteEmail('');
+            } else {
+                setInviteError(err.message);
+            }
         } finally {
             setInviteLoading(false);
         }
@@ -644,6 +684,12 @@ const CourseDetail = () => {
                     student={studentToRemove}
                     onConfirm={confirmRemoveStudent}
                     onClose={() => { setShowRemoveStudentModal(false); setStudentToRemove(null); }}
+                />
+            )}
+
+            {showAlreadyMemberModal && (
+                <AlreadyMemberModal
+                    onClose={() => setShowAlreadyMemberModal(false)}
                 />
             )}
 

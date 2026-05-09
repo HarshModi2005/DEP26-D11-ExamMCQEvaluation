@@ -38,9 +38,13 @@ export const invitationService = {
             if (existing.status === 'pending') {
                 throw new Error('An invitation has already been sent to this email.');
             }
+            if (existing.status === 'accepted') {
+                const err = new Error('ALREADY_MEMBER');
+                err.code = 'ALREADY_MEMBER';
+                throw err;
+            }
             
-            // If already accepted or declined, we reset to pending to allow re-invitation.
-            // This fixes the issue where a removed TA couldn't be re-invited.
+            // If declined, we reset to pending to allow re-invitation.
             const { data: updated, error: updateErr } = await supabase
                 .from('ta_invitations')
                 .update({ 
