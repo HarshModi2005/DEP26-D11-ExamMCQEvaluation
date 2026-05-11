@@ -470,9 +470,11 @@ async def process_drive_code_eval(request: DriveCodeEvalRequest):
 
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
 
-    # List files in the Drive folder
+    # List files in the Drive folder. DriveService does not expose a generic
+    # `list_files(url)` — resolve the folder id first, then list all files.
     try:
-        files_list = drive_service.list_files(request.folder_url)
+        folder_id = DriveService.extract_folder_id(request.folder_url)
+        files_list = drive_service.list_all_files_in_folder(folder_id)
     except Exception as e:
         raise HTTPException(400, f"Could not list Drive folder: {e}")
 

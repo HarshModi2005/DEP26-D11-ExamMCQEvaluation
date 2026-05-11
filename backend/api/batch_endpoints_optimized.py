@@ -771,6 +771,7 @@ async def _process_sheets_optimized(
     evaluation_id: str,
     force_reprocess: bool = False,
     rename_drive_inline: bool = False,
+    group_multiple_pages: bool = False,
 ):
     """
     Two-phase streaming pipeline:
@@ -790,6 +791,14 @@ async def _process_sheets_optimized(
     """
     from google.oauth2 import service_account
     import google.auth.transport.requests
+
+    if group_multiple_pages:
+        import re
+        def natural_sort_key(s):
+            return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s.get('name', ''))]
+        student_sheets.sort(key=natural_sort_key)
+
+    ocr_results = [None] * len(student_sheets)
 
     results: List = []
     errors: List = []
@@ -1003,16 +1012,21 @@ async def _process_sheets_optimized(
             #   * row exists and has a non-null evaluation_result
             #   * stored answer_key_hash matches the current one (stale key → miss)
             #   * cached entry_number is a real entry (not empty / UNREAD_)
-            eval_cached = (sheet_row or {}).get("evaluation_result") if sheet_row else None
-            cached_entry = (eval_cached or {}).get("entry_number", "") if eval_cached else ""
-            cached_ak_hash = (sheet_row or {}).get("answer_key_hash", "") if sheet_row else ""
-            eval_cache_valid = (
-                eval_cached
-                and _is_valid_cached_entry(cached_entry)
-                and "total_score" in eval_cached
-                and cached_ak_hash == answer_key_hash
-            )
-            if eval_cache_valid:
+            eval_cached = None
+            eval_cache_valid = False
+            
+            if not group_multiple_pages:
+                eval_cached = (sheet_row or {}).get("evaluation_result") if sheet_row else None
+                cached_entry = (eval_cached or {}).get("entry_number", "") if eval_cached else ""
+                cached_ak_hash = (sheet_row or {}).get("answer_key_hash", "") if sheet_row else ""
+                eval_cache_valid = (
+                    eval_cached
+                    and _is_valid_cached_entry(cached_entry)
+                    and "total_score" in eval_cached
+                    and cached_ak_hash == answer_key_hash
+                )
+                
+            if eval_cache_valid and eval_cached:
                 score = eval_cached.get('total_score', '?')
                 n_answers = len(eval_cached.get('answers', {}) or eval_cached.get('details', []))
                 print(f"  ⚡ [PIPELINE] {fname}: EVAL CACHE HIT | entry={cached_entry!r} score={score} ak_hash_ok=True")
@@ -1126,12 +1140,14 @@ async def _process_sheets_optimized(
                     # ── Phase-1: queue empty results for retry instead of giving up ──
                     entry_empty = not str(ocr_entry).strip()
                     answers_empty = not ocr_ans
-                    if not is_retry and (entry_empty or answers_empty):
-                        reason = "empty_entry_number" if entry_empty else "empty_answers"
+                    
+                    needs_retry = (entry_empty or answers_empty) if not group_multiple_pages else answers_empty
+                    
+                    if not is_retry and needs_retry:
+                        reason = "empty_entry_number" if entry_empty and not group_multiple_pages else "empty_answers"
                         print(f"  🔁 {phase_tag} {fname}: queuing for PHASE-2 retry (reason={reason})")
                         async with lock:
                             retry_queue.append((sheet_file, idx))
-                        # Don't cache this weak result — phase-2 will overwrite
                         return
                     # Track problem files for download endpoint (only if still bad after retry)
                     if entry_empty:
@@ -1181,10 +1197,21 @@ async def _process_sheets_optimized(
                         pass
                 return
 
-            # ── STEP 5: Evaluate ──
+            # ── STEP 5: Evaluate (or Store OCR if grouping) ──
             ocr["index"] = idx
             ocr["file_name"] = fname
             ocr["file_id"] = file_id
+            
+            if group_multiple_pages:
+                ocr_results[idx] = ocr
+                async with lock:
+                    success_count += 1
+                    processed = success_count + len(errors)
+                    _processing_stats[processing_id]["processed_files"] = processed
+                    _log_progress(processing_id, processed, total, success_count,
+                                  len(errors), cache_hit_count, start_t, from_cache=False)
+                return
+
             if not str(ocr.get("entry_number", "")).strip():
                 fallback_id = os.path.splitext(fname)[0]
                 ocr["entry_number"] = f"UNREAD_{fallback_id}"
@@ -1309,6 +1336,63 @@ async def _process_sheets_optimized(
             print(f"  ✅ PHASE-2 COMPLETE: retry queue had {len(retry_queue)} file(s)")
         else:
             print(f"  ✅ No phase-2 retries needed — all files had valid OCR on first pass")
+
+        # ── PHASE 3: Grouping and Evaluation (Multiple Pages Mode) ─────
+        if group_multiple_pages:
+            print(f"\n{'═'*60}")
+            print(f"  📑 PHASE-3 GROUPING & EVALUATION (Multiple Pages Mode)")
+            print(f"{'═'*60}")
+            
+            grouped_ocrs = []
+            current_group = None
+            
+            for idx, ocr in enumerate(ocr_results):
+                if ocr is None:
+                    continue
+                
+                entry = str(ocr.get("entry_number", "")).strip()
+                if entry and not entry.startswith("UNREAD_"):
+                    if current_group is not None:
+                        grouped_ocrs.append(current_group)
+                    current_group = dict(ocr)
+                else:
+                    if current_group is None:
+                        ocr["entry_number"] = f"UNREAD_{os.path.splitext(ocr['file_name'])[0]}"
+                        current_group = dict(ocr)
+                    else:
+                        print(f"    🔗 Merging {ocr['file_name']} into {current_group['file_name']}")
+                        current_group["answers"].update(ocr.get("answers", {}))
+                        current_group["file_name"] += " + " + ocr["file_name"]
+                        if ocr.get("_endpoint"):
+                            current_group["_endpoint"] = current_group.get("_endpoint", "") + " | " + ocr["_endpoint"]
+            
+            if current_group is not None:
+                grouped_ocrs.append(current_group)
+                
+            for ocr in grouped_ocrs:
+                fname = ocr["file_name"]
+                file_id = ocr["file_id"]
+                idx = ocr["index"]
+                
+                print(f"  ⚖️  [GROUPED] {fname}: evaluating | entry={ocr['entry_number']!r} | {len(ocr.get('answers',{}))} answers")
+                student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
+
+                if isinstance(student_result, dict) and "error" in student_result:
+                    print(f"  ❌ [GROUPED] {fname}: EVAL ERROR — {student_result['error']}")
+                    _problem_files.setdefault(processing_id, []).append(
+                        {"name": fname, "id": file_id, "reason": "eval_error",
+                         "entry_number": ocr.get("entry_number", ""), "answers_count": len(ocr.get("answers", {})),
+                         "detail": student_result["error"]}
+                    )
+                    errors.append({"file": fname, "error": student_result["error"], "file_id": file_id})
+                else:
+                    student_result, fname = await _rename_one(fname, file_id, student_result)
+                    scored_entry = getattr(student_result, 'entry_number', None) or (student_result.get('entry_number') if isinstance(student_result, dict) else '')
+                    scored_score = getattr(student_result, 'total_score', None) or (student_result.get('total_score') if isinstance(student_result, dict) else '?')
+                    print(f"  ✅ [GROUPED] {fname}: DONE | entry={scored_entry!r} score={scored_score}")
+                    
+                    await db_queue.put(student_result)
+                    results.append(student_result)
 
     finally:
         await db_queue.put(None)
@@ -1435,6 +1519,7 @@ async def _run_process_folder_optimized(processing_id: str, request: ProcessFold
             evaluation_id,
             force_reprocess,
             rename_drive_inline=bool(request.rename_drive_inline),
+            group_multiple_pages=bool(getattr(request, 'group_multiple_pages', False)),
         )
 
         total_time = time.time() - start_time

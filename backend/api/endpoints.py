@@ -20,11 +20,11 @@ from services.optimized_ocr_service import OptimizedOCRService
 from services.evaluation_service import EvaluationService
 from services.answer_key_service import AnswerKeyService
 from services.sheets_service import SheetsService
-from services.batch_evaluation_service import BatchEvaluationService, batch_match_and_score
-from services.result_cache_service import ResultCacheService, get_cached_or_process_ocr, get_cached_or_evaluate
+from services.result_cache_service import ResultCacheService
 from services.optimized_database_service import OptimizedDatabaseService, batch_write_student_results
 from database import Database
 import asyncio
+import hashlib
 import uuid
 import os
 import sys
@@ -34,11 +34,30 @@ import shutil
 import zipfile
 from typing import Optional, List, Dict
 
-router = APIRouter()
+
+def _short_file_hash(path: str, n: int = 12) -> str:
+    """Stable short content hash of a file, used to disambiguate resume keys.
+    Two uploads named 'submissions.zip' with different contents must not
+    collide on the same pipeline_runs.source_ref.
+    """
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 16), b""):
+                h.update(chunk)
+        return h.hexdigest()[:n]
+    except OSError:
+        return "nohash"
+
+
+def _zip_source_ref(zip_path: str, zip_filename: str) -> str:
+    """Build a content-aware source_ref for pipeline_runs (ZIP)."""
+    return f"{zip_filename}#{_short_file_hash(zip_path)}"
+
+router = APIRouter(prefix="/api")
 db = Database()
 optimized_db = OptimizedDatabaseService()    # High-performance database service
 cache_service = ResultCacheService()         # Result caching service
-batch_eval_service = BatchEvaluationService(optimized_db)  # Batch evaluation service
 drive_service = DriveService()
 ocr_service = OCRService()                   # kept for the legacy /process-file endpoint
 optimized_ocr = OptimizedOCRService()        # used for the main /process-drive-folder pipeline
@@ -135,9 +154,13 @@ async def _process_zip_archive(
                 detail="No student answer sheets found in ZIP (only answer key found)."
             )
 
+        # Resume by (filename + content hash) so two different ZIPs with the
+        # same filename do NOT attach to each other's incomplete run.
+        source_ref = _zip_source_ref(zip_path, zip_filename)
+
         existing_run = None
         if allow_resume:
-            existing_run = await optimized_db.find_incomplete_run("zip", zip_filename)
+            existing_run = await optimized_db.find_incomplete_run("zip", source_ref)
 
         if existing_run and not force_reprocess:
             run_id = existing_run["run_id"]
@@ -147,7 +170,7 @@ async def _process_zip_archive(
             await optimized_db.create_pipeline_run(
                 run_id=run_id,
                 source_type="zip",
-                source_ref=zip_filename,
+                source_ref=source_ref,
                 total_files=len(student_sheets),
             )
 
@@ -198,8 +221,8 @@ async def _process_zip_archive(
                     )
                     continue
 
-                student_result_dict = EvaluationService.match_and_score(_current_answer_key, extracted)
-                student_result = StudentResult(**student_result_dict)
+                # match_and_score already returns a StudentResult — DO NOT unpack.
+                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
                 _current_results.append(student_result)
                 processed_count += 1
 
@@ -258,10 +281,11 @@ async def _process_zip_archive(
         ).model_dump()
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        try:
-            os.path.exists(zip_path) and os.remove(zip_path)
-        except Exception:
-            pass
+        if os.path.exists(zip_path):
+            try:
+                os.remove(zip_path)
+            except OSError:
+                pass
 
 
 async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_id: str, force_reprocess: bool, extract_answer_key: bool):
@@ -556,13 +580,29 @@ def set_answer_key_manual(answers: dict):
     from models import AnswerKeyEntry
 
     raw_answers = answers.get("answers", {})
-    marks = float(answers.get("marks_per_question", 1.0))
-    negative = float(answers.get("negative_marking", 0.0))
+    if not isinstance(raw_answers, dict) or not raw_answers:
+        raise HTTPException(status_code=400, detail="'answers' must be a non-empty object of question_number -> answer")
 
-    parsed = {}
+    try:
+        marks = float(answers.get("marks_per_question", 1.0))
+        negative = float(answers.get("negative_marking", 0.0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="'marks_per_question' and 'negative_marking' must be numbers")
+
+    parsed: Dict[int, AnswerKeyEntry] = {}
     for k, v in raw_answers.items():
-        q_num = int(k)
-        parsed[q_num] = AnswerKeyEntry(correct_option=str(v).strip().upper(), marks=marks)
+        try:
+            q_num = int(k)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Answer key keys must be integers, got: {k!r}")
+        if v is None or str(v).strip() == "":
+            raise HTTPException(status_code=400, detail=f"Question {q_num}: empty answer")
+        parsed[q_num] = AnswerKeyEntry(
+            question_type="SMCQ",
+            correct_answer=str(v).strip().upper(),
+            positive_marks=marks,
+            negative_marks=abs(negative),
+        )
 
     _current_answer_key = AnswerKey(
         total_questions=len(parsed),
@@ -579,229 +619,32 @@ def set_answer_key_manual(answers: dict):
 
 @router.post("/process-zip")
 async def process_zip_upload(
-    file: UploadFile = File(...), 
+    file: UploadFile = File(...),
     force_reprocess: bool = False,
-    extract_answer_key: bool = True
+    extract_answer_key: bool = True,
 ):
     """
     Upload and process a ZIP file containing answer key and student answer sheets.
-    
-    Args:
-        file: ZIP file containing answer key and student sheets
-        force_reprocess: If True, bypass cache and reprocess all files
-        extract_answer_key: If True, auto-extract answer key from ZIP
-    
-    Returns:
-        Pipeline summary with results and processing stats
+    Thin wrapper around ``_process_zip_archive`` so sync and background flows
+    share exactly one implementation.
     """
-    global _current_answer_key, _current_results
-
     if not file.filename.lower().endswith('.zip'):
         raise HTTPException(status_code=400, detail="File must be a ZIP archive")
 
     temp_dir = tempfile.mkdtemp(prefix="zip_upload_")
-    extract_dir = os.path.join(temp_dir, "extracted")
-    
+    zip_path = os.path.join(temp_dir, file.filename)
     try:
-        # Save uploaded ZIP
-        zip_path = os.path.join(temp_dir, file.filename)
         with open(zip_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-
-        # Extract ZIP
-        os.makedirs(extract_dir, exist_ok=True)
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-
-        # Get all extracted files
-        all_files = []
-        for root, dirs, files in os.walk(extract_dir):
-            for filename in files:
-                if not filename.startswith('.') and not filename.startswith('__'):  # Skip hidden/system files
-                    file_path = os.path.join(root, filename)
-                    # Create file info dict similar to Drive API format
-                    all_files.append({
-                        "id": file_path,  # Use local path as ID
-                        "name": filename,
-                        "mimeType": _guess_mime_type(filename),
-                        "local_path": file_path
-                    })
-
-        if not all_files:
-            raise HTTPException(status_code=404, detail="No valid files found in ZIP archive")
-
-        # Separate answer key from student sheets
-        answer_key_files, student_sheets = drive_service.separate_files(all_files)
-
-        # Create a persisted run record (so we can resume/query after restarts)
-        run_id = str(uuid.uuid4())
-        await optimized_db.create_pipeline_run(
-            run_id=run_id,
-            source_type="zip",
-            source_ref=file.filename,
-            total_files=len(student_sheets),
+            f.write(await file.read())
+        # _process_zip_archive owns cleanup of zip_path, but not of temp_dir,
+        # so we clean the parent dir ourselves in finally.
+        return await _process_zip_archive(
+            zip_path,
+            file.filename,
+            force_reprocess=force_reprocess,
+            extract_answer_key=extract_answer_key,
         )
-
-        # Step 1: Extract answer key if requested.
-        # If the ZIP doesn't contain an answer key, we can still proceed as long as one is already loaded.
-        if extract_answer_key and (_current_answer_key is None or force_reprocess):
-            if not answer_key_files:
-                if _current_answer_key is not None and not force_reprocess:
-                    print("ℹ️  No answer key found in ZIP — using currently loaded answer key.")
-                else:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            "No answer key file found in ZIP. Either:\n"
-                            "- include a file with 'answer_key' in the name, OR\n"
-                            "- load an answer key first (Drive/manual/upload), OR\n"
-                            "- call /api/process-zip with extract_answer_key=false to skip ZIP key extraction."
-                        )
-                    )
-
-            ak_file = answer_key_files[0]
-            if len(answer_key_files) > 1:
-                print(f"⚠️  Multiple answer key files found, using: {ak_file['name']}")
-
-            try:
-                local_path = ak_file["local_path"]
-                mime_type = ak_file.get("mimeType", "")
-                _current_answer_key = answer_key_service.extract_answer_key(local_path, mime_type)
-                print(f"✅ Answer key extracted from ZIP: {_current_answer_key.total_questions} questions")
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to extract answer key: {str(e)}")
-
-        if not _current_answer_key:
-            raise HTTPException(
-                status_code=400,
-                detail="No answer key loaded. Set extract_answer_key=true or upload answer key separately."
-            )
-
-        if not student_sheets:
-            raise HTTPException(
-                status_code=404,
-                detail="No student answer sheets found in ZIP (only answer key found)."
-            )
-
-        # Check for incomplete run (resume) — same zip filename = same run
-        existing_run = await optimized_db.find_incomplete_run("zip", file.filename)
-        if existing_run and not force_reprocess:
-            run_id = existing_run["run_id"]
-            print(f"🔄 Resuming run {run_id} — {existing_run.get('processed_files', 0)} already done")
-        else:
-            run_id = str(uuid.uuid4())
-            await optimized_db.create_pipeline_run(
-                run_id=run_id,
-                source_type="zip",
-                source_ref=file.filename,
-                total_files=len(student_sheets),
-            )
-
-        # Load already-processed files from DB (for resume)
-        already_done = {}
-        if existing_run and not force_reprocess:
-            items = await optimized_db.list_pipeline_run_items(run_id)
-            for it in items:
-                if it.get("status") in ("processed", "cached") and it.get("result_json"):
-                    try:
-                        rj = it["result_json"]
-                        if isinstance(rj, str):
-                            rj = json.loads(rj)
-                        already_done[it["file_name"]] = rj
-                    except Exception:
-                        pass
-
-        _current_results = []
-        errors = []
-        resumed_count = len(already_done)
-        processed_count = 0
-
-        print(f"\n🚀 Processing {len(student_sheets)} student sheets from ZIP...")
-        if resumed_count:
-            print(f"   Resuming: {resumed_count} already saved in DB")
-
-        for idx, sheet_file in enumerate(student_sheets):
-            file_name = sheet_file["name"]
-            local_path = sheet_file["local_path"]
-
-            if file_name in already_done:
-                from models import StudentResult
-                _current_results.append(StudentResult(**already_done[file_name]))
-                continue
-
-            print(f"\n📄 Processing [{idx+1}/{len(student_sheets)}]: {file_name}")
-
-            try:
-                extracted = await asyncio.to_thread(
-                    ocr_service.extract_objective_sheet, local_path
-                )
-                if "error" in extracted:
-                    errors.append({"file": file_name, "error": extracted["error"]})
-                    await optimized_db.upsert_pipeline_run_item(
-                        run_id=run_id, file_name=file_name, status="error", error=extracted.get("error")
-                    )
-                    continue
-
-                from models import StudentResult
-                student_result_dict = EvaluationService.match_and_score(_current_answer_key, extracted)
-                student_result = StudentResult(**student_result_dict)
-                _current_results.append(student_result)
-                processed_count += 1
-
-                # Save to DB immediately (benchmarking: persist as we go)
-                await batch_write_student_results(
-                    [student_result], optimized_db, exam_id=f"zip_{run_id[:8]}"
-                )
-                await optimized_db.upsert_pipeline_run_item(
-                    run_id=run_id,
-                    file_name=file_name,
-                    status="processed",
-                    entry_number=student_result.entry_number,
-                    ocr_json=extracted,
-                    result_json=student_result.model_dump(),
-                )
-                await optimized_db.update_pipeline_run_progress(
-                    run_id=run_id,
-                    processed_files=len(_current_results),
-                    cache_hits=resumed_count,
-                    errors=errors,
-                )
-
-                print(f"  ✅ {student_result.entry_number} — {student_result.name}: "
-                      f"{student_result.total_score}/{student_result.max_score} (saved)")
-
-            except Exception as e:
-                errors.append({"file": file_name, "error": str(e)})
-                await optimized_db.upsert_pipeline_run_item(
-                    run_id=run_id, file_name=file_name, status="error", error=str(e)
-                )
-                print(f"  ❌ Error: {e}")
-
-        await optimized_db.update_pipeline_run_progress(
-            run_id=run_id,
-            processed_files=len(_current_results),
-            cache_hits=resumed_count,
-            errors=errors,
-            status="completed",
-        )
-
-        return PipelineSummary(
-            total_students_processed=len(_current_results),
-            answer_key_source=_current_answer_key.metadata.get("source_file", "zip_upload"),
-            results=_current_results,
-            errors=errors,
-            processing_stats={
-                "run_id": run_id,
-                "resumed": resumed_count,
-                "newly_processed": processed_count,
-                "force_reprocess": force_reprocess,
-                "zip_filename": file.filename,
-            }
-        ).model_dump()
-
     finally:
-        # Cleanup temp directory
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -825,10 +668,13 @@ async def start_process_zip_upload(
             content = await file.read()
             f.write(content)
 
+        # Use a content-aware source_ref so the background task's resume lookup
+        # matches the placeholder run we just created.
+        source_ref = _zip_source_ref(zip_path, file.filename)
         await optimized_db.create_pipeline_run(
             run_id=run_id,
             source_type="zip",
-            source_ref=file.filename,
+            source_ref=source_ref,
             total_files=0,
         )
 
@@ -844,7 +690,7 @@ async def start_process_zip_upload(
         return {
             "run_id": run_id,
             "status": "started",
-            "status_url": f"/pipeline-runs/{run_id}/status",
+            "status_url": f"/api/pipeline-runs/{run_id}/status",
         }
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -927,8 +773,11 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
             detail="No student answer sheets found in the folder (only the answer key was found)."
         )
 
-    # Check for incomplete run (resume) — same folder URL = same run
-    existing_run = await optimized_db.find_incomplete_run("drive", request.folder_url)
+    # Resume key: use the resolved folder_id, not the raw URL. The same folder
+    # can be linked with/without tracking params (?usp=sharing etc.) and we
+    # still want those requests to match the same in-flight run.
+    drive_source_ref = f"drive:{folder_id}"
+    existing_run = await optimized_db.find_incomplete_run("drive", drive_source_ref)
     if existing_run and not force_reprocess:
         run_id = existing_run["run_id"]
         print(f"🔄 Resuming run {run_id} — {existing_run.get('processed_files', 0)} already done")
@@ -937,7 +786,7 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
         await optimized_db.create_pipeline_run(
             run_id=run_id,
             source_type="drive",
-            source_ref=request.folder_url,
+            source_ref=drive_source_ref,
             total_files=len(student_sheets),
         )
 
@@ -994,7 +843,6 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
             sid = str(sheet_file.get("id") or "")
             rj_resume = already_done.get(file_name) or (already_done_by_id.get(sid) if sid else None)
             if rj_resume is not None:
-                from models import StudentResult
                 _current_results.append(StudentResult(**rj_resume))
                 continue
 
@@ -1010,7 +858,6 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
                     )
                     continue
 
-                from models import StudentResult
                 student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
                 student_result = student_result.model_copy(
                     update={"file_id": sid or None, "file_name": file_name}
@@ -1466,17 +1313,25 @@ async def run_full_pipeline(request: FullPipelineRequest):
         ProcessFolderRequest(folder_url=request.drive_folder_url)
     )
 
-    # Step 3: Export to sheets
+    # Step 3: Export to sheets — the pipeline step above may have succeeded
+    # even if Sheets export fails, so we surface a structured status instead
+    # of hiding the exception inside a 200 response body.
+    sheet_result: Dict = {}
+    sheet_export_ok = True
+    sheet_export_error: Optional[str] = None
     try:
         sheet_result = export_to_sheets(
             ExportToSheetsRequest(sheet_url=request.sheets_url)
         )
     except HTTPException as e:
-        sheet_result = {"error": e.detail}
+        sheet_export_ok = False
+        sheet_export_error = str(e.detail)
 
     return {
         "pipeline": folder_result,
         "sheet_export": sheet_result,
+        "sheet_export_ok": sheet_export_ok,
+        "sheet_export_error": sheet_export_error,
     }
 
 
@@ -1728,14 +1583,34 @@ async def get_pipeline_run_items(run_id: str):
 
 
 # ═══════════════════════════════════════
-#  LEGACY ENDPOINTS (kept for compat)
+#  LEGACY ENDPOINTS (kept for compat, disabled by default)
 # ═══════════════════════════════════════
+#
+# The /process-file endpoint uses a different OCR path (ocr_service.extract_data),
+# writes into the legacy `submissions`/`results` tables, and falls back to a
+# hardcoded 5-question answer key when none is loaded. Keeping it on by default
+# makes debugging “why doesn’t this match the main API?” painful, so it is now
+# gated behind ENABLE_LEGACY_PROCESS_FILE=1.
+
+_LEGACY_PROCESS_FILE_ENABLED = os.getenv("ENABLE_LEGACY_PROCESS_FILE", "0").strip() == "1"
+
 
 @router.post("/process-file")
 def process_file(file_id: str, file_name: str, background_tasks: BackgroundTasks):
     """
     Legacy: Downloads and processes a single file (OCR + Evaluation).
+    Disabled by default — set ENABLE_LEGACY_PROCESS_FILE=1 to re-enable.
     """
+    if not _LEGACY_PROCESS_FILE_ENABLED:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Legacy /process-file endpoint is disabled. Use /process-drive-folder, "
+                "/process-zip, or the /batch/* endpoints instead. Set "
+                "ENABLE_LEGACY_PROCESS_FILE=1 to re-enable during migration."
+            ),
+        )
+
     submission_id = str(uuid.uuid4())
     submission = Submission(
         id=submission_id,
@@ -1833,8 +1708,9 @@ def preview_rename_drive_files(request: RenameDriveFilesRequest):
             detail="No results available. Process a Drive folder first, or pass results in the request body."
         )
 
-    # Get master student list for match categorization
-    master_students = _get_master_students_if_available()
+    # Get master student list for match categorization. Prefers the sheet URL
+    # passed in the request; otherwise uses the most recently read sheet.
+    master_students = _get_master_students_if_available(request.sheet_url)
 
     # Collect error file names from the last pipeline run
     error_names = [e.get('file', '') for e in (_last_pipeline_errors or [])]
@@ -1876,7 +1752,7 @@ def rename_drive_files(request: RenameDriveFilesRequest):
             detail="No results available. Process a Drive folder first, or pass results in the request body."
         )
 
-    master_students = _get_master_students_if_available()
+    master_students = _get_master_students_if_available(request.sheet_url)
     error_names = [e.get('file', '') for e in (_last_pipeline_errors or [])]
 
     summary = rename_service.rename_folder_files(
@@ -1927,7 +1803,7 @@ async def run_full_pipeline_with_rename(request: FullPipelineWithRenameRequest):
     if request.rename_files and request.dry_run_rename:
         results_dicts = _get_results_for_rename(None)
         if results_dicts:
-            master_students = _get_master_students_if_available()
+            master_students = _get_master_students_if_available(request.sheets_url)
             error_names = [e.get('file', '') for e in (_last_pipeline_errors or [])]
 
             rename_result = rename_service.rename_folder_files(
@@ -1983,9 +1859,23 @@ def _get_results_for_rename(explicit_results: Optional[List[Dict]]) -> List[Dict
     return []
 
 
-def _get_master_students_if_available() -> List[Dict]:
-    """Try to read master student list from the last known sheet URL."""
-    # The master list is typically available from the sheets_service
-    # after an export. We return an empty list if unavailable —
-    # the rename logic still works, just without confident/fuzzy split.
-    return []
+def _get_master_students_if_available(sheet_url: Optional[str] = None) -> List[Dict]:
+    """Return the best-available master student list for the rename flow.
+
+    Order of preference:
+      1. If ``sheet_url`` is provided and already cached on SheetsService, use it.
+      2. If ``sheet_url`` is provided but not cached, fetch it once and cache.
+      3. Otherwise return the most recently read sheet's students (if any).
+      4. Fall back to an empty list — rename still works, just without the
+         confident-vs-fuzzy split.
+    """
+    try:
+        if sheet_url:
+            cached = sheets_service.get_cached_master_students(sheet_url)
+            if cached:
+                return cached
+            return sheets_service.refresh_master_students_cache(sheet_url)
+        return sheets_service.get_cached_master_students(None)
+    except Exception as e:
+        print(f"⚠️  _get_master_students_if_available failed: {e}")
+        return []

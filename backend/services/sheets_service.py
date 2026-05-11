@@ -230,6 +230,11 @@ class SheetsService:
     def __init__(self, credentials_path: str = "credentials.json"):
         self.creds = None
         self.service = None
+        # In-memory master student list cache keyed by sheet_url. Populated by
+        # read_student_list and consumed by the rename flow (which does not
+        # otherwise know which spreadsheet is authoritative).
+        self._master_students_cache: Dict[str, List[Dict]] = {}
+        self._last_master_url: Optional[str] = None
 
         # Try to load credentials
         if not os.path.exists(credentials_path):
@@ -248,6 +253,30 @@ class SheetsService:
                 print(f"Sheets Service: Error loading credentials: {e}")
         else:
             print(f"Sheets Service: No credentials found at {credentials_path}")
+
+    def get_cached_master_students(self, sheet_url: Optional[str] = None) -> List[Dict]:
+        """Return the cached master student list for `sheet_url`, or the most
+        recently cached list if `sheet_url` is not provided. Returns [] on miss.
+        """
+        if sheet_url and sheet_url in self._master_students_cache:
+            return self._master_students_cache[sheet_url]
+        if not sheet_url and self._last_master_url:
+            return self._master_students_cache.get(self._last_master_url, [])
+        return []
+
+    def refresh_master_students_cache(self, sheet_url: str) -> List[Dict]:
+        """Read the sheet and populate the master-students cache. Best-effort:
+        on failure, returns [] and leaves the cache untouched.
+        """
+        try:
+            data = self.read_student_list(sheet_url)
+            students = data.get("students", []) or []
+            self._master_students_cache[sheet_url] = students
+            self._last_master_url = sheet_url
+            return students
+        except Exception as e:
+            print(f"⚠️  refresh_master_students_cache failed for {sheet_url}: {e}")
+            return []
 
     # ──────────────────────────────────────
     #  URL Parsing
@@ -722,6 +751,14 @@ class SheetsService:
                     "name": name,
                     "existing_comment": existing_comment
                 })
+
+        # Side-effect: cache for rename fallback. Safe because `students` is
+        # always a list of dicts here — no stale state leaks between requests.
+        try:
+            self._master_students_cache[sheet_url] = students
+            self._last_master_url = sheet_url
+        except Exception:
+            pass
 
         return {
             "spreadsheet_id": spreadsheet_id,
