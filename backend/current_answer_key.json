@@ -1,18 +1,132 @@
 {
-  "total_questions": 1,
+  "total_questions": 20,
   "answers": {
     "1": {
       "question_type": "SMCQ",
-      "correct_answer": "TWO-SUM",
-      "positive_marks": 3.0,
-      "negative_marks": 1.0
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "2": {
+      "question_type": "SMCQ",
+      "correct_answer": "C",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "3": {
+      "question_type": "SMCQ",
+      "correct_answer": "A",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "4": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "5": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "6": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "7": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "8": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "9": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "10": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "11": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "12": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "13": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "14": {
+      "question_type": "SMCQ",
+      "correct_answer": "C",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "15": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "16": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "17": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "18": {
+      "question_type": "SMCQ",
+      "correct_answer": "D",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "19": {
+      "question_type": "SMCQ",
+      "correct_answer": "B",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
+    },
+    "20": {
+      "question_type": "SMCQ",
+      "correct_answer": "A",
+      "positive_marks": 1.0,
+      "negative_marks": 0.0
     }
   },
   "negative_marking": 0.0,
   "metadata": {
-    "source_file": "Untitled spreadsheet.xlsx",
-    "raw_question_count": 1,
-    "parsed_question_count": 1,
+    "source_file": "HS101 History of Technology - Enrolled Students - HS101 History of Technology - Enrolled Students.csv",
+    "raw_question_count": 20,
+    "parsed_question_count": 20,
     "format": "comprehensive"
   }
 }

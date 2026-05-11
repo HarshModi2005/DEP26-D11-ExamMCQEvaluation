@@ -523,6 +523,7 @@ const EvaluatePage = () => {
     const [pdfLookupResult, setPdfLookupResult] = useState(null);
     const [processingMode, setProcessingMode] = useState('drive'); // 'drive' | 'zip' | 'pdf'
     const [forceReprocess, setForceReprocess] = useState(false);
+    const [groupMultiplePages, setGroupMultiplePages] = useState(false);
     const [cacheStatus, setCacheStatus] = useState(null);
     const logEndRef = React.useRef(null);
     const lastProgressLogRef = React.useRef('');
@@ -642,7 +643,7 @@ const EvaluatePage = () => {
 
                     setPipelineProgress(0);
                     setPipelineLog(prev => [...prev, 'Scanning Drive folder for sheets...']);
-                    pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess);
+                    pipelineResult = await backendService.processDriveFolder(url, evaluationId, forceReprocess, groupMultiplePages);
                 } else if (processingMode === 'pdf') {
                     setPipelineProgress(0);
                     setPipelineLog(prev => [...prev, `Splitting & processing PDF: ${pdfFile.name}...`]);
@@ -797,7 +798,7 @@ const EvaluatePage = () => {
                 started = await backendService.startPdfProcessing(pdfFile, evaluationId, forceReprocess);
                 if (started?.processing_id) setPdfRunId(started.processing_id);
             } else {
-                started = await backendService.startDriveFolderProcessing(url, evaluationId, forceReprocess);
+                started = await backendService.startDriveFolderProcessing(url, evaluationId, forceReprocess, groupMultiplePages);
             }
             appendPipelineLog(`Live tracking started for ${started.run_id || started.processing_id}`);
 
@@ -1303,15 +1304,26 @@ const EvaluatePage = () => {
                                     {/* Processing Options */}
                                     <div className="space-y-3">
                                         <div className="flex items-center justify-between">
-                                            <label className="flex items-center gap-2 text-sm">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={forceReprocess}
-                                                    onChange={e => setForceReprocess(e.target.checked)}
-                                                    className="rounded border-border text-primary focus:ring-primary-500"
-                                                />
-                                                Force reprocess (bypass cache)
-                                            </label>
+                                            <div className="flex flex-col gap-2">
+                                                <label className="flex items-center gap-2 text-sm">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={forceReprocess}
+                                                        onChange={e => setForceReprocess(e.target.checked)}
+                                                        className="rounded border-border text-primary focus:ring-primary-500"
+                                                    />
+                                                    Force reprocess (bypass cache)
+                                                </label>
+                                                <label className="flex items-center gap-2 text-sm">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={groupMultiplePages}
+                                                        onChange={e => setGroupMultiplePages(e.target.checked)}
+                                                        className="rounded border-border text-primary focus:ring-primary-500"
+                                                    />
+                                                    Support Multi-page / Grouping (Images in order)
+                                                </label>
+                                            </div>
                                             {cacheStatus && (
                                                 <span className="text-xs text-text-secondary" title="Cached answer sheets for this quiz only.">
                                                     Cache (this quiz):{' '}

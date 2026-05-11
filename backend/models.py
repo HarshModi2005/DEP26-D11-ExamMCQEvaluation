@@ -95,6 +95,7 @@ class ProcessFolderRequest(BaseModel):
     evaluation_id: Optional[str] = None
     # Rename each student sheet on Drive immediately after that file is scored (correct file ↔ result).
     rename_drive_inline: bool = False
+    group_multiple_pages: bool = False
 
 
 class ExportToSheetsRequest(BaseModel):
