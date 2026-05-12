@@ -239,13 +239,41 @@ class OCRService:
             }
 
             headers = self._get_auth_header()
-            response = requests.post(
-                self.vertex_url,
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            response.raise_for_status()
+
+            # Retry up to 3 times with exponential backoff for transient timeouts/5xx errors
+            import time as _time
+            last_error = None
+            for _attempt in range(1, 4):
+                try:
+                    response = requests.post(
+                        self.vertex_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=90  # increased from 30s — HEIC files can be large
+                    )
+                    response.raise_for_status()
+                    break  # success
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as _e:
+                    last_error = _e
+                    if _attempt < 3:
+                        wait = 2 ** _attempt  # 2s, 4s
+                        print(f"  ⚠️ OCR attempt {_attempt} timed out, retrying in {wait}s…")
+                        _time.sleep(wait)
+                        headers = self._get_auth_header()  # refresh token before retry
+                    else:
+                        raise
+                except requests.exceptions.HTTPError as _e:
+                    if _e.response is not None and _e.response.status_code in (429, 500, 502, 503):
+                        last_error = _e
+                        if _attempt < 3:
+                            wait = 2 ** _attempt
+                            print(f"  ⚠️ OCR attempt {_attempt} got HTTP {_e.response.status_code}, retrying in {wait}s…")
+                            _time.sleep(wait)
+                            headers = self._get_auth_header()
+                        else:
+                            raise
+                    else:
+                        raise
 
             result = response.json()
             extracted_text = self._parse_streaming_response(result)
@@ -339,6 +367,7 @@ class OCRService:
             return {"error": str(e)}
 
 
+
     def _get_objective_prompt(self):
         return """You are an expert OCR agent extracting data from a handwritten OBJECTIVE examination answer sheet.
 Your task is to read the image carefully and return a single valid JSON object. Do NOT output anything else — no markdown fences, no explanations, no preamble.
@@ -365,6 +394,12 @@ Scan the ENTIRE image — headers, footers, margins, and every corner — for:
     - Common label variants: "Name", "Name-", "Name:", "Student Name", "Candidate Name"
     - May appear on the SAME LINE as the Entry Number
     - Return the name as written. If not found, return null.
+
+⚠️  ANTI-HALLUCINATION RULE (STRICTLY ENFORCED):
+    - Only set "entry_number" if you can see an EXPLICIT printed label (Entry No., Roll No., etc.) AND the student has written a value next to it.
+    - Only set "name" if you can see an EXPLICIT printed label (Name:, Student Name:, etc.) AND the student has written their name next to it.
+    - If this sheet is a CONTINUATION PAGE (answer-only, no header fields printed), return null for BOTH entry_number and name.
+    - NEVER guess, fabricate, or infer identity fields from question numbers, answer letters, seat stickers, or any other incidental text.
 
 ═══════════════════════════════════════════════════════════════════
  STEP 2 — FIND AND EXTRACT ALL ANSWERS
@@ -394,7 +429,8 @@ HOW TO READ THE ANSWERS:
      → Return as a string, preserving decimals and sign: "600", "1226", "2.5", "-3.5"
 
 SPECIAL ANSWER VALUES:
-  • UNATTEMPTED / BLANK — question slot is COMPLETELY EMPTY → OMIT from JSON.
+  • UNATTEMPTED / BLANK — If the question slot is COMPLETELY 100% EMPTY with absolutely no ink/markings, OMIT from JSON.
+  • AMBIGUOUS / MESSY — If there are scribbles, cross-outs, or faint markings, DO NOT OMIT the question. You MUST include it in the JSON and make your absolute best guess of the final intended answer. If it is completely unreadable due to being scratched out, return "AMBIGUOUS".
   • Student wrote or crossed "X" → return "X".
   • Multiple choices on a SINGLE-CHOICE question → return "MULTIPLE" (unless they crossed one out).
   • Erased/Corrected → use the FINAL clearly written or circled answer.
@@ -422,7 +458,7 @@ ABSOLUTE RULES:
   ✓ Output ONLY the raw JSON object — no markdown (```json), no explanation text whatsoever.
   ✓ "answers" keys MUST be plain integer strings: "1", "2" — NOT "Q1", "question_1", "Q 1".
   ✓ All answer values MUST be uppercase.
-  ✓ Omit blank/unattempted questions entirely from "answers".
+  ✓ Omit a question ONLY if it is 100% blank with no markings. If there is ANY ink, you must include it.
   ✓ Scan EVERY part of the image — both identity fields and answers can appear anywhere.
   ✓ If the entire sheet is blank, return "answers": {}.
 """

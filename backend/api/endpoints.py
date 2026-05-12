@@ -86,6 +86,7 @@ async def _process_zip_archive(
     extract_answer_key: bool = True,
     preferred_run_id: Optional[str] = None,
     allow_resume: bool = True,
+    group_multiple_pages: bool = False,
 ):
     """Shared ZIP processing implementation for synchronous and background flows."""
     global _current_answer_key, _current_results
@@ -192,15 +193,47 @@ async def _process_zip_archive(
         resumed_count = len(already_done)
         processed_count = 0
 
+        if group_multiple_pages:
+            import re
+            def natural_sort_key(s):
+                return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s.get('name', ''))]
+            student_sheets.sort(key=natural_sort_key)
+
         print(f"\n🚀 Processing {len(student_sheets)} student sheets from ZIP...")
-        if resumed_count:
+        if resumed_count and not group_multiple_pages:
             print(f"   Resuming: {resumed_count} already saved in DB")
+
+        current_group_extracted = None
+        current_group_files = []
+
+        async def evaluate_and_save_group(extracted, group_files):
+            nonlocal processed_count
+            student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+            _current_results.append(student_result)
+            processed_count += 1
+            combined_name = " + ".join(group_files)
+            await batch_write_student_results([student_result], optimized_db, exam_id=f"zip_{run_id[:8]}")
+            await optimized_db.upsert_pipeline_run_item(
+                run_id=run_id,
+                file_name=combined_name,
+                status="processed",
+                entry_number=student_result.entry_number,
+                ocr_json=extracted,
+                result_json=student_result.model_dump(),
+            )
+            await optimized_db.update_pipeline_run_progress(
+                run_id=run_id,
+                processed_files=len(_current_results),
+                cache_hits=resumed_count,
+                errors=errors,
+            )
+            print(f"  ✅ [GROUPED] {student_result.entry_number} — {student_result.name}: {student_result.total_score}/{student_result.max_score} (saved)")
 
         for idx, sheet_file in enumerate(student_sheets):
             file_name = sheet_file["name"]
             local_path = sheet_file["local_path"]
 
-            if file_name in already_done:
+            if file_name in already_done and not group_multiple_pages:
                 _current_results.append(StudentResult(**already_done[file_name]))
                 continue
 
@@ -221,28 +254,51 @@ async def _process_zip_archive(
                     )
                     continue
 
-                # match_and_score already returns a StudentResult — DO NOT unpack.
-                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
-                _current_results.append(student_result)
-                processed_count += 1
+                if group_multiple_pages:
+                    entry = str(extracted.get("entry_number", "")).strip()
+                    if entry and not entry.startswith("UNREAD_"):
+                        if current_group_extracted is not None:
+                            await evaluate_and_save_group(current_group_extracted, current_group_files)
+                        current_group_extracted = dict(extracted)
+                        current_group_files = [file_name]
+                    else:
+                        if current_group_extracted is None:
+                            extracted["entry_number"] = f"UNREAD_{os.path.splitext(file_name)[0]}"
+                            current_group_extracted = dict(extracted)
+                            current_group_files = [file_name]
+                        else:
+                            print(f"    🔗 Merging {file_name} into current group")
+                            merged_answers = dict(current_group_extracted.get("answers", {}))
+                            merged_answers.update(extracted.get("answers", {}))
+                            current_group_extracted["answers"] = merged_answers
+                            current_group_files.append(file_name)
+                            if not current_group_extracted.get("name") and extracted.get("name"):
+                                current_group_extracted["name"] = extracted["name"]
+                            if not current_group_extracted.get("entry_number") and extracted.get("entry_number"):
+                                current_group_extracted["entry_number"] = extracted["entry_number"]
+                else:
+                    # Normal processing (single page)
+                    student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                    _current_results.append(student_result)
+                    processed_count += 1
 
-                await batch_write_student_results([student_result], optimized_db, exam_id=f"zip_{run_id[:8]}")
-                await optimized_db.upsert_pipeline_run_item(
-                    run_id=run_id,
-                    file_name=file_name,
-                    status="processed",
-                    entry_number=student_result.entry_number,
-                    ocr_json=extracted,
-                    result_json=student_result.model_dump(),
-                )
-                await optimized_db.update_pipeline_run_progress(
-                    run_id=run_id,
-                    processed_files=len(_current_results),
-                    cache_hits=resumed_count,
-                    errors=errors,
-                )
+                    await batch_write_student_results([student_result], optimized_db, exam_id=f"zip_{run_id[:8]}")
+                    await optimized_db.upsert_pipeline_run_item(
+                        run_id=run_id,
+                        file_name=file_name,
+                        status="processed",
+                        entry_number=student_result.entry_number,
+                        ocr_json=extracted,
+                        result_json=student_result.model_dump(),
+                    )
+                    await optimized_db.update_pipeline_run_progress(
+                        run_id=run_id,
+                        processed_files=len(_current_results),
+                        cache_hits=resumed_count,
+                        errors=errors,
+                    )
 
-                print(f"  ✅ {student_result.entry_number} — {student_result.name}: {student_result.total_score}/{student_result.max_score} (saved)")
+                    print(f"  ✅ {student_result.entry_number} — {student_result.name}: {student_result.total_score}/{student_result.max_score} (saved)")
 
             except Exception as e:
                 errors.append({"file": file_name, "error": str(e)})
@@ -256,6 +312,10 @@ async def _process_zip_archive(
                     errors=errors,
                 )
                 print(f"  ❌ Error: {e}")
+
+        # Evaluate the final group if grouping was enabled
+        if group_multiple_pages and current_group_extracted is not None:
+            await evaluate_and_save_group(current_group_extracted, current_group_files)
 
         await optimized_db.update_pipeline_run_progress(
             run_id=run_id,
@@ -281,14 +341,14 @@ async def _process_zip_archive(
         ).model_dump()
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        if os.path.exists(zip_path):
-            try:
+        try:
+            if os.path.exists(zip_path):
                 os.remove(zip_path)
-            except OSError:
-                pass
+        except Exception:
+            pass  # silently ignore — file will be cleaned up by the OS eventually
 
 
-async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_id: str, force_reprocess: bool, extract_answer_key: bool):
+async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_id: str, force_reprocess: bool, extract_answer_key: bool, group_multiple_pages: bool = False):
     try:
         await _process_zip_archive(
             zip_path,
@@ -297,6 +357,7 @@ async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_
             extract_answer_key=extract_answer_key,
             preferred_run_id=run_id,
             allow_resume=False,
+            group_multiple_pages=group_multiple_pages,
         )
     except Exception as e:
         await optimized_db.update_pipeline_run_progress(
@@ -306,6 +367,18 @@ async def _process_zip_archive_background(zip_path: str, zip_filename: str, run_
             errors=[{"file": zip_filename, "error": str(e)}],
             status="failed",
         )
+    finally:
+        # Clean up the background uploaded zip file and its wrapper directory
+        import shutil, os
+        bg_dir = os.path.dirname(zip_path)
+        if os.path.basename(bg_dir).startswith("zip_upload_bg_"):
+            shutil.rmtree(bg_dir, ignore_errors=True)
+        else:
+            try:
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except OSError:
+                pass
 
 
 # ═══════════════════════════════════════
@@ -622,6 +695,7 @@ async def process_zip_upload(
     file: UploadFile = File(...),
     force_reprocess: bool = False,
     extract_answer_key: bool = True,
+    group_multiple_pages: bool = False
 ):
     """
     Upload and process a ZIP file containing answer key and student answer sheets.
@@ -635,7 +709,8 @@ async def process_zip_upload(
     zip_path = os.path.join(temp_dir, file.filename)
     try:
         with open(zip_path, "wb") as f:
-            f.write(await file.read())
+            import shutil
+            shutil.copyfileobj(file.file, f)
         # _process_zip_archive owns cleanup of zip_path, but not of temp_dir,
         # so we clean the parent dir ourselves in finally.
         return await _process_zip_archive(
@@ -643,6 +718,7 @@ async def process_zip_upload(
             file.filename,
             force_reprocess=force_reprocess,
             extract_answer_key=extract_answer_key,
+            group_multiple_pages=group_multiple_pages,
         )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -653,7 +729,8 @@ async def start_process_zip_upload(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     force_reprocess: bool = False,
-    extract_answer_key: bool = True
+    extract_answer_key: bool = True,
+    group_multiple_pages: bool = False
 ):
     """Start ZIP processing in the background and return a run id for polling."""
     if not file.filename.lower().endswith('.zip'):
@@ -665,12 +742,30 @@ async def start_process_zip_upload(
 
     try:
         with open(zip_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+            import shutil
+            shutil.copyfileobj(file.file, f)
 
         # Use a content-aware source_ref so the background task's resume lookup
         # matches the placeholder run we just created.
         source_ref = _zip_source_ref(zip_path, file.filename)
+
+        # Invalidate any previously failed/incomplete run for this exact ZIP content
+        # so the UI doesn't show stale error state from a prior killed run.
+        try:
+            loop = asyncio.get_event_loop()
+            def _mark_stale_superseded():
+                import sqlite3 as _sql
+                with optimized_db.pool.get_connection() as conn:
+                    conn.execute(
+                        "UPDATE pipeline_runs SET status='superseded', updated_at=julianday('now') "
+                        "WHERE source_type='zip' AND source_ref=? AND status IN ('running','failed')",
+                        (source_ref,)
+                    )
+                    conn.commit()
+            await loop.run_in_executor(optimized_db.executor, _mark_stale_superseded)
+        except Exception:
+            pass  # don't block the new run if this fails
+
         await optimized_db.create_pipeline_run(
             run_id=run_id,
             source_type="zip",
@@ -685,6 +780,7 @@ async def start_process_zip_upload(
             run_id,
             force_reprocess,
             extract_answer_key,
+            group_multiple_pages,
         )
 
         return {

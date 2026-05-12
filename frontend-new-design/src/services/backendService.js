@@ -71,9 +71,8 @@ export const backendService = {
         return api('/answer-key');
     },
 
-    async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false) {
+    async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess = false, groupMultiplePages = false) {
         const evalId = requireEvaluationId(evaluationId, 'processDriveFolder');
-        // Updated to use the ultra-optimized parallel pipelined endpoint
         const url = forceReprocess ? '/batch/process-folder-optimized?force_reprocess=true' : '/batch/process-folder-optimized';
         return api(url, {
             method: 'POST',
@@ -81,11 +80,12 @@ export const backendService = {
                 folder_url: driveFolderUrl,
                 evaluation_id: evalId,
                 rename_drive_inline: true,
+                group_multiple_pages: groupMultiplePages,
             }),
         });
     },
 
-    async startDriveFolderProcessing(driveFolderUrl, evaluationId, forceReprocess = false) {
+    async startDriveFolderProcessing(driveFolderUrl, evaluationId, forceReprocess = false, groupMultiplePages = false) {
         const evalId = requireEvaluationId(evaluationId, 'startDriveFolderProcessing');
         const url = forceReprocess ? '/batch/process-folder-optimized/start?force_reprocess=true' : '/batch/process-folder-optimized/start';
         return api(url, {
@@ -94,6 +94,7 @@ export const backendService = {
                 folder_url: driveFolderUrl,
                 evaluation_id: evalId,
                 rename_drive_inline: true,
+                group_multiple_pages: groupMultiplePages,
             }),
         });
     },
@@ -101,7 +102,7 @@ export const backendService = {
     /**
      * Upload and process a ZIP file containing answer sheets
      */
-    async processZipFile(file, evaluationId, forceReprocess = false, extractAnswerKey = true) {
+    async processZipFile(file, evaluationId, forceReprocess = false, extractAnswerKey = true, groupMultiplePages = false) {
         const formData = new FormData();
         formData.append('file', file);
         if (evaluationId) formData.append('evaluation_id', evaluationId);
@@ -109,6 +110,7 @@ export const backendService = {
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
         if (!extractAnswerKey) params.append('extract_answer_key', 'false');
+        if (groupMultiplePages) params.append('group_multiple_pages', 'true');
 
         const url = `/process-zip${params.toString() ? '?' + params.toString() : ''}`;
 
@@ -123,7 +125,7 @@ export const backendService = {
         return res.json();
     },
 
-    async startZipProcessing(file, evaluationId, forceReprocess = false, extractAnswerKey = true) {
+    async startZipProcessing(file, evaluationId, forceReprocess = false, extractAnswerKey = true, groupMultiplePages = false) {
         const formData = new FormData();
         formData.append('file', file);
         if (evaluationId) formData.append('evaluation_id', evaluationId);
@@ -131,6 +133,7 @@ export const backendService = {
         const params = new URLSearchParams();
         if (forceReprocess) params.append('force_reprocess', 'true');
         if (!extractAnswerKey) params.append('extract_answer_key', 'false');
+        if (groupMultiplePages) params.append('group_multiple_pages', 'true');
 
         const url = `/process-zip/start${params.toString() ? '?' + params.toString() : ''}`;
         const res = await fetch(`${BACKEND_URL}/api${url}`, {

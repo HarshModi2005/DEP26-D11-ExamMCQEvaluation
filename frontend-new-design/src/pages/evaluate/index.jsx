@@ -653,7 +653,7 @@ const EvaluatePage = () => {
                 } else {
                     setPipelineProgress(0);
                     setPipelineLog(prev => [...prev, 'Processing ZIP file...']);
-                    pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true);
+                    pipelineResult = await backendService.processZipFile(zipFile, evaluationId, forceReprocess, true, groupMultiplePages);
                 }
             }
 
@@ -793,7 +793,7 @@ const EvaluatePage = () => {
             const startTime = Date.now();
             let started;
             if (isZipMode) {
-                started = await backendService.startZipProcessing(zipFile, evaluationId, forceReprocess, true);
+                started = await backendService.startZipProcessing(zipFile, evaluationId, forceReprocess, true, groupMultiplePages);
             } else if (isPdfMode) {
                 started = await backendService.startPdfProcessing(pdfFile, evaluationId, forceReprocess);
                 if (started?.processing_id) setPdfRunId(started.processing_id);
@@ -837,8 +837,15 @@ const EvaluatePage = () => {
                     break;
                 }
 
+                if (status.status === 'superseded') {
+                    // This is a stale run from a previous session — should not happen
+                    // with the backend fix, but guard defensively.
+                    throw new Error('Run was superseded by a newer upload. Please try again.');
+                }
+
                 if (status.status === 'failed') {
-                    throw new Error(status.error || 'Drive processing failed.');
+                    const modeLabel = isZipMode ? 'ZIP' : isPdfMode ? 'PDF' : 'Drive';
+                    throw new Error(status.error || `${modeLabel} processing failed.`);
                 }
 
                 await sleep(1200);

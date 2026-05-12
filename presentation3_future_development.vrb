@@ -1,0 +1,10 @@
+\frametitle{Supabase pool bootstrap (backend)}
+\begin{lstlisting}[style=py]
+_pool = await asyncpg.create_pool(
+    dsn=_get_dsn(),
+    min_size=int(os.getenv("SUPABASE_POOL_MIN", "1")),
+    max_size=int(os.getenv("SUPABASE_POOL_MAX", "10")),
+    command_timeout=30,
+    statement_cache_size=0,
+)
+\end{lstlisting}

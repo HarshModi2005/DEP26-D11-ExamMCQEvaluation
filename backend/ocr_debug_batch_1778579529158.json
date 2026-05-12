@@ -1,0 +1,229 @@
+{
+  "IMG_5271.HEIC": {
+    "entry_number": "2025DAB1277",
+    "name": "JASMINE KAUR DHALIWAL",
+    "answers": {
+      "1": "D",
+      "2": "C",
+      "3": "A",
+      "4": "B",
+      "5": "B",
+      "6": "B",
+      "7": "D",
+      "8": "B",
+      "9": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@us-east5",
+    "_verified_passes": 2
+  },
+  "IMG_5269.HEIC": {
+    "entry_number": "202503B1166",
+    "name": "Arya Singh Sida",
+    "answers": {
+      "1": "C",
+      "2": "B",
+      "3": "A",
+      "4": "B",
+      "5": "A",
+      "6": "D",
+      "7": "D",
+      "8": "B",
+      "9": "B"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-central1, gemini-2.5-pro@us-west1",
+    "_verified_passes": 2
+  },
+  "IMG_5272.HEIC": {
+    "entry_number": "858",
+    "name": "Ansh Mishra",
+    "answers": {
+      "10": "D",
+      "11": "B",
+      "12": "D",
+      "13": "B",
+      "14": "C",
+      "15": "B",
+      "16": "D",
+      "17": "B",
+      "18": "D",
+      "19": "B",
+      "20": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_5274.HEIC": {
+    "entry_number": "",
+    "name": "Ansh Mishra",
+    "answers": {
+      "10": "A",
+      "11": "B",
+      "12": "D",
+      "13": "B",
+      "14": "C",
+      "15": "B",
+      "16": "B",
+      "17": "C",
+      "18": "D",
+      "19": "B",
+      "20": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "IMG_5267.HEIC": {
+    "entry_number": "2025MCB1463",
+    "name": "Aneka Agraual",
+    "answers": {
+      "1": "D",
+      "2": "C",
+      "3": "A",
+      "4": "B",
+      "5": "A",
+      "6": "B",
+      "7": "D",
+      "8": "B",
+      "9": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west1, gemini-2.5-pro@us-west4",
+    "_verified_passes": 2
+  },
+  "IMG_5275.HEIC": {
+    "entry_number": "2025C5B233",
+    "name": "Parth Shainerh",
+    "answers": {
+      "1": "A",
+      "2": "C",
+      "3": "B",
+      "4": "B",
+      "5": "B",
+      "6": "B",
+      "7": "D",
+      "8": "B",
+      "9": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_5273.HEIC": {
+    "entry_number": "2025CSB1222",
+    "name": "MINESH KUMAR MEENA",
+    "answers": {
+      "1": "D",
+      "2": "C",
+      "3": "A",
+      "4": "B",
+      "5": "B",
+      "7": "D",
+      "8": "B",
+      "9": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east1, gemini-2.5-pro@us-south1",
+    "_verified_passes": 2
+  },
+  "IMG_5277.HEIC": {
+    "entry_number": "2025A1B 100J",
+    "name": "Adhyaan Aggarwal",
+    "answers": {
+      "1": "D",
+      "2": "C",
+      "3": "A",
+      "4": "B",
+      "5": "B",
+      "6": "B",
+      "7": "D",
+      "8": "B",
+      "9": "D"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-west4, gemini-2.5-pro@europe-west4",
+    "_verified_passes": 2
+  },
+  "IMG_5276.HEIC": {
+    "entry_number": "",
+    "name": "",
+    "answers": {
+      "10": "A",
+      "11": "B",
+      "12": "D",
+      "13": "B",
+      "14": "C",
+      "15": "B",
+      "16": "A",
+      "17": "D",
+      "18": "B",
+      "19": "B",
+      "20": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east5, gemini-2.5-pro@us-east4",
+    "_verified_passes": 2
+  },
+  "IMG_5270.HEIC": {
+    "entry_number": "",
+    "name": "",
+    "answers": {
+      "10": "D",
+      "11": "B",
+      "12": "D",
+      "13": "C",
+      "14": "C",
+      "15": "B",
+      "16": "B",
+      "17": "B",
+      "18": "D",
+      "19": "B",
+      "20": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-south1, gemini-2.5-pro@europe-west1",
+    "_verified_passes": 2
+  },
+  "IMG_5278.HEIC": {
+    "entry_number": "",
+    "name": "",
+    "answers": {
+      "10": "D",
+      "11": "B",
+      "12": "D",
+      "13": "B",
+      "14": "C",
+      "15": "B",
+      "16": "B",
+      "17": "B",
+      "18": "D",
+      "19": "B",
+      "20": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@us-east4, gemini-2.5-pro@us-east1",
+    "_verified_passes": 2
+  },
+  "IMG_5268.HEIC": {
+    "entry_number": "11",
+    "name": "hustry mistry",
+    "answers": {
+      "10": "D",
+      "11": "B",
+      "12": "D",
+      "13": "B",
+      "14": "C",
+      "15": "B",
+      "16": "D",
+      "17": "B",
+      "18": "D",
+      "19": "B",
+      "20": "A"
+    },
+    "error": "",
+    "_endpoint": "gemini-2.5-pro@europe-west4",
+    "_verified_passes": 0
+  }
+}

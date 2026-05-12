@@ -223,14 +223,19 @@ def _build_ocr_prompt(answer_key: Optional[dict] = None) -> str:
 
     prompt = (
         'Extract from this answer sheet and return JSON:\n'
-        '{"entry_number":"roll number","name":"student name",'
+        '{"entry_number":"roll number or null","name":"student name or null",'
         f'"answers":{example_answers_json}}}\n'
         'answers: dict of question_number(str)->answer(str). '
         'For checkboxes, ONLY return the exact letters checked (A/B/C/D). NEVER guess numbers like "3" for checked boxes. '
         'For numerical text boxes, return the exact number written. '
         'Omit blank questions. '
-        'The image may be rotated or tilted — read it in whatever orientation makes the text readable. '
-        'entry_number/roll number is REQUIRED — look for it carefully.'
+        'The image may be rotated or tilted — read it in whatever orientation makes the text readable.\n\n'
+        '🚨 IDENTITY FIELD RULES (STRICTLY ENFORCED):\n'
+        '• Only set "entry_number" if the sheet has an explicit printed label such as "Entry No.", "Roll No.", "Enrolment No.", "Reg. No.", or "Student ID" and the student has written a value next to it.\n'
+        '• Only set "name" if the sheet has an explicit printed label such as "Name:", "Name-", "Student Name:", or "Candidate Name" and the student has written their name next to it.\n'
+        '• If this is a continuation/answer-only page with NO name or ID field printed on it, return null for BOTH "entry_number" and "name".\n'
+        '• NEVER fabricate, infer, or guess an entry_number or name from question numbers, answer letters, seat numbers, or any other unrelated printed or handwritten text.\n'
+        '• Return values exactly as written — do not reformat, correct, or rearrange them.\n'
     )
     
     if schema_str:
@@ -798,6 +803,13 @@ async def _process_sheets_optimized(
             return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s.get('name', ''))]
         student_sheets.sort(key=natural_sort_key)
 
+    print(f"\n{'='*60}")
+    print(f"  📑 group_multiple_pages = {group_multiple_pages}")
+    print(f"  📑 Total sheets: {len(student_sheets)}")
+    if group_multiple_pages:
+        print(f"  📑 Sorted sheet order: {[s['name'] for s in student_sheets[:10]]}...")
+    print(f"{'='*60}\n")
+
     ocr_results = [None] * len(student_sheets)
 
     results: List = []
@@ -1066,7 +1078,9 @@ async def _process_sheets_optimized(
             ocr_cached = (sheet_row or {}).get("ocr_result") if sheet_row else None
 
             # On retry passes, always skip OCR cache so we get a fresh read
-            if not force_fresh_ocr and ocr_cached and _is_valid_ocr_result(ocr_cached):
+            # Also skip in group_multiple_pages mode — cached single-page OCR
+            # would bypass the Phase-3 merging logic entirely.
+            if not force_fresh_ocr and not group_multiple_pages and ocr_cached and _is_valid_ocr_result(ocr_cached):
                 ocr = ocr_cached
                 n_cached_ans = len(ocr_cached.get("answers", {}))
                 print(f"  ⚡ {phase_tag} {fname}: OCR CACHE HIT | entry={ocr_cached.get('entry_number','')} answers={n_cached_ans}")
@@ -1361,8 +1375,16 @@ async def _process_sheets_optimized(
                         current_group = dict(ocr)
                     else:
                         print(f"    🔗 Merging {ocr['file_name']} into {current_group['file_name']}")
-                        current_group["answers"].update(ocr.get("answers", {}))
+                        # Merge answers — continuation page answers take priority for their question numbers
+                        merged_answers = dict(current_group.get("answers", {}))
+                        merged_answers.update(ocr.get("answers", {}))
+                        current_group["answers"] = merged_answers
                         current_group["file_name"] += " + " + ocr["file_name"]
+                        # If the continuation page has a name/entry that the first page missed, use it
+                        if not current_group.get("name") and ocr.get("name"):
+                            current_group["name"] = ocr["name"]
+                        if not current_group.get("entry_number") and ocr.get("entry_number"):
+                            current_group["entry_number"] = ocr["entry_number"]
                         if ocr.get("_endpoint"):
                             current_group["_endpoint"] = current_group.get("_endpoint", "") + " | " + ocr["_endpoint"]
             
@@ -1636,6 +1658,10 @@ async def process_folder_optimized(request: ProcessFolderRequest, force_reproces
 @router.post("/batch/process-folder-optimized/start")
 async def start_process_folder_optimized(request: ProcessFolderRequest, background_tasks: BackgroundTasks, force_reprocess: bool = False):
     """Start optimized Drive processing in the background and return a polling id immediately."""
+    print(f"\n{'🔔'*20}")
+    print(f"  /start endpoint called: group_multiple_pages={request.group_multiple_pages}, force_reprocess={force_reprocess}")
+    print(f"  Request body: folder_url={request.folder_url[:50]}..., eval_id={request.evaluation_id}")
+    print(f"{'🔔'*20}\n")
     start_time = time.time()
     processing_id = f"batch_{int(start_time * 1000)}"
     _initialize_processing_stats(processing_id, start_time)

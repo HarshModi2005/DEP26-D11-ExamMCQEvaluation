@@ -16,11 +16,16 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from typing import List, Dict, Optional, Tuple, Any
 
+# Module-level dedup set — suppresses duplicate Entry Correction log lines
+# when sync-results is polled repeatedly for the same stale OCR entries.
+_entry_correction_logged: set = set()
+
 
 class SheetsService:
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets',  # Read + Write
     ]
+
 
     # Aliases for auto-detecting column headers
     ENTRY_NUMBER_ALIASES = {
@@ -216,7 +221,10 @@ class SheetsService:
         corrected = year_str + dept_str + degree_ch + tail_str
         original_clean = re.sub(r'[^A-Za-z0-9]', '', raw).upper()
         if corrected != original_clean:
-            print(f"  🔧 [Entry Correction] '{raw}' → '{corrected}'")
+            _key = (raw, corrected)
+            if _key not in _entry_correction_logged:
+                _entry_correction_logged.add(_key)
+                print(f"  🔧 [Entry Correction] '{raw}' \u2192 '{corrected}'")
         return corrected
     
     # Regex for question columns: "1", "Q1", "Q 1", "Question 1", "1a" (if simple digit)
@@ -2011,14 +2019,13 @@ class SheetsService:
                             if name_col != -1 and len(row) > name_col and row[name_col].strip():
                                 r['name'] = row[name_col].strip()
                             
-                            # Parse marks
-                            if marks_col != -1 and len(row) > marks_col:
-                                try:
-                                    r['total_score'] = float(row[marks_col])
-                                except ValueError:
-                                    pass
+                            # NOTE: We do NOT overwrite total_score from the subsheet.
+                            # The subsheet may contain stale scores from a previous single-page run.
+                            # The freshly computed score from this pipeline run is always authoritative.
+                            # Scores from the subsheet are only used when viewing historical exports,
+                            # not during a live evaluation result sync.
                                     
-                            # Parse comments
+                            # Parse comments only (safe to override — not computed by pipeline)
                             if comments_col != -1 and len(row) > comments_col:
                                 r['comments'] = row[comments_col]
                                 

@@ -1,0 +1,1107 @@
+% =============================================================================
+% Presentation 3 — Answer Key Evaluation DEP (expanded)
+% Sections: Frontend | Backend | Database | OCR | External services | Future
+%
+% Build: pdflatex presentation3_future_development.tex (run twice)
+% Screenshots: replace \fbox placeholders with \includegraphics[width=...]{...}
+% =============================================================================
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{multicol}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+
+\usepackage{listings}
+\usepackage{xcolor}
+
+\definecolor{codegreen}{RGB}{0,128,90}
+\definecolor{codegray}{RGB}{100,100,100}
+
+\lstdefinestyle{py}{
+  language=Python,
+  basicstyle=\ttfamily\tiny,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  frame=single,
+  framerule=0.2pt,
+  showstringspaces=false,
+  tabsize=2,
+}
+\lstdefinestyle{pysmall}{
+  language=Python,
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  frame=single,
+  framerule=0.2pt,
+  showstringspaces=false,
+  tabsize=2,
+}
+\lstdefinestyle{sql}{
+  language=SQL,
+  basicstyle=\ttfamily\tiny,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  frame=single,
+  framerule=0.2pt,
+  tabsize=2,
+}
+\lstdefinestyle{jsx}{
+  basicstyle=\ttfamily\tiny,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  breaklines=true,
+  frame=single,
+  framerule=0.2pt,
+  keywords={const, async, await, try, catch, finally, if, return, import, export, default},
+  sensitive=false,
+  showstringspaces=false,
+}
+
+\title[Presentation 3]{Answer Key Evaluation DEP}
+\subtitle{Architecture + file-to-role maps + code excerpts (Frontend, Backend, DB, OCR, External)}
+\author{Project team}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Deck roadmap (five pillars + extrapolation)}
+  \small
+  \begin{enumerate}
+    \item \textbf{Frontend} --- React (Vite), routing, auth context, service layer calling FastAPI, Evaluate UX.
+    \item \textbf{Backend} --- FastAPI routers, service orchestration, batch/ZIP/Drive pipelines, code-eval bridge.
+    \item \textbf{Database} --- SQLite (\texttt{evaluation.db}), pooled WAL mode, Supabase Postgres (\texttt{result\_cache}, \texttt{pdf\_page\_map}), cache key evolution.
+    \item \textbf{OCR} --- Legacy \texttt{OCRService}, throughput-oriented \texttt{OptimizedOCRService}, dual-pass Pro path in optimized batch, preprocessing.
+    \item \textbf{External services} --- Google Drive/Sheets APIs, Vertex / Gemini, Supabase Auth + DB URL, env configuration matrix.
+    \item \textbf{Extrapolation} --- Scaling, observability, product surface (rubrics, review queues), security hardening.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{End-to-end data flow (conceptual)}
+  \centering
+  \begin{tikzpicture}[
+    font=\scriptsize,
+    box/.style={draw, rounded corners, minimum width=2.4cm, minimum height=0.75cm, align=center},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+  ]
+    \node[box, fill=blue!15] (u) {Faculty / TA\\\footnotesize Browser};
+    \node[box, fill=cyan!12, right=1.8cm of u] (fe) {React SPA};
+    \node[box, fill=violet!15, right=1.6cm of fe] (sb) {Supabase Auth\\\footnotesize session};
+    \node[box, fill=green!14, below=1.05cm of fe] (api) {FastAPI};
+    \node[box, fill=orange!12, left=1.9cm of api] (db) {SQLite +\\\footnotesize Supabase PG};
+    \node[box, fill=purple!14, right=1.9cm of api] (g) {Google +\\\footnotesize Vertex};
+    \draw[arrow] (u) -- (fe);
+    \draw[arrow] (fe) -- (sb);
+    \draw[arrow] (fe) -- node[right, pos=0.35]{\footnotesize JSON / multipart} (api);
+    \draw[arrow] (api) -- (db);
+    \draw[arrow] (api) -- (g);
+  \end{tikzpicture}
+
+  \vspace{0.8em}
+  \parbox{\linewidth}{\footnotesize
+    Typical grading loop: configure answer key in UI $\rightarrow$ trigger ZIP/Drive/PDF batch $\rightarrow$
+    backend downloads bytes $\rightarrow$ OCR extracts structured answers $\rightarrow$ scorer compares to key $\rightarrow$
+    results persisted + optional Sheets export + optional Drive rename.}
+\end{frame}
+
+\begin{frame}{Repository roots (top-level layout)}
+  \footnotesize
+  \textbf{\texttt{AnswerKeyEvaluationDEP/}}
+  \begin{itemize}\footnotesize
+    \item \texttt{frontend-new-design/} --- Vite + React; browser talks to Supabase (auth/data) + FastAPI (\texttt{VITE\_BACKEND\_URL}).
+    \item \texttt{backend/} --- \texttt{main.py}, \texttt{api/}, \texttt{services/}, local \texttt{evaluation.db}, optional \texttt{vertex\_key.json} / \texttt{sa-keys/}.
+    \item \texttt{backend/migrations/} --- SQL for Supabase (\texttt{result\_cache}, \texttt{pdf\_page\_map}, cache scope columns).
+    \item \texttt{c\_code\_evaluator/} --- image$\rightarrow$C extraction, compile-fix, LeetCode-style runners (\texttt{evaluate\_c\_from\_image.py}, \texttt{leetcode\_mode.py}).
+    \item Root \texttt{README.md}, \texttt{IMPLEMENTATION\_SUMMARY.md} --- how to run FE+BE together.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{File mapping --- frontend \texttt{src/} entry \& routing}
+  \tiny
+  \begin{tabular}{@{}p{5.1cm}p{8.5cm}@{}}
+    \toprule
+    Path & Role \\
+    \midrule
+    \texttt{index.jsx} & Mounts React root; imports Tailwind/global CSS. \\
+    \texttt{App.jsx} & Wraps \texttt{AuthProvider} around \texttt{Routes}. \\
+    \texttt{Routes.jsx} & \texttt{BrowserRouter}: public \texttt{/login-register}; protected dashboards, \texttt{/evaluate/:evaluationId}. \\
+    \texttt{components/ProtectedRoute.jsx} & If no Supabase session, \texttt{Navigate} to login; loading spinner while auth resolves. \\
+    \texttt{components/ErrorBoundary.jsx} & Catches render errors so one bad page does not white-screen the SPA. \\
+    \texttt{components/ScrollToTop.jsx} & Scroll reset on route changes. \\
+    \texttt{components/ui/*} & Shared primitives: \texttt{Header}, \texttt{Button}, \texttt{Input}, \texttt{Select}, modals, breadcrumbs. \\
+    \texttt{utils/cn.js} & Tailwind class-name helper (conditional classes). \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{File mapping --- frontend services \& context}
+  \tiny
+  \begin{tabular}{@{}p{5.1cm}p{8.5cm}@{}}
+    \toprule
+    Path & Role \\
+    \midrule
+    \texttt{context/AuthContext.jsx} & Subscribes to Supabase auth; loads \texttt{profiles} row (retries + metadata fallback). \\
+    \texttt{services/supabaseClient.js} & \texttt{createClient}; project-scoped \texttt{storageKey}; stale-token cleanup. \\
+    \texttt{services/authService.js} & \texttt{signIn}, \texttt{signUp}, inserts \texttt{profiles}, user-facing error messages. \\
+    \texttt{services/backendService.js} & \texttt{fetch} to FastAPI \texttt{/api/*}; \texttt{requireEvaluationId}; ZIP multipart uploads. \\
+    \texttt{services/evaluationService.js} & Supabase \texttt{evaluations}, duties, answer-key persistence for UI state. \\
+    \texttt{services/resultsService.js} & Fetches/polls aggregated grading results for display (wrappers around Supabase/API). \\
+    \texttt{services/courseService.js} & Course CRUD / listing from Supabase. \\
+    \texttt{services/studentService.js} & Student roster helpers where used by UI. \\
+    \texttt{services/teamService.js}, \texttt{invitationService.js} & Team/invite flows on faculty pages. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{File mapping --- frontend pages (product surfaces)}
+  \tiny
+  \begin{tabular}{@{}p{5.4cm}p{8.2cm}@{}}
+    \toprule
+    Path & Role \\
+    \midrule
+    \texttt{pages/login-register/*} & Login/register forms + optional social auth shell. \\
+    \texttt{pages/faculty-dashboard/*} & Landing for professors; \texttt{CourseCard} navigation. \\
+    \texttt{pages/course-detail/index.jsx} & Single course; links into evaluations. \\
+    \texttt{pages/evaluate/index.jsx} & \textbf{Core grading UI}: answer key sources, ZIP/Drive/PDF triggers, live progress. \\
+    \texttt{pages/dashboard-overview/*} & Sprint/progress widgets for ops-style dashboard. \\
+    \texttt{pages/kanban-board/*} & Board columns, filters, cards. \\
+    \texttt{pages/task-detail/*} & Rich task view: markdown, attachments, comments, activity. \\
+    \texttt{pages/sprint-planning/*} & Backlog, velocity chart, capacity. \\
+    \texttt{pages/analytics-dashboard/index.jsx} & Metrics dashboard page. \\
+    \texttt{pages/team-management/*} & Workspace settings, invites, members table. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% ############################### PART: FRONTEND ################################
+
+\begin{frame}
+  \centering
+  {\Huge \textbf{Part I}}\\[0.5em]
+  {\Large Frontend stack \& UX surfaces}
+\end{frame}
+
+\begin{frame}{Frontend stack}
+  \begin{itemize}
+    \item \textbf{Runtime}: React with \textbf{Vite} (\texttt{frontend-new-design/}).
+    \item \textbf{Routing}: \texttt{react-router-dom} --- public login vs protected app shell.
+    \item \textbf{Auth}: Supabase JS client; \texttt{AuthContext} wraps profile load + session; \texttt{ProtectedRoute} gates pages.
+    \item \textbf{HTTP to FastAPI}: \texttt{backendService.js} --- base URL \texttt{VITE\_BACKEND\_URL}, JSON helpers and multipart ZIP uploads.
+    \item \textbf{Product UI}: Faculty dashboard, course detail, \textbf{Evaluate} (per \texttt{:evaluationId}), Kanban, task detail, analytics --- aligns with academic ops workflows beyond raw OCR.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Routes (application map)}
+  \footnotesize \texttt{frontend-new-design/src/Routes.jsx}
+
+\begin{lstlisting}[style=jsx]
+import EvaluatePage from "./pages/evaluate";
+
+<RouterRoutes>
+  <Route path="/login-register" element={<LoginRegister />} />
+  <Route path="/dashboard-overview" element={<ProtectedRoute><DashboardOverview /></ProtectedRoute>} />
+  <Route path="/faculty-dashboard" element={<ProtectedRoute><FacultyDashboard /></ProtectedRoute>} />
+  <Route path="/course/:courseId" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
+  <Route path="/evaluate/:evaluationId" element={<ProtectedRoute><EvaluatePage /></ProtectedRoute>} />
+  <Route path="/kanban-board" element={<ProtectedRoute><KanbanBoard /></ProtectedRoute>} />
+  <Route path="/analytics-dashboard" element={<ProtectedRoute><AnalyticsDashboard /></ProtectedRoute>} />
+</RouterRoutes>
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Supabase client (frontend only)}
+  \footnotesize Auth project isolation + storage key (\texttt{supabaseClient.js}).
+
+\begin{lstlisting}[style=jsx]
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const PROJECT_REF = supabaseUrl?.match(/https:\/\/(.+)\.supabase\.co/)?.[1];
+const authOptions = { lock: false, debug: true };
+if (PROJECT_REF) {
+    authOptions.storageKey = `sb-${PROJECT_REF}-auth-token`;
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: authOptions,
+});
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Backend calls + evaluation scoping guard}
+  \footnotesize Every batch call must carry a real \texttt{evaluationId} so cache rows never leak across quizzes (\texttt{backendService.js}).
+
+\begin{lstlisting}[style=jsx]
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+
+const requireEvaluationId = (evaluationId, action) => {
+    if (!evaluationId || String(evaluationId).trim().toLowerCase() === 'default') {
+        throw new Error(`Missing evaluationId for ${action}. Every processing run must be tied to a specific quiz...`);
+    }
+    return String(evaluationId).trim();
+};
+
+async processDriveFolder(driveFolderUrl, evaluationId, forceReprocess, groupMultiplePages) {
+    const evalId = requireEvaluationId(evaluationId, 'processDriveFolder');
+    return api('/batch/process-folder-optimized', {
+        method: 'POST',
+        body: JSON.stringify({
+            folder_url: driveFolderUrl,
+            evaluation_id: evalId,
+            rename_drive_inline: true,
+            group_multiple_pages: groupMultiplePages,
+        }),
+    });
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Evaluate page: answer key ingestion pattern}
+  \footnotesize Same page composes Drive extract, manual JSON, and upload flows (\texttt{evaluate/index.jsx}).
+
+\begin{lstlisting}[style=jsx]
+const loadFromDrive = async () => {
+    setLoading(true); setErr('');
+    try {
+        const res = await backendService.extractAnswerKeyFromDrive(driveUrl);
+        await evaluationService.saveAnswerKey(evaluation.id, res.answer_key);
+        onKeyLoaded(res.answer_key);
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+};
+\end{lstlisting}
+
+\vfill
+\tiny Related services: \texttt{evaluationService.js}, \texttt{resultsService.js}, templates via \texttt{/download-answer-sheet-template}.
+\end{frame}
+
+\begin{frame}[fragile]{Bootstrap: \texttt{index.jsx} + \texttt{App.jsx}}
+\begin{lstlisting}[style=jsx]
+// index.jsx
+import { createRoot } from "react-dom/client";
+import App from "./App";
+root.render(<App />);
+
+// App.jsx
+import { AuthProvider } from "./context/AuthContext";
+function App() {
+    return (
+        <AuthProvider>
+            <Routes />
+        </AuthProvider>
+    );
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{ProtectedRoute.jsx} (session gate)}
+\begin{lstlisting}[style=jsx]
+const ProtectedRoute = ({ children }) => {
+    const { user, loading, profile } = useAuth();
+    if (loading) {
+        return ( /* full-screen spinner */ null );
+    }
+    if (!user) {
+        return <Navigate to="/login-register" replace />;
+    }
+    return children;
+};
+\end{lstlisting}
+\vfill
+\tiny \texttt{profile} is loaded in \texttt{AuthContext} from Supabase \texttt{profiles} with retries.
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{evaluationService.js}: Supabase evaluations}
+\begin{lstlisting}[style=jsx]
+async getEvaluationById(evaluationId) {
+    const { data, error } = await supabase
+        .from('evaluations')
+        .select(`
+            *,
+            courses(id, title, code, master_sheet_url, instructor_id),
+            evaluation_duties(assignee_id, profiles(id, name, role))
+        `)
+        .eq('id', evaluationId)
+        .single();
+    if (error) throw error;
+    return data;
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{authService.js}: sign-in wrapper}
+\begin{lstlisting}[style=jsx]
+async signIn(email, password) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email, password
+    });
+    if (error) {
+        if (error.message === 'Invalid login credentials') {
+            error.message = 'Invalid email or password...';
+        }
+        throw error;
+    }
+    return data;
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Frontend extrapolation (future)}
+  \small
+  \begin{itemize}
+    \item Unified \textbf{API client} layer with typed OpenAPI-generated stubs (reduce stringly-typed paths).
+    \item \textbf{Streaming UI} for long batch jobs (SSE or WebSocket) instead of polling-only patterns where applicable.
+    \item \textbf{Role-aware navigation} (professor vs TA vs admin) driven from Supabase \texttt{profiles}.
+    \item Offline-safe \textbf{draft evaluations} and optimistic saves for answer-key JSON.
+    \item Accessibility pass on Evaluate (keyboard, contrast, live regions for progress).
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Screenshot placeholder --- Evaluate UI}
+  \begin{center}
+    \fbox{\parbox{0.92\textwidth}{\centering\vspace{1.8cm}
+      \textit{Browser: \texttt{/evaluate/:evaluationId} --- answer key panel + batch controls}\vspace{1.8cm}}}
+  \end{center}
+\end{frame}
+
+% ############################### PART: BACKEND #################################
+
+\begin{frame}
+  \centering
+  {\Huge \textbf{Part II}}\\[0.5em]
+  {\Large FastAPI backend \& service layer}
+\end{frame}
+
+\begin{frame}[fragile]{Application composition}
+  \footnotesize \texttt{backend/main.py}: lifespan hooks warm Supabase pool; mount three routers.
+
+\begin{lstlisting}[style=pysmall]
+app = FastAPI(title="Automated Answer Sheet Evaluation System", lifespan=lifespan)
+
+app.include_router(endpoints.router)
+app.include_router(batch_endpoints_optimized.router)
+app.include_router(code_eval_endpoints.router)
+\end{lstlisting}
+
+\vfill
+\tiny CORS: \texttt{CORS\_ORIGINS} comma-list enables credentials; wildcard fallback avoids cookie assumptions (Supabase bearer from FE).
+\end{frame}
+
+\begin{frame}{\texttt{/api/*} standard router (selected)}
+  \footnotesize
+  \texttt{backend/api/endpoints.py} exposes the ``classic'' pipeline and tooling:
+
+  \begin{multicols}{2}
+    \begin{itemize}\footnotesize
+      \item \texttt{GET /status}, \texttt{/performance}
+      \item \texttt{/answer-key}, extract/upload/set-manual
+      \item \texttt{POST /process-zip}, \texttt{/process-zip/start}
+      \item \texttt{POST /process-drive-folder}
+      \item \texttt{POST /export-to-sheets}, \texttt{/export-student-responses}
+      \item \texttt{POST /full-pipeline}, sync/rename variants
+      \item \texttt{/results}, \texttt{/cache/*}, \texttt{/database/optimize}
+      \item \texttt{/pipeline-runs/\{run\_id\}/*}
+      \item \texttt{/rename-drive-files*}
+    \end{itemize}
+  \end{multicols}
+\end{frame}
+
+\begin{frame}{Optimized batch + PDF runs (\texttt{/api/batch/*}, \texttt{/api/pdf-runs/*})}
+  \footnotesize
+  \begin{itemize}
+    \item \texttt{POST /batch/process-folder-optimized} (+ \texttt{/start}) --- main Drive grading throughput path.
+    \item \texttt{GET /batch/processing-status/\{id\}}, \texttt{/batch/ocr-debug/\{id\}}, problem-file downloads.
+    \item \texttt{DELETE /cache/purge-evaluation/\{evaluation\_id\}} --- tenant-safe cache purge.
+    \item \texttt{POST /batch/process-pdf-optimized*} --- PDF upload pipeline.
+    \item \texttt{GET /pdf-runs/\{id\}/mapping*} --- page $\leftrightarrow$ student reconciliation and CSV export.
+    \item \texttt{POST /pdf-runs/\{id\}/reconcile}, image endpoints for QA.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Code evaluation router (\texttt{/api/code-eval/*})}
+  \footnotesize Bridges handwritten/uploaded C submissions with \texttt{c\_code\_evaluator} (OCR $\rightarrow$ compile-fix $\rightarrow$ LeetCode-style cases).
+
+\begin{lstlisting}[style=py]
+router = APIRouter(prefix="/api/code-eval", tags=["code-evaluation"])
+
+class CodeEvalRequest(BaseModel):
+    answer_key: Dict[str, Any]
+\end{lstlisting}
+
+\vfill
+\tiny Credentials: optional \texttt{vertex\_key.json} + \texttt{GOOGLE\_CLOUD\_PROJECT} wired before importing evaluator modules.
+\end{frame}
+
+\begin{frame}{File mapping --- backend root \& API routers}
+  \tiny
+  \begin{tabular}{@{}p{4.85cm}p{8.75cm}@{}}
+    \toprule
+    Path & Role \\
+    \midrule
+    \texttt{backend/main.py} & FastAPI app, CORS, lifespan (Supabase pool, OCR cleanup), mounts routers. \\
+    \texttt{backend/models.py} & Shared Pydantic types: \texttt{AnswerKey}, \texttt{StudentResult}, request bodies. \\
+    \texttt{backend/database.py} & Thin SQLite CRUD for students/submissions/results. \\
+    \texttt{backend/cli.py} & Standalone CLI: Drive folder $\rightarrow$ local/offline OCR $\rightarrow$ score $\rightarrow$ Sheets. \\
+    \texttt{api/endpoints.py} & Large router \texttt{/api/*}: ZIP, Drive, answer key, Sheets export, cache, pipeline runs. \\
+    \texttt{api/batch\_endpoints\_optimized.py} & High-throughput Drive/PDF batching, processing IDs, pdf-runs reconciliation. \\
+    \texttt{api/code\_eval\_endpoints.py} & \texttt{/api/code-eval/*}: ZIP/Drive C grading via \texttt{c\_code\_evaluator}. \\
+    \texttt{smoke\_test.py}, \texttt{test\_*.py} & Manual/integration probes (HEIC, phases, photos). \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{File mapping --- \texttt{c\_code\_evaluator/}}
+  \small
+  \begin{tabular}{@{}p{5.2cm}p{8.4cm}@{}}
+    \toprule
+    File & Role \\
+    \midrule
+    \texttt{evaluate\_c\_from\_image.py} & Extract C from image (Vertex), compile, OCR syntax fix helpers. \\
+    \texttt{leetcode\_mode.py} & Resolve problem slugs + run hidden tests LeetCode-style. \\
+    \texttt{generate\_error\_images\_nanobanana.py} & Utility for error visualization / tooling (batch images). \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Backend service inventory}
+  \footnotesize
+  \begin{tabular}{@{}p{4.2cm}p{8.8cm}@{}}
+    \toprule
+    Module & Responsibility \\
+    \midrule
+    \texttt{answer\_key\_service} & Parse/normalize keys (Drive/ZIP/manual). \\
+    \texttt{evaluation\_service} & Pure scoring vs SMCQ/MMCQ/NCQ rules. \\
+    \texttt{batch\_evaluation\_service} & Orchestrate match/score at batch scale. \\
+    \texttt{drive\_service} & Drive list/download; SA vs API-key mode. \\
+    \texttt{sheets\_service} & Read rosters; write marks, comments, per-Q columns. \\
+    \texttt{drive\_rename\_service} & Post-score file renaming on Drive. \\
+    \texttt{result\_cache\_service} & OCR + eval cache; SQLite or Supabase backend. \\
+    \texttt{optimized\_database\_service} & Pooled SQLite + batch writes. \\
+    \texttt{database.py} & Legacy CRUD entry points. \\
+    \texttt{ocr\_service} & Vertex/Gemini Flash path (single-file legacy). \\
+    \texttt{optimized\_ocr\_service} & Multi-endpoint pooled OCR (Flash/Lite). \\
+    \texttt{multi\_region\_ocr\_service} & Load-balanced regions/models. \\
+    \texttt{image\_preprocessing} & Resize/compress before model payload. \\
+    \texttt{pdf\_split\_service} & PDF fan-out into per-page images. \\
+    \texttt{supabase\_client} & Shared asyncpg pool for Supabase PG. \\
+    \texttt{offline\_ocr\_service} & Optional offline path (dev/air-gap). \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}[fragile]{Pydantic domain summary}
+  \footnotesize Grading contracts (\texttt{models.py}) --- SMCQ/MMCQ/NCQ + \texttt{StudentResult} aggregates.
+
+\begin{lstlisting}[style=py]
+class AnswerKeyEntry(BaseModel):
+    question_type: str
+    correct_answer: str
+    positive_marks: float = 1.0
+    negative_marks: float = 0.0
+
+class StudentResult(BaseModel):
+    entry_number: str
+    name: str
+    total_score: float
+    max_score: float
+    details: List[QuestionResult] = []
+    file_name: Optional[str] = None
+    file_id: Optional[str] = None
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{models.py}: pipeline request shapes}
+\begin{lstlisting}[style=py]
+class ProcessFolderRequest(BaseModel):
+    folder_url: str
+    evaluation_id: Optional[str] = None
+    rename_drive_inline: bool = False
+    group_multiple_pages: bool = False
+
+class PipelineSummary(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    total_students_processed: int
+    answer_key_source: str
+    results: List[Any] = []
+    errors: List[Dict] = []
+    processing_stats: Dict = {}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{answer\_key\_service.py}: entry point}
+\begin{lstlisting}[style=py]
+class AnswerKeyService:
+    def extract_answer_key(self, file_path: str, mime_type: str = None) -> AnswerKey:
+        """
+        Main entry point. Detects format and routes to the right parser.
+        """
+        ...
+\end{lstlisting}
+\vfill
+\tiny Supports CSV/XLSX/PDF/images; uses Gemini when vision parsing needed (\texttt{streamGenerateContent} URL configured like OCRService).
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{batch\_evaluation\_service.py}: async batch scoring}
+\begin{lstlisting}[style=py]
+class BatchEvaluationService:
+    async def process_batch_async(
+        self,
+        answer_key: AnswerKey,
+        student_ocr_results: List[Dict],
+        use_multiprocessing: bool = False
+    ) -> Tuple[List[StudentResult], BatchProcessingStats]:
+        optimized_key = self.optimize_answer_key(answer_key)
+        if use_multiprocessing and len(student_ocr_results) > 10:
+            results = await self._process_with_multiprocessing(...)
+        else:
+            results = await self._process_with_threading(...)
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{evaluation\_service.py}: pure scorer API}
+\begin{lstlisting}[style=py]
+class EvaluationService:
+    @staticmethod
+    def match_and_score(answer_key: AnswerKey, student_answers: Dict) -> StudentResult:
+        """
+        Pure function - matches student answers against the answer key.
+        student_answers: {
+            "entry_number": "...",
+            "name": "...",
+            "answers": {1: "A", ...},
+            "comments": "..."   # optional
+        }
+        """
+        ...
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{database.py}: typed inserts}
+\begin{lstlisting}[style=py]
+def add_student(self, student: Student):
+    c.execute(
+        "INSERT OR REPLACE INTO students (id, name, roll_number) VALUES (?, ?, ?)",
+        (student.id, student.name, student.roll_number),
+    )
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Screenshot placeholder --- service graph}
+  \begin{center}
+    \fbox{\parbox{0.92\textwidth}{\centering\vspace{1.8cm}
+      \textit{IDE: collapse \texttt{backend/services/} tree + open \texttt{batch\_endpoints\_optimized.py}}\vspace{1.8cm}}}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Backend extrapolation (future)}
+  \small
+  \begin{itemize}
+    \item \textbf{OpenAPI}: publish versioned schema; codegen clients for React + scripts.
+    \item \textbf{Worker split}: move long PDF/ZIP jobs to Celery/RQ + object storage for inputs.
+    \item \textbf{Idempotency keys} per (\texttt{evaluation\_id}, \texttt{file\_id}) on POST endpoints.
+    \item \textbf{Policy layer}: per-organization quotas and feature flags (rename-on-Drive, Sheets export).
+    \item \textbf{Formal audit log} table (who triggered batch, key hash, model version).
+  \end{itemize}
+\end{frame}
+
+% ############################### PART: DATABASE ################################
+
+\begin{frame}
+  \centering
+  {\Huge \textbf{Part III}}\\[0.5em]
+  {\Large Database \& persistence}
+\end{frame}
+
+\begin{frame}{Two persistence planes}
+  \small
+  \begin{description}
+    \item[SQLite \texttt{evaluation.db}] Primary app store for students/submissions/results; accessed via \texttt{Database} and \texttt{OptimizedDatabaseService}.
+    \item[Supabase Postgres] Optional when \texttt{CACHE\_BACKEND=supabase}: \texttt{result\_cache}, \texttt{pdf\_page\_map}; asyncpg pool from \texttt{SUPABASE\_DB\_URL}.
+  \end{description}
+
+  \vspace{0.8em}
+  \footnotesize
+  Rationale: SQLite keeps local/dev simple; Supabase lifts cache + PDF reconciliation into a shared HA store for deployed multi-instance backends.
+\end{frame}
+
+\begin{frame}{File mapping --- \texttt{backend/migrations/*.sql}}
+  \small
+  \begin{tabular}{@{}p{4.8cm}p{8.8cm}@{}}
+    \toprule
+    SQL file & What it creates / changes \\
+    \midrule
+    \texttt{001\_result\_cache.sql} & Table \texttt{public.result\_cache}: OCR/eval JSONB, LRU stats, indexes; enable RLS. \\
+    \texttt{002\_cache\_evaluation\_scope.sql} & Columns \texttt{evaluation\_id}, \texttt{file\_id}; backfill from legacy \texttt{ocr:...} keys; composite index. \\
+    \texttt{002\_pdf\_page\_map.sql} & Table \texttt{public.pdf\_page\_map}: per-run page rows, scores, reconciliation status; RLS on. \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \footnotesize Run statements in Supabase SQL Editor (or psql) before pointing production \texttt{CACHE\_BACKEND=supabase} at the project.
+\end{frame}
+
+\begin{frame}[fragile]{SQLite bootstrap (\texttt{database.py})}
+\begin{lstlisting}[style=py]
+c.execute('''CREATE TABLE IF NOT EXISTS students
+             (id TEXT PRIMARY KEY, name TEXT, roll_number TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS submissions
+             (id TEXT PRIMARY KEY, student_id TEXT, exam_id TEXT,
+              file_id TEXT, status TEXT, extracted_data TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS results
+             (submission_id TEXT PRIMARY KEY, score REAL,
+              feedback TEXT, details TEXT)''')
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{SQLite performance path (\texttt{OptimizedDatabaseService})}
+  \footnotesize WAL + mmap + bounded pool (\texttt{optimized\_database\_service.py}).
+
+\begin{lstlisting}[style=py]
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("PRAGMA synchronous=NORMAL")
+conn.execute("PRAGMA cache_size=10000")
+conn.execute("PRAGMA temp_store=MEMORY")
+conn.execute("PRAGMA mmap_size=268435456")
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Supabase \texttt{result\_cache} (migration 001)}
+\begin{lstlisting}[style=sql]
+CREATE TABLE IF NOT EXISTS public.result_cache (
+    file_hash         text PRIMARY KEY,
+    file_name         text NOT NULL,
+    ocr_result        jsonb NOT NULL,
+    evaluation_result jsonb,
+    answer_key_hash   text,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    last_accessed     timestamptz NOT NULL DEFAULT now(),
+    access_count      integer NOT NULL DEFAULT 0,
+    result_size       integer NOT NULL DEFAULT 0
+);
+ALTER TABLE public.result_cache ENABLE ROW LEVEL SECURITY;
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Evaluation-scoped columns (migration 002)}
+\begin{lstlisting}[style=sql]
+ALTER TABLE public.result_cache
+    ADD COLUMN IF NOT EXISTS evaluation_id text,
+    ADD COLUMN IF NOT EXISTS file_id       text;
+
+CREATE INDEX IF NOT EXISTS idx_result_cache_eval_file
+    ON public.result_cache(evaluation_id, file_id);
+\end{lstlisting}
+
+\vfill
+\tiny Legacy \texttt{ocr:\dots} keys backfilled via \texttt{split\_part}; modern rows use \texttt{sheet:v2:\dots} consolidated keys in application code.
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{pdf\_page\_map} (PDF batch reconciliation)}
+\begin{lstlisting}[style=sql]
+CREATE TABLE IF NOT EXISTS public.pdf_page_map (
+    run_id          text NOT NULL,
+    pdf_hash        text NOT NULL,
+    page_number     integer NOT NULL,
+    entry_number    text,
+    name            text,
+    status          text NOT NULL,
+    total_score     numeric,
+    max_score       numeric,
+    PRIMARY KEY (run_id, page_number)
+);
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Application cache key (\texttt{result\_cache\_service.py})}
+\begin{lstlisting}[style=py]
+def sheet_cache_key(evaluation_id: str, file_id: str) -> str:
+    return f"sheet:v2:{evaluation_id}:{file_id}"
+\end{lstlisting}
+
+\vfill
+\small One JSON row holds OCR payload + optional scored evaluation; \texttt{answer\_key\_hash} gates stale recomputation when faculty edits the key.
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{result\_cache\_service.py}: backends \& keys}
+\begin{lstlisting}[style=py]
+"""
+Supports sqlite (default) or supabase via CACHE_BACKEND.
+Public API: get_cached_ocr_result, cache_ocr_result,
+get_cached_evaluation_result, cache_evaluation_result, cleanup_cache, ...
+"""
+
+def sheet_cache_key(evaluation_id: str, file_id: str) -> str:
+    return f"sheet:v2:{evaluation_id}:{file_id}"
+\end{lstlisting}
+\vfill
+\tiny Also: SHA-256 file hashing, answer-key hashing, LRU cleanup and purge-by-evaluation endpoints.
+\end{frame}
+
+\begin{frame}{Screenshot placeholder --- Supabase tables}
+  \begin{center}
+    \fbox{\parbox{0.92\textwidth}{\centering\vspace{1.8cm}
+      \textit{Supabase: \texttt{result\_cache} + \texttt{pdf\_page\_map} with evaluation\_id filter}\vspace{1.8cm}}}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Database extrapolation (future)}
+  \small
+  \begin{itemize}
+    \item Single migration tool spanning SQLite bootstrap + Supabase (Flyway/Alembic meta).
+    \item Materialized views for analytics (latency histograms per cohort).
+    \item Encrypted-at-rest secrets rotation doc; connection pooling limits (\texttt{SUPABASE\_POOL\_*}).
+    \item Optional read replica or Edge cache for heavy reporting dashboards.
+  \end{itemize}
+\end{frame}
+
+% ############################### PART: OCR #####################################
+
+\begin{frame}
+  \centering
+  {\Huge \textbf{Part IV}}\\[0.5em]
+  {\Large OCR pipelines \& vision models}
+\end{frame}
+
+\begin{frame}{OCR layers (how they differ)}
+  \small
+  \begin{description}
+    \item[\texttt{OCRService}] Legacy single-call Gemini Flash path; service account \emph{or} Google AI Studio API key URL; used by older \texttt{/process-file} flows.
+    \item[\texttt{OptimizedOCRService}] Peak-load design: many Vertex endpoints, aiohttp pools, image resize/JPEG quality knobs, chunk parallelism.
+    \item[\texttt{MultiRegionOCRService}] Explicit regional endpoints + \textbf{LoadBalancer} scoring (load, latency, model priority).
+    \item[\texttt{batch\_endpoints\_optimized}] Policy layer: \textbf{Gemini 2.5 Pro only}, dual independent OCR passes, majority tie-break third pass; full skip on cache hit.
+    \item[\texttt{image\_preprocessing}] Shared downsampling/normalization feeding model payloads.
+    \item[\texttt{pdf\_split\_service}] Renders each PDF page to JPEG; emits synthetic Drive-shaped dicts + stable \texttt{pdf:<hash>:p<n>} IDs for cache hits on re-upload.
+    \item[\texttt{offline\_ocr\_service}] Optional local engines (Tesseract, Paddle, EasyOCR) matching OCR JSON shape without cloud LLM.
+  \end{description}
+\end{frame}
+
+\begin{frame}{File mapping --- OCR \& ingress modules}
+  \tiny
+  \begin{tabular}{@{}p{5.0cm}p{8.6cm}@{}}
+    \toprule
+    File & Role \\
+    \midrule
+    \texttt{services/ocr\_service.py} & Legacy Gemini Flash streaming calls; base64 image payloads; used by older endpoints. \\
+    \texttt{services/optimized\_ocr\_service.py} & Multi-region \texttt{generateContent}; PIL resize; aiohttp session pooling; chunk batch size tuning. \\
+    \texttt{services/multi\_region\_ocr\_service.py} & Many region$\times$model endpoints with health/load-aware routing. \\
+    \texttt{services/image\_preprocessing.py} & \texttt{preprocess\_for\_ocr}: paper isolation (HSV contours), resize, JPEG bytes for API. \\
+    \texttt{services/pdf\_split\_service.py} & PyMuPDF render at DPI; \texttt{compute\_pdf\_hash}; sheet dicts compatible with ZIP/Drive pipeline. \\
+    \texttt{services/offline\_ocr\_service.py} & CLI/local OCR engines; same consumer shape as cloud OCR for scoring. \\
+    \texttt{extract\_text\_from\_images.py} (repo root) & Standalone script: folder of images $\rightarrow$ Vertex/Gemini text (dev/testing). \\
+    \texttt{api/batch\_endpoints\_optimized.py} & Production batch orchestration: downloads, dual OCR, cache, DB writes, pdf-runs APIs. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{OCRService}: Vertex URL shape (excerpt)}
+\begin{lstlisting}[style=py]
+self.location = "us-central1"
+self.model_id = "gemini-2.5-flash"
+
+self.vertex_url = (
+    f"https://{self.location}-aiplatform.googleapis.com/v1/"
+    f"projects/{self.project_id}/locations/{self.location}/"
+    f"publishers/google/models/{self.model_id}:streamGenerateContent"
+)
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{OptimizedOCRService}: module intent}
+\begin{lstlisting}[style=py]
+"""
+Optimized Multi-Region OCR Service for Peak Load
+================================================
+Optimizations:
+1. Aggressive connection pooling with keep-alive
+2. Parallel batch processing with optimal chunk sizes
+3. Image compression and payload optimization
+4. Smart retry logic with exponential backoff
+"""
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{MultiRegionOCRService}: endpoint scoring}
+\begin{lstlisting}[style=py]
+def score_endpoint(ep: OCREndpoint) -> float:
+    load_factor = ep.current_load / ep.max_concurrent
+    time_factor = ep.avg_response_time / 2.0
+    priority_factor = self.model_priority.get(ep.model, 4) / 4.0
+    error_rate = ep.total_errors / max(ep.total_requests, 1)
+    return load_factor + time_factor + priority_factor + error_rate
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Optimized batch: reliability banner}
+\begin{lstlisting}[style=py]
+"""
+Reliability guarantee:
+  1. Every image is OCR'd twice independently on different Pro regions.
+  2. If answer sets agree completely -> use the result immediately.
+  3. If ANY answer disagrees -> run a 3rd tiebreaker pass (majority vote).
+
+Evaluation results are FULLY CACHED - cache hits skip OCR AND evaluation entirely.
+"""
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{image\_preprocessing.py}: public API}
+\begin{lstlisting}[style=py]
+def preprocess_for_ocr(
+    image_path: str,
+    max_size: Tuple[int, int] = (1920, 1920),
+    jpeg_quality: int = 85,
+) -> Tuple[bytes, str]:
+    """
+    Crop paper region, resize, compress -> (jpeg_bytes, "image/jpeg")
+    """
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{pdf\_split\_service.py}: stable PDF identity}
+\begin{lstlisting}[style=py]
+DEFAULT_DPI = 220
+DEFAULT_JPEG_QUALITY = 90
+
+def compute_pdf_hash(pdf_path: str) -> str:
+    """SHA-256 of the raw PDF bytes. Stable across re-uploads."""
+    ...
+\end{lstlisting}
+\vfill
+\tiny Synthetic file IDs like \texttt{pdf:<pdf\_hash>:p<idx>} align caches across identical PDF bytes.
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{offline\_ocr\_service.py}: local engines}
+\begin{lstlisting}[style=py]
+"""
+Local objective-sheet extraction (no cloud LLM).
+Engines (CLI: --local-ocr):
+  - tesseract
+  - paddle
+  - easyocr
+  - ensemble: merge parsed answers from every installed backend
+"""
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{drive\_rename\_service.py}: naming policy}
+\begin{lstlisting}[style=py]
+"""
+Naming conventions:
+  - Matched (confident):  {EntryNumber} - {Name}.{ext}
+  - Matched (fuzzy):      FUZZY - {EntryNumber} - {Name}.{ext}
+  - Answer key:           ANSWER_KEY - {original}.{ext}
+"""
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{cli.py}: headless pipeline}
+\begin{lstlisting}[style=py]
+"""
+CLI: Drive folder -> OCR (local engines or online Gemini) -> score -> Google Sheets.
+
+Run from the backend directory:
+  cd backend && python cli.py --help
+"""
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{OCR extrapolation (future)}
+  \small
+  \begin{itemize}
+    \item \textbf{Model registry}: per-tenant routing (Flash for drafts, Pro for finals).
+    \item \textbf{Confidence scores} surfaced to UI; thresholded human review queue.
+    \item \textbf{Layout-aware OCR} (detect bubbles vs free response regions) before LLM JSON.
+    \item Synthetic \textbf{golden-image} regression suite per exam template.
+    \item Cost telemetry: tokens / image / cohort budget dashboards.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Screenshot placeholder --- OCR debug}
+  \begin{center}
+    \fbox{\parbox{0.92\textwidth}{\centering\vspace{1.8cm}
+      \textit{JSON from \texttt{/batch/ocr-debug/\{processing\_id\}} or saved debug artifact}\vspace{1.8cm}}}
+  \end{center}
+\end{frame}
+
+% ############################### PART: EXTERNAL #################################
+
+\begin{frame}
+  \centering
+  {\Huge \textbf{Part V}}\\[0.5em]
+  {\Large External services \& configuration}
+\end{frame}
+
+\begin{frame}{File mapping --- external integration (backend modules)}
+  \tiny
+  \begin{tabular}{@{}p{4.75cm}p{8.85cm}@{}}
+    \toprule
+    Module & External system \& responsibility \\
+    \midrule
+    \texttt{drive\_service.py} & Google Drive API v3: list folder, download bytes, batch rename; SA or API key. \\
+    \texttt{sheets\_service.py} & Google Sheets API: detect columns, match entry numbers, batchUpdate values. \\
+    \texttt{answer\_key\_service.py} / \texttt{ocr\_service.py} / OCR variants & Vertex AI / Gemini HTTP (\texttt{aiplatform.googleapis.com} or AI Studio key URL). \\
+    \texttt{supabase\_client.py} & Supabase-hosted Postgres via \texttt{asyncpg} pool (\texttt{SUPABASE\_DB\_URL}). \\
+    \texttt{frontend ... supabaseClient.js} & Supabase Auth + realtime REST (anon key) for \texttt{profiles}, \texttt{evaluations}, etc. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Google Drive (\texttt{drive\_service.py})}
+  \small
+  \begin{itemize}
+    \item Scope: \texttt{https://www.googleapis.com/auth/drive} (full access enables rename-after-grade flows).
+    \item Credentials: service account JSON (\texttt{credentials.json} or \texttt{GOOGLE\_APPLICATION\_CREDENTIALS}); fallback \texttt{GOOGLE\_API\_KEY} for \textbf{public} folders only.
+    \item Answer-key detection via regex patterns (\texttt{answer\_key}, \texttt{marking\_scheme}, etc.).
+    \item Downloads via \texttt{MediaIoBaseDownload}; listing recursively from folder IDs extracted from shared URLs.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{drive\_service.py}: scopes + credential priority}
+\begin{lstlisting}[style=py]
+class DriveService:
+    SCOPES = [
+        'https://www.googleapis.com/auth/drive',
+    ]
+    # 1. Service account JSON (credentials.json or GOOGLE_APPLICATION_CREDENTIALS)
+    # 2. Else GOOGLE_API_KEY for public folders only
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Google Sheets (\texttt{sheets\_service.py})}
+  \small
+  \begin{itemize}
+    \item Scope: \texttt{spreadsheets} read/write.
+    \item Header aliasing for entry numbers, names, total marks, comments.
+    \item Entry normalization pattern \texttt{yyyyBBBnnnn}; OCR typo correction helpers / deduped logs for noisy polling paths.
+    \item Optional per-question columns (\texttt{1}, \texttt{Q1}, \ldots) when exporting detailed breakdowns.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{\texttt{sheets\_service.py}: header aliases + entry regex}
+\begin{lstlisting}[style=py]
+ENTRY_NUMBER_ALIASES = {
+    'entry number', 'roll number', 'enrollment', 'student id',
+}
+
+ENTRY_NUMBER_PATTERN = re.compile(
+    r'(\d{4})\s*([A-Za-z]{2,4})\s*(\d{2,5})',
+)
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Vertex AI / Gemini}
+  \small
+  \begin{itemize}
+    \item Regional HTTPS endpoints on \texttt{aiplatform.googleapis.com}; OAuth bearer from service accounts.
+    \item Models in deployment paths today include \texttt{gemini-2.5-flash}, \texttt{gemini-2.5-flash-lite}, \texttt{gemini-2.5-pro} depending on module.
+    \item Separate-from-browser credential wiring for \texttt{c\_code\_evaluator} imports under code-eval routes.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Supabase (dual role)}
+  \small
+  \begin{itemize}
+    \item \textbf{Auth + profiles}: frontend \texttt{@supabase/supabase-js}; row-level access patterns live in Supabase SQL for user tables (not shown in backend Python).
+    \item \textbf{Operational Postgres}: backend \texttt{SUPABASE\_DB\_URL} + asyncpg pool (\texttt{supabase\_client.py}); toggled by \texttt{CACHE\_BACKEND=supabase}.
+    \item Pool sizing env: \texttt{SUPABASE\_POOL\_MIN}, \texttt{SUPABASE\_POOL\_MAX}; \texttt{statement\_cache\_size=0} for PgBouncer compatibility.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Supabase pool bootstrap (backend)}
+\begin{lstlisting}[style=py]
+_pool = await asyncpg.create_pool(
+    dsn=_get_dsn(),
+    min_size=int(os.getenv("SUPABASE_POOL_MIN", "1")),
+    max_size=int(os.getenv("SUPABASE_POOL_MAX", "10")),
+    command_timeout=30,
+    statement_cache_size=0,
+)
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Environment variables (representative)}
+  \footnotesize
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Variable & Purpose \\
+    \midrule
+    \texttt{VITE\_BACKEND\_URL} & Frontend $\rightarrow$ FastAPI base URL. \\
+    \texttt{VITE\_SUPABASE\_URL}, \texttt{VITE\_SUPABASE\_ANON\_KEY} & Browser auth session. \\
+    \texttt{GOOGLE\_APPLICATION\_CREDENTIALS} & SA JSON for Drive/Sheets/Vertex. \\
+    \texttt{GOOGLE\_API\_KEY} / \texttt{VERTEX\_AI\_API\_KEY} & Fallback Studio/API access paths. \\
+    \texttt{GOOGLE\_CLOUD\_PROJECT} & Vertex project id resolution. \\
+    \texttt{CACHE\_BACKEND} & \texttt{sqlite} (default) vs \texttt{supabase}. \\
+    \texttt{SUPABASE\_DB\_URL} & Postgres DSN for cache/pdf tables. \\
+    \texttt{CORS\_ORIGINS} & Allowed browser origins for credentialed CORS. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Screenshot placeholder --- Google Cloud / APIs}
+  \begin{center}
+    \fbox{\parbox{0.92\textwidth}{\centering\vspace{1.8cm}
+      \textit{GCP Console: enabled APIs + service account keys redacted}\vspace{1.8cm}}}
+  \end{center}
+\end{frame}
+
+\begin{frame}{External-services extrapolation (future)}
+  \small
+  \begin{itemize}
+    \item \textbf{Workload Identity} instead of long-lived JSON keys on servers.
+    \item \textbf{Dedicated Shared Drive} ACL templates documented per institution.
+    \item \textbf{Secrets manager} integration (Vault / GSM) for rotating SA keys.
+    \item Regional \textbf{egress controls} if student data must stay in-country.
+  \end{itemize}
+\end{frame}
+
+% ############################### CLOSING ######################################
+
+\begin{frame}{Cross-cutting future themes}
+  \small
+  \begin{itemize}
+    \item Observability: trace IDs across ZIP/PDF runs; OCR disagreement metrics.
+    \item Fairness: blind grading mode (strip names earlier in pipeline).
+    \item Extensibility: plugin scorer for new question types; LMS CSV adapters beyond Sheets.
+    \item Compliance: data retention windows on cache tables + purge automation.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Closing}
+  \centering
+  \Large Questions \& milestones
+
+  \vspace{1.2em}
+  \normalsize
+  Build: \texttt{pdflatex presentation3\_future\_development.tex}
+\end{frame}
+
+\end{document}
