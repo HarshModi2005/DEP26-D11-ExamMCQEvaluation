@@ -1,0 +1,8 @@
+\frametitle{\texttt {image\_preprocessing.preprocess\_for\_ocr}}
+\begin{lstlisting}[style=py]
+def preprocess_for_ocr(image_path: str,
+    max_size: Tuple[int, int] = (1920, 1920),
+    jpeg_quality: int = 85,
+) -> Tuple[bytes, str]:
+    """HSV paper crop -> resize -> JPEG bytes."""
+\end{lstlisting}
