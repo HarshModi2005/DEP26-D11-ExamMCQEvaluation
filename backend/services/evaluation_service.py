@@ -4,8 +4,9 @@ import json
 import re
 import requests
 import time
-from typing import List, Dict, Any
-from models import AnswerKey, StudentResult, QuestionResult
+import difflib
+from typing import List, Dict, Any, Optional, Tuple
+from models import AnswerKey, AnswerKeyEntry, StudentResult, QuestionResult
 
 
 class EvaluationService:
@@ -144,6 +145,162 @@ class EvaluationService:
             details=details,
             comments="; ".join(comments_list) if comments_list else ""
         )
+
+    # ──────────────────────────────────────────
+    #  Set-Wise Evaluation (multi-set papers)
+    # ──────────────────────────────────────────
+
+    @staticmethod
+    def resolve_set_from_first_question(
+        first_question_text: str,
+        set_wise_key: Dict,
+        threshold: float = 0.55,
+    ) -> Tuple[Optional[str], float]:
+        """
+        Identify which set a student's paper belongs to by fuzzy-matching
+        the OCR'd first question text against each set's fingerprint.
+
+        Args:
+            first_question_text: The OCR-extracted text of question 1.
+            set_wise_key: The set-wise answer key dict with a "sets" key.
+            threshold: Minimum similarity to accept a match.
+
+        Returns:
+            (set_id, similarity_score) or (None, 0.0) if no match found.
+        """
+        if not first_question_text or not set_wise_key.get("sets"):
+            return None, 0.0
+
+        best_set_id = None
+        best_score = 0.0
+        q_text = first_question_text.strip().lower()
+
+        sets = set_wise_key["sets"]
+        for set_id, set_data in sets.items():
+            fingerprint = (set_data.get("first_question_fingerprint") or "").strip().lower()
+            if not fingerprint:
+                continue
+
+            # Use SequenceMatcher for robust fuzzy matching (handles OCR noise)
+            sim = difflib.SequenceMatcher(None, q_text, fingerprint).ratio()
+
+            # Also check if one is a substring of the other (OCR may truncate)
+            if q_text in fingerprint or fingerprint in q_text:
+                sim = max(sim, 0.85)
+
+            # Check word overlap as a secondary signal
+            q_words = set(q_text.split())
+            fp_words = set(fingerprint.split())
+            if q_words and fp_words:
+                word_overlap = len(q_words & fp_words) / max(len(q_words), len(fp_words))
+                sim = max(sim, word_overlap)
+
+            if sim > best_score:
+                best_score = sim
+                best_set_id = set_id
+
+        if best_score >= threshold:
+            return best_set_id, best_score
+        return None, best_score
+
+    @staticmethod
+    def match_and_score_setwise(
+        set_wise_key: Dict,
+        student_answers: Dict,
+    ) -> StudentResult:
+        """
+        Set-wise evaluation: resolve the student's set from their first question
+        text, then build a per-set AnswerKey and delegate to match_and_score().
+
+        The set_wise_key has this shape:
+        {
+            "set_wise": true,
+            "sets": {
+                "set_1": {
+                    "first_question_fingerprint": "Why did ...",
+                    "answers": {"1": {...}, "2": {...}, ...}
+                },
+                ...
+            },
+            "negative_marking": 0,
+            "total_questions": 20
+        }
+        """
+        # Try to resolve the set from the first question text
+        first_q_text = str(student_answers.get("first_question_text", "")).strip()
+        resolved_set_id, sim_score = EvaluationService.resolve_set_from_first_question(
+            first_q_text, set_wise_key
+        )
+
+        sets = set_wise_key.get("sets", {})
+        negative_marking = float(set_wise_key.get("negative_marking", 0))
+
+        if not resolved_set_id or resolved_set_id not in sets:
+            # Fallback: cannot determine set — score against first set with a warning
+            fallback_set_id = next(iter(sets), None) if sets else None
+            if not fallback_set_id:
+                # No sets at all — return empty result
+                return StudentResult(
+                    entry_number=str(student_answers.get("entry_number", "")).strip(),
+                    name=str(student_answers.get("name", "")).strip(),
+                    total_score=0, max_score=0, correct_count=0,
+                    incorrect_count=0, unattempted_count=0,
+                    comments=f"SET IDENTIFICATION FAILED — no sets in answer key"
+                )
+
+            resolved_set_id = fallback_set_id
+            set_comment = (
+                f"⚠️ SET UNRESOLVED (sim={sim_score:.2f}), "
+                f"using fallback {resolved_set_id}; "
+                f"first_q: \"{first_q_text[:80]}…\""
+            )
+        else:
+            set_comment = f"Set: {resolved_set_id} (sim={sim_score:.2f})"
+
+        # Build an AnswerKey for the resolved set
+        set_data = sets[resolved_set_id]
+        raw_answers = set_data.get("answers", {})
+        parsed_answers: Dict[int, AnswerKeyEntry] = {}
+        for q_str, entry in raw_answers.items():
+            try:
+                q_num = int(q_str)
+            except (ValueError, TypeError):
+                continue
+
+            if isinstance(entry, dict):
+                parsed_answers[q_num] = AnswerKeyEntry(
+                    question_type=entry.get("question_type", "SMCQ"),
+                    correct_answer=str(entry.get("correct_answer", "")).strip().upper(),
+                    positive_marks=float(entry.get("positive_marks", 1.0)),
+                    negative_marks=float(entry.get("negative_marks", 0)),
+                )
+            else:
+                # Simple "1": "D" format
+                parsed_answers[q_num] = AnswerKeyEntry(
+                    question_type="SMCQ",
+                    correct_answer=str(entry).strip().upper(),
+                    positive_marks=1.0,
+                    negative_marks=abs(negative_marking),
+                )
+
+        answer_key = AnswerKey(
+            total_questions=int(set_wise_key.get("total_questions", len(parsed_answers))),
+            answers=parsed_answers,
+            negative_marking=negative_marking,
+            metadata={"source": "set_wise", "set_id": resolved_set_id},
+        )
+
+        # Delegate to existing scoring
+        result = EvaluationService.match_and_score(answer_key, student_answers)
+
+        # Prepend set identification info to comments
+        existing_comments = result.comments
+        combined_comments = set_comment
+        if existing_comments:
+            combined_comments += "; " + existing_comments
+        result = result.model_copy(update={"comments": combined_comments})
+
+        return result
 
     # Patterns that indicate an unattempted question
     UNATTEMPTED_MARKERS = frozenset({'X', 'NONE', '-', 'NA', 'N/A', 'BLANK', 'NOT ATTEMPTED', 'UNATTEMPTED'})

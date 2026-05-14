@@ -55,6 +55,9 @@ def _get_answer_key():
 def _set_answer_key(val):
     _endpoints_module._current_answer_key = val
 
+def _get_set_wise_key():
+    return getattr(_endpoints_module, '_current_set_wise_key', None)
+
 
 def _initialize_processing_stats(processing_id: str, start_time: float):
     _processing_stats[processing_id] = {
@@ -224,6 +227,7 @@ def _build_ocr_prompt(answer_key: Optional[dict] = None) -> str:
     prompt = (
         'Extract from this answer sheet and return JSON:\n'
         '{"entry_number":"roll number or null","name":"student name or null",'
+        '"first_question_text":"the printed text of question 1 (the question stem, NOT the answer) or null",'
         f'"answers":{example_answers_json}}}\n'
         'answers: dict of question_number(str)->answer(str). '
         'For checkboxes, ONLY return the exact letters checked (A/B/C/D). NEVER guess numbers like "3" for checked boxes. '
@@ -395,6 +399,7 @@ def _parse_ocr_text(text: str, image_path: str) -> Optional[dict]:
         "entry_number": entry_str,
         "name": str(parsed.get("name") or parsed.get("student_name") or "").strip(),
         "comments": parsed.get("comments") or "",
+        "first_question_text": str(parsed.get("first_question_text") or "").strip(),
         "answers": {},
     }
     skipped_keys = []
@@ -1231,7 +1236,12 @@ async def _process_sheets_optimized(
                 ocr["entry_number"] = f"UNREAD_{fallback_id}"
                 print(f"  ⚠️ {phase_tag} {fname}: assigning fallback entry_number={ocr['entry_number']!r}")
             print(f"  ⚖️  {phase_tag} {fname}: evaluating | entry={ocr['entry_number']!r} | {len(ocr.get('answers',{}))} answers")
-            student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
+            _sw_key = _get_set_wise_key()
+            if _sw_key:
+                from services.evaluation_service import EvaluationService
+                student_result = EvaluationService.match_and_score_setwise(_sw_key, ocr)
+            else:
+                student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
 
             if isinstance(student_result, dict) and "error" in student_result:
                 print(f"  ❌ {phase_tag} {fname}: EVAL ERROR — {student_result['error']}")
@@ -1397,7 +1407,12 @@ async def _process_sheets_optimized(
                 idx = ocr["index"]
                 
                 print(f"  ⚖️  [GROUPED] {fname}: evaluating | entry={ocr['entry_number']!r} | {len(ocr.get('answers',{}))} answers")
-                student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
+                _sw_key = _get_set_wise_key()
+                if _sw_key:
+                    from services.evaluation_service import EvaluationService
+                    student_result = EvaluationService.match_and_score_setwise(_sw_key, ocr)
+                else:
+                    student_result = batch_eval_service.evaluate_single_student_optimized(optimized_key, ocr, idx)
 
                 if isinstance(student_result, dict) and "error" in student_result:
                     print(f"  ❌ [GROUPED] {fname}: EVAL ERROR — {student_result['error']}")

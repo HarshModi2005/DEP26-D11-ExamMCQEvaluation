@@ -75,6 +75,9 @@ rename_service = DriveRenameService(drive_service)
 
 # The currently loaded answer key (set via drive extraction or manual upload)
 _current_answer_key: Optional[AnswerKey] = None
+# Set-wise answer key dict (when evaluation uses multiple question-paper sets).
+# When set, the pipeline uses match_and_score_setwise() instead of match_and_score().
+_current_set_wise_key: Optional[Dict] = None
 # Scored results from the latest pipeline run
 _current_results: list[StudentResult] = []
 
@@ -208,7 +211,10 @@ async def _process_zip_archive(
 
         async def evaluate_and_save_group(extracted, group_files):
             nonlocal processed_count
-            student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+            if _current_set_wise_key:
+                student_result = EvaluationService.match_and_score_setwise(_current_set_wise_key, extracted)
+            else:
+                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
             _current_results.append(student_result)
             processed_count += 1
             combined_name = " + ".join(group_files)
@@ -278,7 +284,10 @@ async def _process_zip_archive(
                                 current_group_extracted["entry_number"] = extracted["entry_number"]
                 else:
                     # Normal processing (single page)
-                    student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                    if _current_set_wise_key:
+                        student_result = EvaluationService.match_and_score_setwise(_current_set_wise_key, extracted)
+                    else:
+                        student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
                     _current_results.append(student_result)
                     processed_count += 1
 
@@ -561,7 +570,8 @@ def extract_answer_key_from_drive(request: ProcessFolderRequest):
     Extracts the answer key from a Drive folder.
     Looks for a file named 'answer_key' (case-insensitive).
     """
-    global _current_answer_key
+    global _current_answer_key, _current_set_wise_key
+    _current_set_wise_key = None  # Clear set-wise key when extracting a normal key
 
     folder_id = DriveService.extract_folder_id(request.folder_url)
     all_files = drive_service.list_all_files_in_folder(folder_id)
@@ -611,7 +621,8 @@ async def upload_answer_key(file: UploadFile = File(...)):
     Manual upload of an answer key file.
     Supports: CSV, XLSX, PDF, PNG, JPG, TXT
     """
-    global _current_answer_key
+    global _current_answer_key, _current_set_wise_key
+    _current_set_wise_key = None  # Clear set-wise key when uploading a normal key
 
     temp_dir = tempfile.mkdtemp(prefix="ak_upload_")
     try:
@@ -649,7 +660,7 @@ def set_answer_key_manual(answers: dict):
         "negative_marking": 0
     }
     """
-    global _current_answer_key
+    global _current_answer_key, _current_set_wise_key
     from models import AnswerKeyEntry
 
     raw_answers = answers.get("answers", {})
@@ -684,11 +695,97 @@ def set_answer_key_manual(answers: dict):
         metadata={"source": "manual_input"}
     )
 
+    # Clear set-wise key when a normal key is set
+    _current_set_wise_key = None
+
     return {
         "message": "Answer key set manually",
         "total_questions": _current_answer_key.total_questions,
     }
 
+
+@router.post("/answer-key/set-manual-setwise")
+def set_answer_key_manual_setwise(payload: dict):
+    """
+    Set a set-wise answer key (multiple question-paper sets).
+
+    Expected format:
+    {
+        "set_wise": true,
+        "sets": {
+            "set_1": {
+                "first_question_fingerprint": "Why did stronger hardware ...",
+                "answers": {"1": "D", "2": "C", ...}
+            },
+            ...
+        },
+        "total_questions": 20,
+        "negative_marking": 0
+    }
+    """
+    global _current_answer_key, _current_set_wise_key
+
+    sets = payload.get("sets", {})
+    if not sets:
+        raise HTTPException(status_code=400, detail="'sets' must be a non-empty object")
+
+    # Validate each set has answers and a fingerprint
+    for set_id, set_data in sets.items():
+        answers = set_data.get("answers", {})
+        if not answers:
+            raise HTTPException(status_code=400, detail=f"Set '{set_id}' has no answers")
+        fingerprint = set_data.get("first_question_fingerprint", "")
+        if not fingerprint:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Set '{set_id}' has no 'first_question_fingerprint'"
+            )
+
+    # Store the raw set-wise key
+    _current_set_wise_key = payload
+
+    # Also build a dummy _current_answer_key from the first set so the pipeline
+    # guard checks (_current_answer_key is not None) pass.
+    first_set_id = next(iter(sets))
+    first_set_answers = sets[first_set_id].get("answers", {})
+    negative = float(payload.get("negative_marking", 0))
+    total_q = int(payload.get("total_questions", len(first_set_answers)))
+
+    from models import AnswerKeyEntry as AKE
+    parsed: Dict[int, AKE] = {}
+    for k, v in first_set_answers.items():
+        try:
+            q_num = int(k)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(v, dict):
+            parsed[q_num] = AKE(
+                question_type=v.get("question_type", "SMCQ"),
+                correct_answer=str(v.get("correct_answer", "")).strip().upper(),
+                positive_marks=float(v.get("positive_marks", 1.0)),
+                negative_marks=float(v.get("negative_marks", 0)),
+            )
+        else:
+            parsed[q_num] = AKE(
+                question_type="SMCQ",
+                correct_answer=str(v).strip().upper(),
+                positive_marks=1.0,
+                negative_marks=abs(negative),
+            )
+
+    _current_answer_key = AnswerKey(
+        total_questions=total_q,
+        answers=parsed,
+        negative_marking=negative,
+        metadata={"source": "set_wise_manual", "set_count": len(sets)},
+    )
+
+    return {
+        "message": f"Set-wise answer key loaded — {len(sets)} sets, {total_q} questions each",
+        "total_questions": total_q,
+        "set_count": len(sets),
+        "set_ids": list(sets.keys()),
+    }
 
 @router.post("/process-zip")
 async def process_zip_upload(
@@ -954,7 +1051,10 @@ async def process_drive_folder(request: ProcessFolderRequest, force_reprocess: b
                     )
                     continue
 
-                student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
+                if _current_set_wise_key:
+                    student_result = EvaluationService.match_and_score_setwise(_current_set_wise_key, extracted)
+                else:
+                    student_result = EvaluationService.match_and_score(_current_answer_key, extracted)
                 student_result = student_result.model_copy(
                     update={"file_id": sid or None, "file_name": file_name}
                 )
@@ -1751,9 +1851,14 @@ def _legacy_process_task(submission_id: str, file_id: str, file_name: str):
         # If we have an answer key, use the new scoring
         if _current_answer_key:
             normalized = ocr_service._normalize_objective_output(extracted_data)
-            student_result = EvaluationService.match_and_score(
-                _current_answer_key, normalized
-            )
+            if _current_set_wise_key:
+                student_result = EvaluationService.match_and_score_setwise(
+                    _current_set_wise_key, normalized
+                )
+            else:
+                student_result = EvaluationService.match_and_score(
+                    _current_answer_key, normalized
+                )
             result_record = EvaluationResult(
                 submission_id=submission_id,
                 score=student_result.total_score,

@@ -444,6 +444,7 @@ Return EXACTLY this structure — nothing else:
 {
   "entry_number": "<string exactly as written, or null>",
   "name": "<string exactly as written, or null>",
+  "first_question_text": "<the printed text of question 1 — the question stem, NOT the student's answer — or null if not visible>",
   "answers": {
     "1": "A",
     "2": "AC",
@@ -461,6 +462,7 @@ ABSOLUTE RULES:
   ✓ Omit a question ONLY if it is 100% blank with no markings. If there is ANY ink, you must include it.
   ✓ Scan EVERY part of the image — both identity fields and answers can appear anywhere.
   ✓ If the entire sheet is blank, return "answers": {}.
+  ✓ For first_question_text, extract the PRINTED question text of Q1 (not the answer), such as "Why did stronger hardware help deep learning grow?". If the question text is not visible (e.g. answer-only sheet), return null.
 """
 
     def _normalize_objective_output(self, parsed: dict) -> dict:
@@ -469,6 +471,7 @@ ABSOLUTE RULES:
             "entry_number": parsed.get("entry_number") or parsed.get("roll_number") or "",
             "name": parsed.get("name") or parsed.get("student_name") or "",
             "comments": parsed.get("comments") or "",
+            "first_question_text": parsed.get("first_question_text") or "",
             "answers": {}
         }
 

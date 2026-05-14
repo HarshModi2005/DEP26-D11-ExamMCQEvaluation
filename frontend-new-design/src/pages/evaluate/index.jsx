@@ -73,10 +73,19 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
         setLoading(true); setErr('');
         try {
             const parsed = JSON.parse(manualJson);
-            const res = await backendService.setAnswerKeyManual(parsed);
-            const key = { ...parsed, total_questions: res.total_questions };
-            await evaluationService.saveAnswerKey(evaluation.id, key);
-            onKeyLoaded(key);
+
+            // Detect set-wise answer key format
+            if (parsed.set_wise && parsed.sets) {
+                const res = await backendService.setAnswerKeyManualSetwise(parsed);
+                const key = { ...parsed, total_questions: res.total_questions, set_count: res.set_count, set_ids: res.set_ids };
+                await evaluationService.saveAnswerKey(evaluation.id, key);
+                onKeyLoaded(key);
+            } else {
+                const res = await backendService.setAnswerKeyManual(parsed);
+                const key = { ...parsed, total_questions: res.total_questions };
+                await evaluationService.saveAnswerKey(evaluation.id, key);
+                onKeyLoaded(key);
+            }
         } catch (e) { setErr('Invalid JSON or backend error: ' + e.message); }
         finally { setLoading(false); }
     };
@@ -117,8 +126,12 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                     <h3 className="font-semibold text-text-primary">Answer Key</h3>
                 </div>
                 {hasKey && (
-                    <span className="flex items-center gap-1 text-xs text-success-600 font-medium">
-                        <Icon name="CheckCircle" size={14} />Loaded ({evaluation.answer_key_data?.total_questions} Qs)
+                    <span className={`flex items-center gap-1 text-xs font-medium ${evaluation.answer_key_data?.set_wise ? 'text-purple-600' : 'text-success-600'}`}>
+                        <Icon name={evaluation.answer_key_data?.set_wise ? 'Layers' : 'CheckCircle'} size={14} />
+                        {evaluation.answer_key_data?.set_wise
+                            ? `${Object.keys(evaluation.answer_key_data?.sets || {}).length} Sets, ${evaluation.answer_key_data?.total_questions} Qs`
+                            : `Loaded (${evaluation.answer_key_data?.total_questions} Qs)`
+                        }
                     </span>
                 )}
             </div>
@@ -216,8 +229,48 @@ const AnswerKeyPanel = ({ evaluation, onKeyLoaded }) => {
                     </div>
                 )}
 
-                {/* Current Key Preview */}
-                {hasKey && evaluation.answer_key_data?.answers && (
+                {/* Current Key Preview — Set-Wise */}
+                {hasKey && evaluation.answer_key_data?.set_wise && evaluation.answer_key_data?.sets && (
+                    <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                        <p className="text-xs font-semibold text-purple-700 mb-2 flex items-center gap-1">
+                            <Icon name="Layers" size={12} />
+                            Set-Wise Answer Key — {Object.keys(evaluation.answer_key_data.sets).length} Sets
+                        </p>
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {Object.entries(evaluation.answer_key_data.sets).map(([setId, setData]) => {
+                                const answerCount = Object.keys(setData.answers || {}).length;
+                                const fingerprint = setData.first_question_fingerprint || '—';
+                                return (
+                                    <div key={setId} className="p-2 bg-white border border-purple-100 rounded-lg">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-xs font-bold text-purple-800 uppercase">{setId.replace(/_/g, ' ')}</span>
+                                            <span className="text-xs text-purple-500">{answerCount} Qs</span>
+                                        </div>
+                                        <p className="text-xs text-text-secondary italic truncate" title={fingerprint}>
+                                            Q1: "{fingerprint.length > 60 ? fingerprint.slice(0, 60) + '…' : fingerprint}"
+                                        </p>
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {Object.entries(setData.answers || {}).slice(0, 10).map(([q, a]) => {
+                                                const answer = typeof a === 'object' ? (a.correct_answer || '') : a;
+                                                return (
+                                                    <span key={q} className="px-1 py-0.5 border border-purple-200 bg-purple-50 rounded text-xs font-mono">
+                                                        Q{q}:{answer}
+                                                    </span>
+                                                );
+                                            })}
+                                            {answerCount > 10 && (
+                                                <span className="text-xs text-purple-500">+{answerCount - 10} more</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {/* Current Key Preview — Normal */}
+                {hasKey && evaluation.answer_key_data?.answers && !evaluation.answer_key_data?.set_wise && (
                     <div className="mt-2 p-3 bg-success-50 border border-success-100 rounded-lg">
                         <p className="text-xs font-semibold text-success-700 mb-2 flex items-center gap-1"><Icon name="CheckCircle" size={12} />Loaded Answer Key</p>
 
@@ -570,8 +623,14 @@ const EvaluatePage = () => {
 
     const handleKeyLoaded = (keyData) => {
         setEvaluation(prev => ({ ...prev, answer_key_data: keyData }));
-        const count = keyData.total_questions || Object.keys(keyData.problems || {}).length || '?';
-        setPipelineLog(prev => [...prev, `Answer key loaded — ${count} questions`]);
+        if (keyData.set_wise && keyData.sets) {
+            const setCount = Object.keys(keyData.sets).length;
+            const totalQ = keyData.total_questions || '?';
+            setPipelineLog(prev => [...prev, `🔀 Set-wise answer key loaded — ${setCount} sets, ${totalQ} questions each`]);
+        } else {
+            const count = keyData.total_questions || Object.keys(keyData.problems || {}).length || '?';
+            setPipelineLog(prev => [...prev, `Answer key loaded — ${count} questions`]);
+        }
     };
 
     const handleRunPipeline = async () => {
@@ -607,6 +666,15 @@ const EvaluatePage = () => {
         ]);
 
         try {
+            // Ensure the backend has the correct answer key loaded
+            const keyData = evaluation?.answer_key_data;
+            if (keyData?.set_wise && keyData?.sets) {
+                setPipelineLog(prev => [...prev, '🔀 Sending set-wise answer key to backend...']);
+                await backendService.setAnswerKeyManualSetwise(keyData);
+            } else if (keyData?.answers) {
+                await backendService.setAnswerKeyManual(keyData);
+            }
+
             let pipelineResult;
             const startTime = Date.now();
             const speed = "0.00";
@@ -779,6 +847,14 @@ const EvaluatePage = () => {
         appendPipelineLog(forceReprocess ? 'Force reprocess enabled.' : 'Evaluation ready.');
 
         try {
+            // Ensure the backend has the correct answer key loaded
+            const keyData = evaluation?.answer_key_data;
+            if (keyData?.set_wise && keyData?.sets) {
+                appendPipelineLog('🔀 Sending set-wise answer key to backend...');
+                await backendService.setAnswerKeyManualSetwise(keyData);
+            } else if (keyData?.answers) {
+                await backendService.setAnswerKeyManual(keyData);
+            }
             if (!isZipMode && !isPdfMode && url !== evaluation.drive_folder_url) {
                 await evaluationService.updateDriveFolderUrl(evaluationId, url);
                 setEvaluation(prev => ({ ...prev, drive_folder_url: url }));
@@ -787,7 +863,7 @@ const EvaluatePage = () => {
             setPipelineProgress(0);
             const startMsg = isZipMode ? 'Processing ZIP file...'
                 : isPdfMode ? 'Splitting PDF into per-student pages...'
-                : 'Scanning Drive folder for sheets...';
+                    : 'Scanning Drive folder for sheets...';
             appendPipelineLog(startMsg);
 
             const startTime = Date.now();
@@ -1348,9 +1424,12 @@ const EvaluatePage = () => {
 
                                     {/* Checklist */}
                                     <div className="space-y-2">
-                                        <div className={`flex items-center gap-2 text-sm ${evaluation?.answer_key_data ? 'text-success-600' : 'text-secondary-400'}`}>
-                                            <Icon name={evaluation?.answer_key_data ? 'CheckCircle' : 'Circle'} size={16} />
-                                            Answer key loaded
+                                        <div className={`flex items-center gap-2 text-sm ${evaluation?.answer_key_data ? (evaluation.answer_key_data.set_wise ? 'text-purple-600' : 'text-success-600') : 'text-secondary-400'}`}>
+                                            <Icon name={evaluation?.answer_key_data ? (evaluation.answer_key_data.set_wise ? 'Layers' : 'CheckCircle') : 'Circle'} size={16} />
+                                            {evaluation?.answer_key_data?.set_wise
+                                                ? `Set-wise key loaded (${Object.keys(evaluation.answer_key_data.sets || {}).length} sets)`
+                                                : 'Answer key loaded'
+                                            }
                                         </div>
                                         {processingMode === 'drive' && (
                                             <div className={`flex items-center gap-2 text-sm ${driveFolderUrl ? 'text-success-600' : 'text-secondary-400'}`}>

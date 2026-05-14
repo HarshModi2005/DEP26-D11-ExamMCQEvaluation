@@ -65,6 +65,16 @@ export const backendService = {
     },
 
     /**
+     * Set a set-wise answer key (multiple question-paper sets)
+     */
+    async setAnswerKeyManualSetwise(setWisePayload) {
+        return api('/answer-key/set-manual-setwise', {
+            method: 'POST',
+            body: JSON.stringify(setWisePayload),
+        });
+    },
+
+    /**
      * Get the currently loaded answer key
      */
     async getAnswerKey() {
