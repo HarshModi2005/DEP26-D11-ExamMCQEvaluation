@@ -1,8 +1,9 @@
 % Presentation 3 — Answer Key Evaluation DEP
-% Narrative: scope -> UI -> APIs -> persistence/config -> auth -> AI transports
-%          -> objective pipeline -> code-eval (+ LeetCode) -> Drive/Sheets
-%          -> ZIP/PDF + Sheets publishing + Evaluate UI
-%          -> throughput/fuzzy/API contracts -> OCR reference -> supplemental coverage -> closing
+% Narrative (matches \section order): intro -> FE -> backend/APIs -> persistence/config
+%          -> auth -> Gemini/Vertex -> objective pipeline -> code-eval (+ LeetCode)
+%          -> Drive/Sheets (scopes/snippets) -> ZIP/PDF + Sheets publishing + Evaluate UI
+%          -> throughput/fuzzy/API contracts -> OCR + migrations reference -> supplemental
+%          -> HTTP signatures (Vertex, Drive, Sheets) -> closing / thank you
 % pdflatex presentation3_future_development.tex (run twice for stable outlines)
 \documentclass[aspectratio=169]{beamer}
 
@@ -14,7 +15,7 @@
 \usepackage{booktabs}
 \usepackage{multicol}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta, positioning}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric}
 
 \usepackage{listings}
 \usepackage{xcolor}
@@ -67,7 +68,7 @@
 \begin{frame}{Outline (matches section order)}
   \small
   \begin{enumerate}
-    \item \textbf{Introduction} --- repository layout and system diagram.
+    \item \textbf{Introduction} --- repository layout, system diagram, and how to extend the repo/deck.
     \item \textbf{Frontend} --- React/Vite atlas and representative code.
     \item \textbf{Backend and APIs} --- routers, REST surface, domain models, objective ingress paths.
     \item \textbf{Persistence and configuration} --- SQLite, cache keys, Supabase pool, migrations, environment variables.
@@ -75,12 +76,13 @@
     \item \textbf{Gemini and Vertex} --- how vision and text models are invoked (objective + code paths).
     \item \textbf{Objective grading pipeline (services)} --- TikZ chain + module cheat-sheet (after Gemini overview).
     \item \textbf{Code evaluation} --- C-from-image, gcc, syntax repair; then \textbf{LeetCode testcase library}.
-    \item \textbf{Google Drive and Sheets} --- integration snippets.
-    \item \textbf{ZIP, PDF, Sheets publishing, and Evaluate UI} --- multipart ZIP/PDF uploads, page splitting and synthetic IDs, master/marks/response/Super tabs, export endpoints, React evaluate page modes and toolbar.
+    \item \textbf{Google Drive and Sheets} --- OAuth scopes + roster detection hooks; full workbook read/write comes next.
+    \item \textbf{ZIP, PDF, Sheets publishing, and Evaluate UI} --- end-to-end faculty flow (ingress, tabs, export/sync) using those integrations.
     \item \textbf{Throughput, fuzzy matching, and HTTP contracts} --- batch load shaping (token buckets, dual OCR), streaming pipeline, Sheets fuzzy roster logic, Drive rename templates, Pydantic/multipart API surfaces.
-    \item \textbf{OCR and migrations reference} --- tuning knobs and DDL (cross-reference to persistence).
+    \item \textbf{OCR and migrations reference} --- operator condensed reference (module map, DDL, preprocessor); complements the throughput batch discussion.
     \item \textbf{Supplemental repository coverage} --- scoring internals, answer-key parsers, Drive/CLI/offline OCR, pipeline SQLite, Fly/Railway deploy, tests/fixtures, markdown docs.
-    \item \textbf{Closing} --- screenshots placeholders, themes, future work, build.
+    \item \textbf{HTTP signatures (Vertex, Drive, Sheets)} --- request/response shapes for the three external APIs this repo calls.
+    \item \textbf{Closing} --- thank you.
   \end{enumerate}
   \vfill
   \footnotesize All content is in this \texttt{.tex} file only; there is no companion slide deck.
@@ -91,8 +93,66 @@
   \begin{itemize}
     \item \textbf{Objective grading}: ZIP, Drive folder, or PDF $\rightarrow$ OCR $\rightarrow$ answer-key match $\rightarrow$ SQLite/cache $\rightarrow$ optional Sheets/Drive rename.
     \item \textbf{Code grading}: separate HTTP prefix \texttt{/api/code-eval/}; shares Gemini patterns but uses \texttt{c\_code\_evaluator} + LeetCode-shaped tests.
-    \item Later slides follow section order: persistence/config $\rightarrow$ auth $\rightarrow$ Gemini $\rightarrow$ objective pipeline $\rightarrow$ code-eval (including LeetCode) $\rightarrow$ Drive/Sheets $\rightarrow$ ZIP/PDF + Sheets publishing + Evaluate UI $\rightarrow$ throughput/fuzzy/API contracts $\rightarrow$ OCR reference $\rightarrow$ supplemental coverage $\rightarrow$ closing.
+    \item \textbf{How to extend}: most sections below include a slide titled \textit{How to extend: ...} with concrete file paths and a minimal pattern to copy.
+    \item Later slides follow section order: persistence/config $\rightarrow$ auth $\rightarrow$ Gemini $\rightarrow$ objective pipeline $\rightarrow$ code-eval (including LeetCode) $\rightarrow$ Drive/Sheets (\emph{thin}: scopes/detection) $\rightarrow$ ZIP/PDF + Sheets publishing + Evaluate UI (\emph{thick}: faculty flow) $\rightarrow$ throughput/fuzzy/API contracts $\rightarrow$ OCR reference $\rightarrow$ supplemental coverage $\rightarrow$ closing.
   \end{itemize}
+\end{frame}
+
+\begin{frame}{Two grading tracks: mental model}
+  \small
+  The repo supports two fully independent grading paths that share only Drive download utilities.
+  Every section in this deck belongs to one or both tracks.\\[0.6em]
+  \begin{tikzpicture}[font=\scriptsize,
+    box/.style={draw,rounded corners,minimum width=1.85cm,minimum height=0.58cm,align=center},
+    arr/.style={-{Latex[length=1.8mm]},thick}]
+    \node[font=\tiny\bfseries,fill=blue!8,draw,rounded corners,
+          minimum width=12.8cm,minimum height=0.4cm,align=center] at (4.4,2.65)
+      {TRACK A \textemdash{} Objective grading (MCQ / numerical): \texttt{endpoints.py} + \texttt{batch\_endpoints\_optimized.py}};
+    \node[box,fill=blue!12]  (a1) at (0.0,2.05) {ZIP / Drive\\/ PDF};
+    \node[box,fill=orange!14](a2) at (2.55,2.05){OCR\\(Gemini)};
+    \node[box,fill=yellow!16](a3) at (5.1,2.05) {\texttt{match\_and}\\score};
+    \node[box,fill=violet!13](a4) at (7.65,2.05){Result\\cache};
+    \node[box,fill=green!13] (a5) at (10.2,2.05){Sheets /\\Drive rename};
+    \draw[arr](a1)--(a2);\draw[arr](a2)--(a3);\draw[arr](a3)--(a4);\draw[arr](a4)--(a5);
+    \node[font=\tiny\bfseries,fill=red!8,draw,rounded corners,
+          minimum width=12.8cm,minimum height=0.4cm,align=center] at (4.4,0.65)
+      {TRACK B \textemdash{} Code grading (handwritten C solutions): \texttt{code\_eval\_endpoints.py}};
+    \node[box,fill=red!10]   (b1) at (0.0,0.05) {ZIP / Drive\\images};
+    \node[box,fill=orange!14](b2) at (2.55,0.05){Gemini\\code OCR};
+    \node[box,fill=yellow!16](b3) at (5.1,0.05) {gcc compile\\+ repair};
+    \node[box,fill=violet!13](b4) at (7.65,0.05){LeetCode\\harness};
+    \node[box,fill=green!13] (b5) at (10.2,0.05){Score per\\problem};
+    \draw[arr](b1)--(b2);\draw[arr](b2)--(b3);\draw[arr](b3)--(b4);\draw[arr](b4)--(b5);
+  \end{tikzpicture}
+  \vspace{0.3em}
+  \footnotesize
+  \textbf{Track A shared services}: \texttt{drive\_service}, \texttt{ocr\_service} family, \texttt{evaluation\_service}, \texttt{result\_cache\_service}, \texttt{sheets\_service}.\\
+  \textbf{Track B modules}: \texttt{c\_code\_evaluator/evaluate\_c\_from\_image.py}, \texttt{leetcode\_mode.py}.
+\end{frame}
+
+\begin{frame}{Where do I go to change X? (quick-lookup)}
+  \tiny
+  \begin{tabular}{@{}p{5.3cm}p{8.4cm}@{}}
+    \toprule
+    Goal & Primary files to touch \\
+    \midrule
+    New JSON REST endpoint & \texttt{backend/api/endpoints.py} + model in \texttt{backend/models.py} \\
+    New high-throughput batch endpoint & \texttt{backend/api/batch\_endpoints\_optimized.py}; copy \texttt{\_handle\_core} pattern \\
+    New frontend page / route & \texttt{src/pages/<name>/index.jsx}, \texttt{src/Routes.jsx}, \texttt{services/backendService.js} \\
+    New Supabase column or table & \texttt{backend/migrations/NNN\_desc.sql} + \texttt{services/result\_cache\_service.py} \\
+    New environment variable & Consume via \texttt{os.getenv} in \texttt{backend/main.py}; add to env checklist slide \\
+    New OCR region or model & Append entry to \texttt{\_ENDPOINT\_POOL} in \texttt{batch\_endpoints\_optimized.py} \\
+    New LeetCode problem/type support & Harness generators in \texttt{c\_code\_evaluator/leetcode\_mode.py} \\
+    New answer-key file format & Parser branch in \texttt{backend/services/answer\_key\_service.py} \\
+    New CLI flag & \texttt{backend/cli.py}: \texttt{parser.add\_argument} + branch in \texttt{main()} \\
+    New Drive API operation & Method on \texttt{backend/services/drive\_service.py} \\
+    New Sheets tab or write pattern & \texttt{backend/services/sheets\_service.py} \\
+    Tune fuzzy match thresholds & Constants in \texttt{sheets\_service.py}: \texttt{\_smart\_match\_score}, \texttt{\_name\_similarity} \\
+    Change Drive rename filename policy & Templates in \texttt{backend/services/drive\_rename\_service.py} \\
+    Change OCR image preprocessing & \texttt{backend/services/image\_preprocessing.py}: \texttt{preprocess\_for\_ocr} kwargs \\
+    Add/change deploy secret (Fly) & \texttt{fly secrets set KEY=value}; mirror name in \texttt{fly.toml} comments \\
+    \bottomrule
+  \end{tabular}
 \end{frame}
 
 \begin{frame}{Top-level repository layout}
@@ -133,7 +193,212 @@
   Same PDF covers UI wiring (left), API routers (center), persistence (cache + SQLite), vision/compiler backends (right), and the optional code-eval path.
 \end{frame}
 
+\begin{frame}{How to extend: onboarding in this monorepo}
+  \small
+  \textbf{New backend capability}: add code under \texttt{backend/services/} or \texttt{backend/api/}, expose via router, document env vars next to existing checklist slides.\\
+  \textbf{Example}: a maintenance script at repo root $\rightarrow$ follow \texttt{extract\_text\_from\_images.py} style (standalone \texttt{if \_\_name\_\_ == "\_\_main\_\_"} entrypoint calling shared services via \texttt{sys.path}).\\
+  \textbf{Docs}: each major section below ends with a slide titled \textit{How to extend: ...} showing where and how to plug code in safely.
+\end{frame}
+
+% ===================== DEVELOPER QUICK START =====================
+\section{Developer Quick Start}
+
+\begin{frame}{Quick start: what this section covers}
+  \small
+  Everything you need to get the project running locally and make a first change.
+  Read this section once, then return to it whenever you set up a new machine.\\[0.5em]
+  \begin{tabular}{@{}lp{9.5cm}@{}}
+    \toprule
+    Step & What you will do \\
+    \midrule
+    1 & Install system prerequisites (Python, Node.js, gcc) \\
+    2 & Configure backend \texttt{.env} \\
+    3 & Configure frontend \texttt{.env} \\
+    4 & Start the backend server and verify \texttt{/api/status} \\
+    5 & Start the frontend dev server \\
+    6 & Apply Supabase SQL migrations \\
+    7 & Run the smoke test \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Prerequisites}
+  \small
+  \begin{description}\setlength\itemsep{0.35em}
+    \item[Python 3.10+] Required for FastAPI backend. Verify: \texttt{python3 --version}.
+    \item[Node.js 18+] Required for the Vite/React SPA. Verify: \texttt{node --version}.
+    \item[gcc (system C compiler)] Required for code-eval grading.
+      macOS: \texttt{xcode-select -{}-install}. Linux (Debian/Ubuntu): \texttt{sudo apt install build-essential}.
+    \item[Google Cloud SA key] Service-account JSON with \textbf{Drive + Sheets + Vertex AI} scopes.
+      Download from GCP Console $\rightarrow$ IAM $\rightarrow$ Service Accounts $\rightarrow$ Keys $\rightarrow$ Add Key (JSON).
+    \item[Supabase project] Free tier is sufficient. Note the Project URL, anon key, and DB connection string (Settings $\rightarrow$ Database $\rightarrow$ Connection string $\rightarrow$ URI mode).
+    \item[PyMuPDF (optional)] Only needed for PDF ingress: \texttt{pip install pymupdf}.
+      The PDF endpoint surfaces a clear \texttt{ImportError} hint if the package is absent.
+  \end{description}
+\end{frame}
+
+\begin{frame}[fragile]{Backend \texttt{.env} template (annotated)}
+\begin{lstlisting}[style=pys]
+# --- Google / Vertex (required for OCR, Drive, Sheets) ---
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/sa-key.json
+GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+VERTEX_LOCATION=us-central1          # region for Vertex endpoints
+
+# --- Gemini AI Studio (optional; fallback when no SA key) ---
+GEMINI_API_KEY=AIza...               # or GOOGLE_API_KEY
+
+# --- Supabase cache (omit block -> local SQLite only) ---
+CACHE_BACKEND=supabase
+SUPABASE_DB_URL=postgresql://postgres:password@db.xxx.supabase.co:5432/postgres
+SUPABASE_POOL_MIN=1
+SUPABASE_POOL_MAX=5
+
+# --- Runtime tuning (optional; defaults shown) ---
+PIPELINE_MAX_CONCURRENT=24           # lower on <1 GB RAM hosts
+GEMINI_OCR_MODEL=gemini-2.5-flash-lite
+CORS_ORIGINS=http://localhost:5173   # comma-separated list
+ENABLE_LEGACY_PROCESS_FILE=0         # 1 enables deprecated endpoint
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Frontend \texttt{.env} template}
+\begin{lstlisting}[style=jsx]
+# frontend-new-design/.env.local
+VITE_BACKEND_URL=http://localhost:8000   # no trailing slash
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGci...
+\end{lstlisting}
+\vfill
+\small
+\textbf{Key constraint}: \texttt{VITE\_BACKEND\_URL} must not have a trailing slash.
+The \texttt{api()} helper in \texttt{backendService.js} prepends this value to every \texttt{/api/...} path.\\
+In production point \texttt{VITE\_BACKEND\_URL} to your deployed FastAPI domain (Fly, Railway, or custom).
+\end{frame}
+
+\begin{frame}[fragile]{Backend startup commands}
+\begin{lstlisting}[style=pys]
+# From repo root
+cd backend
+pip install -r requirements.txt
+
+# Development server (auto-reload on file save)
+uvicorn main:app --reload --port 8000
+
+# First health check
+curl http://localhost:8000/api/status
+# Expected response includes:
+#   "answer_key_loaded": false
+#   "cache_stats": {...}
+#   "environment": {...}
+\end{lstlisting}
+\vfill
+\small
+The lifespan hook warms the Supabase asyncpg pool on startup (if \texttt{CACHE\_BACKEND=supabase}).
+Watch the terminal: a pool connection failure surfaces as a warning but does not abort startup
+--- the backend falls back silently to SQLite.
+\end{frame}
+
+\begin{frame}[fragile]{Frontend startup commands}
+\begin{lstlisting}[style=jsx]
+cd frontend-new-design
+npm install           # installs node_modules (once per machine)
+npm run dev
+# Vite prints: VITE v5.x  ready at http://localhost:5173
+\end{lstlisting}
+\vfill
+\small
+\textbf{First login}: register a new account using the signup form at \texttt{/login-register}.
+The \texttt{AuthProvider} stores the Supabase JWT in \texttt{localStorage} under the key
+\texttt{sb-\{PROJECT\_REF\}-auth-token} (set in \texttt{supabaseClient.js}).\\[0.3em]
+Alternatively, create a user programmatically:
+\texttt{node frontend-new-design/create\_test\_user.js} (edit email/password at the top of that file).
+\end{frame}
+
+\begin{frame}{Supabase migration checklist}
+  \footnotesize
+  Apply these SQL files in \textbf{Supabase SQL Editor} (Project $\rightarrow$ SQL Editor $\rightarrow$ New query $\rightarrow$ paste $\rightarrow$ Run):
+  \begin{enumerate}\setlength\itemsep{0.3em}
+    \item \texttt{backend/migrations/001\_result\_cache.sql}\\
+          Creates \texttt{result\_cache} table with JSONB columns + enables RLS.
+    \item \texttt{backend/migrations/002\_cache\_evaluation\_scope.sql}\\
+          Adds \texttt{evaluation\_id}, \texttt{file\_id} columns + composite index to \texttt{result\_cache}.
+    \item \texttt{backend/migrations/002\_pdf\_page\_map.sql}\\
+          Creates \texttt{pdf\_page\_map} table for PDF reconciliation.
+  \end{enumerate}
+  \textbf{Naming collision}: two files share the \texttt{002\_} prefix --- this is a known repo quirk.
+  Both must be applied; they touch different tables so order between them does not matter.\\[0.3em]
+  After applying all three: set \texttt{CACHE\_BACKEND=supabase} and restart the backend.
+  \texttt{GET /api/status} should then report \texttt{"cache\_backend": "supabase"}.
+\end{frame}
+
+\begin{frame}[fragile]{Smoke test: verifying your setup}
+\begin{lstlisting}[style=pys]
+# Automated (from backend/)
+python smoke_test.py
+
+# Or manually with curl, step by step:
+# 1. Health check
+curl http://localhost:8000/api/status
+
+# 2. Load an answer key without any file (manual set)
+curl -s -X POST http://localhost:8000/api/answer-key/set-manual \
+  -H "Content-Type: application/json" \
+  -d '{"answers": {"1": {"question_type": "SMCQ",
+       "correct_answer": "A", "positive_marks": 1.0}}}'
+
+# 3. Confirm it is loaded
+curl http://localhost:8000/api/answer-key
+# Expected: {"total_questions": 1, "answers": {"1": {...}}}
+
+# 4. Clear it
+curl -X DELETE http://localhost:8000/api/results/clear
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}{Quick-start summary}
+  \small
+  After completing all steps you have:
+  \begin{itemize}\setlength\itemsep{0.25em}
+    \item A running FastAPI backend at \texttt{localhost:8000} wired to Google Cloud and optionally Supabase.
+    \item A running Vite dev server at \texttt{localhost:5173} authenticated via Supabase.
+    \item Three Supabase tables (\texttt{result\_cache}, \texttt{pdf\_page\_map}) ready for cache writes.
+    \item A working smoke test baseline to compare against after any future change.
+  \end{itemize}
+  \vspace{0.4em}
+  \textbf{Next}: the remaining sections document every module in depth.
+  Use the \textit{Where do I go to change X?} table (Introduction section) as your entry point
+  whenever you know \emph{what} you want to add but not \emph{where}.
+\end{frame}
+
 \section{Frontend}
+
+\begin{frame}{Frontend: what this section covers}
+  \small
+  The frontend is a \textbf{Vite + React SPA} that communicates with the FastAPI backend
+  over plain HTTP and with Supabase directly for auth and roster data.
+  This section gives a complete file atlas so you can locate any piece of UI code,
+  understand how routing works, and follow the exact pattern for adding a new page
+  or a new backend call.\\[0.4em]
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Sub-topic & Slides \\
+    \midrule
+    Extension pattern (new page + API call) & How to extend \\
+    Entry \& routing files & File atlas --- entry \& routing \\
+    Service layer (API \& Supabase calls) & File atlas --- services \\
+    Page inventory & File atlas --- pages \\
+    Bootstrapping, routing code & Code snippets \\
+    Supabase schema used by the frontend & Supabase application schema \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{How to extend: new screen + API call}
+  \small
+  \textbf{Steps}: (1)~Create \texttt{src/pages/my-feature/index.jsx}; (2)~add \texttt{<Route path="/my-feature" element=\{<ProtectedRoute><MyFeature /></ProtectedRoute>\} />} in \texttt{Routes.jsx} with matching import; (3)~add \texttt{async myPing()} in \texttt{backendService.js} using the same \texttt{api()} helper as existing calls.\\
+  \textbf{Example pairing}: frontend \texttt{return api('/my-widget')} $\leftrightarrow$ backend \texttt{@router.get("/my-widget") def my\_widget(): return \{ "ok": True \}} under \texttt{/api} prefix.\\
+  Any batch-style action that needs cache isolation must pass a real \texttt{evaluation\_id} (\texttt{requireEvaluationId}).
+\end{frame}
 
 \begin{frame}{Frontend file atlas --- entry \& routing}
   \tiny
@@ -262,7 +527,45 @@ function App() {
   RLS and policies live in Supabase project --- backend Postgres cache (\texttt{result\_cache}) is a separate concern from app roster data.
 \end{frame}
 
+\begin{frame}{Frontend: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{One API helper}: all backend calls go through \texttt{api()} in \texttt{backendService.js}. Never fetch \texttt{/api/*} directly from a component.
+    \item \textbf{ProtectedRoute}: every authenticated page must be wrapped; a missing wrapper silently redirects to login.
+    \item \textbf{Two data planes}: \texttt{backendService.js} talks to FastAPI; \texttt{evaluationService.js}, \texttt{courseService.js}, etc.\ talk directly to Supabase. Do not mix them in the same call.
+    \item \textbf{evaluationId is required} for every batch action. Pass it from route params (\texttt{useParams()} in \texttt{evaluate/index.jsx}); the \texttt{requireEvaluationId} guard throws on \texttt{'default'}.
+    \item \textbf{Unregistered pages}: \texttt{sprint-planning/} and \texttt{team-management/} exist under \texttt{src/pages/} but are not in \texttt{Routes.jsx} --- links from the dashboard will hit the catch-all redirect until you register them.
+    \item \textbf{Next}: Backend and APIs shows the FastAPI side of every \texttt{backendService.js} call.
+  \end{itemize}
+\end{frame}
+
 \section{Backend and APIs}
+
+\begin{frame}{Backend and APIs: what this section covers}
+  \small
+  FastAPI is structured as \textbf{three routers} mounted in \texttt{main.py}.
+  This section documents every endpoint group, the Pydantic request/response models,
+  and the three objective ingress paths (ZIP, Drive, PDF) at a summary level.
+  Deep-dives on specific flows (OCR, cache, Sheets, code-eval) appear in later sections.\\[0.4em]
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Sub-topic & Slides \\
+    \midrule
+    Extension pattern (new route) & How to extend \\
+    Backend file atlas (\texttt{main.py}, \texttt{models.py}, routers) & Backend file atlas \\
+    Endpoint groups (\texttt{/api/*}, \texttt{/api/batch/*}) & Endpoint group slides \\
+    Pydantic request/response contracts & \texttt{models.py} slides \\
+    How three routers compose & FastAPI composition \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{How to extend: new REST surface (\texttt{endpoints.py})}
+  \tiny
+  \textbf{Standard JSON route}: add \texttt{@router.post("/my-action")} on \texttt{api/endpoints.py}; parse body with a Pydantic model from \texttt{models.py}; delegate to a service module; \texttt{return} dict or raise \texttt{HTTPException}.\\
+  \textbf{Minimal example}: \texttt{@router.get("/health-widget") async def health\_widget(): return \{"feature": "on"\}} --- already mounted via \texttt{main.py}.\\
+  High-throughput paths should follow \texttt{batch\_endpoints\_optimized.py}: async \texttt{aiohttp}, cache checks, semaphores --- copy \texttt{\_handle\_core} patterns instead of blocking the event loop.
+\end{frame}
 
 \begin{frame}{Backend file atlas}
   \tiny
@@ -371,7 +674,8 @@ function App() {
 
 \begin{frame}{Objective ingress: ZIP, Drive, PDF}
   \footnotesize
-  Three surfaces share \texttt{match\_and\_score} / cache semantics; differ only in how bytes reach FastAPI.
+  Three surfaces share \texttt{match\_and\_score} / cache semantics; differ only in how bytes reach FastAPI.\\
+  \textit{Where to read more}: ZIP/PDF handlers, Sheets tabs, and Evaluate UI in \textbf{ZIP, PDF, Sheets publishing, and Evaluate UI}; Drive folder throughput (dual OCR, cache, rename) in \textbf{Throughput, fuzzy matching, and HTTP contracts}.
 \end{frame}
 
 \begin{frame}{ZIP (\texttt{/api/process-zip})}
@@ -440,7 +744,44 @@ app.include_router(code_eval_endpoints.router)
 \tiny Lifespan: warm asyncpg pool when \texttt{CACHE\_BACKEND=supabase}; shutdown closes OCR clients + pool.
 \end{frame}
 
+\begin{frame}{Backend and APIs: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{Three routers, three concerns}: \texttt{endpoints.py} (interactive/ZIP/Sheets), \texttt{batch\_endpoints\_optimized.py} (throughput/PDF/cache), \texttt{code\_eval\_endpoints.py} (code grading only).
+    \item \textbf{Adding an endpoint}: JSON routes go in \texttt{endpoints.py}; high-throughput async paths follow \texttt{batch\_endpoints\_optimized.py} patterns (semaphores, aiohttp, cache-first).
+    \item \textbf{Pydantic everywhere}: every request body and response must have a model in \texttt{models.py}. This enforces schema hygiene and generates OpenAPI docs automatically.
+    \item \textbf{evaluation\_id is a hard gate}: the batch router rejects blank or \texttt{"default"} values before any I/O --- enforce this on all new evaluation-scoped endpoints.
+    \item \textbf{Legacy gate}: \texttt{/api/process-file} is disabled by default; new code should never depend on it.
+    \item \textbf{Next}: Persistence and configuration covers where results, cache rows, and pipeline state are actually stored.
+  \end{itemize}
+\end{frame}
+
 \section{Persistence and configuration}
+
+\begin{frame}{Persistence and configuration: what this section covers}
+  \small
+  The backend uses \textbf{two persistence layers} and a \textbf{runtime configuration} layer.
+  Understanding the boundary between them is essential before adding any new feature
+  that stores data or reads configuration at deploy time.\\[0.4em]
+  \begin{tabular}{@{}p{4.5cm}p{9.2cm}@{}}
+    \toprule
+    Layer & Purpose \\
+    \midrule
+    SQLite (WAL, local file) & Pipeline run state, per-file status, legacy student/submission rows. Always present; no credentials needed. \\
+    Supabase Postgres & \texttt{result\_cache} JSONB (OCR + eval results); \texttt{pdf\_page\_map}. Active only when \texttt{CACHE\_BACKEND=supabase}. \\
+    Environment variables & All runtime toggles, API keys, connection strings, tuning knobs. \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.3em}\\
+  \footnotesize Covered here: SQLite schema, WAL tuning, cache key format, Supabase pool, env var checklist, and the extension pattern for adding columns or tables.
+\end{frame}
+
+\begin{frame}{How to extend: SQLite + Supabase persistence}
+  \small
+  \textbf{Local WAL schema}: extend \texttt{\_ensure\_schema} / helpers in \texttt{optimized\_database\_service.py}; use \texttt{CREATE TABLE IF NOT EXISTS} or guarded \texttt{ALTER TABLE}; add indexes for new query patterns.\\
+  \textbf{Supabase}: add \texttt{backend/migrations/003\_your\_change.sql}; apply in Supabase SQL editor; update \texttt{result\_cache\_service.py} read/write if columns or key semantics change.\\
+  \textbf{Example}: cache audit column \texttt{graded\_by text DEFAULT NULL} $\rightarrow$ migration file + include field in upsert payload builder only when non-null.
+\end{frame}
 
 \begin{frame}[fragile]{SQLite schema (\texttt{database.py})}
 \begin{lstlisting}[style=py]
@@ -496,24 +837,78 @@ _pool = await asyncpg.create_pool(
 \end{lstlisting}
 \end{frame}
 
-\begin{frame}{Environment variables (checklist)}
+\begin{frame}{Environment variables (complete checklist)}
   \tiny
-  \begin{tabular}{@{}ll@{}}
+  \begin{tabular}{@{}p{5.6cm}p{1.3cm}p{6.8cm}@{}}
     \toprule
-    Var & Role \\
+    Variable & Required? & Role and default \\
     \midrule
-    \texttt{VITE\_BACKEND\_URL}, \texttt{VITE\_SUPABASE\_URL}, \texttt{VITE\_SUPABASE\_ANON\_KEY} & Frontend \\
-    \texttt{GOOGLE\_APPLICATION\_CREDENTIALS}, \texttt{GOOGLE\_CLOUD\_PROJECT} & Vertex + Drive/Sheets SA \\
-    \texttt{GOOGLE\_API\_KEY} / \texttt{GEMINI\_API\_KEY} & AI Studio REST fallback \\
-    \texttt{GEMINI\_OCR\_MODEL}, \texttt{VERTEX\_LOCATION} & Code-eval header OCR + C OCR defaults \\
-    \texttt{CACHE\_BACKEND}, \texttt{SUPABASE\_DB\_URL} & Cache backend \\
-    \texttt{CORS\_ORIGINS} & Browser origins \\
+    \multicolumn{3}{@{}l@{}}{\textbf{Frontend (prefix \texttt{VITE\_})}} \\
+    \texttt{VITE\_BACKEND\_URL} & Yes & FastAPI base URL; no trailing slash \\
+    \texttt{VITE\_SUPABASE\_URL} & Yes & Supabase project URL \\
+    \texttt{VITE\_SUPABASE\_ANON\_KEY} & Yes & Supabase public anon key \\
+    \midrule
+    \multicolumn{3}{@{}l@{}}{\textbf{Google / Vertex (backend)}} \\
+    \texttt{GOOGLE\_APPLICATION\_CREDENTIALS} & Yes* & Absolute path to SA JSON key (*required for Drive/Sheets/Vertex) \\
+    \texttt{GOOGLE\_CLOUD\_PROJECT} & Yes* & GCP project ID for Vertex AI endpoints \\
+    \texttt{VERTEX\_LOCATION} & No & Vertex region; default \texttt{us-central1} \\
+    \texttt{GOOGLE\_API\_KEY} / \texttt{GEMINI\_API\_KEY} & No & AI Studio REST fallback; used if no SA key \\
+    \texttt{GEMINI\_OCR\_MODEL} & No & Model for header OCR; default \texttt{gemini-2.5-flash-lite} \\
+    \midrule
+    \multicolumn{3}{@{}l@{}}{\textbf{Cache and database}} \\
+    \texttt{CACHE\_BACKEND} & No & \texttt{sqlite} (default) or \texttt{supabase} \\
+    \texttt{SUPABASE\_DB\_URL} & No* & Postgres URI (*required when \texttt{CACHE\_BACKEND=supabase}) \\
+    \texttt{SUPABASE\_POOL\_MIN} & No & Async pool min size; default \texttt{1} \\
+    \texttt{SUPABASE\_POOL\_MAX} & No & Async pool max size; default \texttt{10} \\
+    \midrule
+    \multicolumn{3}{@{}l@{}}{\textbf{Runtime tuning}} \\
+    \texttt{PIPELINE\_MAX\_CONCURRENT} & No & Semaphore cap for simultaneous OCR+score; default \texttt{24} \\
+    \texttt{CORS\_ORIGINS} & No & Comma-separated allowed origins; default \texttt{*} (open) \\
+    \texttt{ENABLE\_LEGACY\_PROCESS\_FILE} & No & \texttt{1} re-enables deprecated \texttt{/api/process-file}; default \texttt{0} \\
     \bottomrule
   \end{tabular}
 \end{frame}
 
+\begin{frame}{Persistence and configuration: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{SQLite is always on}: \texttt{optimized\_database\_service.py} creates WAL-mode tables at first run. You never need to provision it.
+    \item \textbf{Supabase cache is opt-in}: set \texttt{CACHE\_BACKEND=supabase} + \texttt{SUPABASE\_DB\_URL}; otherwise the backend uses in-memory LRU + SQLite.
+    \item \textbf{Cache key format is sacred}: \texttt{sheet:v2:\{evaluation\_id\}:\{file\_id\}} --- changing this format invalidates all existing cache rows. Only do it with a migration.
+    \item \textbf{Answer key hash guards stale recompute}: when you edit an answer key, existing cache rows are purged automatically via \texttt{purge\_stale\_for\_evaluation} on startup.
+    \item \textbf{New Supabase column}: always use \texttt{ADD COLUMN IF NOT EXISTS} in migrations; always add a matching index if the column is used in \texttt{WHERE} clauses.
+    \item \textbf{Next}: Authentication shows the Supabase JWT boundary between browser, FastAPI, and Supabase Postgres.
+  \end{itemize}
+\end{frame}
+
 % ===================== AUTH =====================
 \section{Authentication}
+
+\begin{frame}{Authentication: what this section covers}
+  \small
+  The project has \textbf{two separate auth planes} that do not currently share tokens.
+  Understanding this boundary is critical before adding any security-sensitive feature.\\[0.4em]
+  \begin{tabular}{@{}p{3.8cm}p{9.9cm}@{}}
+    \toprule
+    Plane & Who owns it \\
+    \midrule
+    Browser $\leftrightarrow$ Supabase & \texttt{@supabase/supabase-js}; JWT in \texttt{localStorage}; gates \texttt{ProtectedRoute}. \\
+    Browser $\leftrightarrow$ FastAPI & Plain \texttt{fetch}; no JWT verification on most routes; relies on deployment-perimeter security. \\
+    Backend $\leftrightarrow$ Google & Service-account JSON (\texttt{GOOGLE\_APPLICATION\_CREDENTIALS}); scoped per API. \\
+    Backend $\leftrightarrow$ Supabase PG & \texttt{SUPABASE\_DB\_URL} DB role; bypasses row-level security. \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.2em}\\
+  \footnotesize Covered here: the current boundary, hardening path (JWT verification on FastAPI), and RLS audit considerations.
+\end{frame}
+
+\begin{frame}{How to extend: auth-aware behavior}
+  \small
+  Today the SPA holds Supabase JWT/session; FastAPI routes largely trust network perimeter.\\
+  \textbf{Frontend-only}: gate screens with \texttt{ProtectedRoute}; read role or course from Supabase via \texttt{evaluationService} / \texttt{AuthContext}.\\
+  \textbf{Backend-hardening example}: add FastAPI dependency \texttt{def verify\_jwt(authorization: str)} calling JWKS $\rightarrow$ attach \texttt{Depends(verify\_jwt)} on destructive routes (\texttt{/cache/purge}, Drive rename); reject with 401 if missing.\\
+  Document new secrets (\texttt{SUPABASE\_JWT\_SECRET} or JWKS URL) next to env checklist slides.
+\end{frame}
 
 \begin{frame}{Auth model (two planes)}
   \small
@@ -547,8 +942,42 @@ if (!user) return <Navigate to="/login-register" replace />;
   \end{itemize}
 \end{frame}
 
+\begin{frame}{Authentication: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{FastAPI is currently open on the network perimeter}: any caller who can reach the API can trigger grading, cache purge, or Drive rename. Secure the deployment host before exposing it publicly.
+    \item \textbf{Hardening path}: add \texttt{Depends(verify\_jwt)} on destructive routes; verify the Supabase JWT via JWKS URL or shared secret; reject with 401 if missing.
+    \item \textbf{RLS note}: \texttt{SUPABASE\_DB\_URL} uses a Postgres role that bypasses RLS. The \texttt{result\_cache} table has RLS enabled but no restrictive policies yet --- add them before storing user-identifiable data.
+    \item \textbf{New auth secret}: document every new secret (\texttt{SUPABASE\_JWT\_SECRET}, JWKS URL, etc.) next to the env var checklist slide.
+    \item \textbf{Next}: Gemini and Vertex covers all AI/LLM call sites and which transport each one uses.
+  \end{itemize}
+\end{frame}
+
 % ===================== GEMINI / VERTEX =====================
 \section{Gemini and Vertex entry points}
+
+\begin{frame}{Gemini and Vertex: what this section covers}
+  \small
+  The repo makes Gemini/Vertex calls from \textbf{five distinct places} using two transports.
+  Before adding a new AI call you must decide which transport to reuse and how to handle rate limits.\\[0.4em]
+  \begin{tabular}{@{}p{3.0cm}p{4.0cm}p{6.7cm}@{}}
+    \toprule
+    Transport & Auth & Used by \\
+    \midrule
+    Vertex bearer & SA JSON + \texttt{google.auth} & \texttt{ocr\_service}, batch OCR, \texttt{evaluate\_c\_from\_image} \\
+    AI Studio REST & \texttt{?key=GEMINI\_API\_KEY} URL param & Fallback in \texttt{ocr\_service}, \texttt{evaluate\_c\_from\_image}, syntax-fix agent \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.3em}\\
+  \footnotesize Covered here: all call sites, why multiple clients exist, URL shapes, streaming vs non-streaming, and rate-limit retry patterns.
+\end{frame}
+
+\begin{frame}{How to extend: new Gemini / Vertex call site}
+  \small
+  Reuse one existing transport: Vertex bearer token (\texttt{google.auth}) vs AI Studio URL with \texttt{?key=}.\\
+  \textbf{Example}: copy request JSON assembly from \texttt{ocr\_service.py}; swap \texttt{model} string via env (pattern \texttt{GEMINI\_OCR\_MODEL}); keep \texttt{temperature} / \texttt{maxOutputTokens} explicit in payload.\\
+  For batch OCR throughput add another \texttt{\{\}} row to \texttt{\_ENDPOINT\_POOL} with realistic \texttt{rpm}; token bucket creates automatically on first use.
+\end{frame}
 
 \begin{frame}{Gemini / Vertex: unified picture}
   \footnotesize
@@ -600,8 +1029,46 @@ for attempt in range(max_retries):
 \end{lstlisting}
 \end{frame}
 
+\begin{frame}{Gemini and Vertex: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{Pick the right transport}: if you have a service-account JSON, use the Vertex bearer path for production quality/quota. If running without SA (demo, student laptop), the AI Studio key URL is the fallback.
+    \item \textbf{Never hardcode model strings}: use \texttt{os.environ.get("GEMINI\_OCR\_MODEL", "gemini-2.5-flash-lite")} as the pattern so ops can swap models without code changes.
+    \item \textbf{Streaming vs non-stream}: vision OCR uses streaming (lower time-to-first-token for large images); syntax-fix and metadata extraction use single-shot \texttt{generateContent} for simpler response parsing.
+    \item \textbf{Temperature matters}: set \texttt{temperature: 0.0} for structured extraction (JSON, C code) to keep outputs deterministic. Use higher values only for generative text.
+    \item \textbf{Rate limits are handled}: \texttt{batch\_endpoints\_optimized.py} token buckets + 429 cooldown handle Vertex quota automatically. New call sites using Gemini REST must implement the exponential backoff pattern shown here.
+    \item \textbf{Next}: Objective grading pipeline shows the full service chain that consumes these OCR results.
+  \end{itemize}
+\end{frame}
+
 % ===================== SERVICES (OBJECTIVE) =====================
 \section{Objective grading pipeline (services)}
+
+\begin{frame}{Objective pipeline: what this section covers}
+  \small
+  The objective grading pipeline is a \textbf{chain of service modules}, each with a single responsibility.
+  This section maps the chain, describes every module's contract, and shows where to insert new logic.\\[0.4em]
+  \begin{tabular}{@{}p{3.5cm}p{10.2cm}@{}}
+    \toprule
+    Service & One-line contract \\
+    \midrule
+    \texttt{drive\_service} & List/download Drive files; separate answer-key vs student sheets. \\
+    \texttt{image\_preprocessing} & Crop paper region; resize to safe Gemini payload. \\
+    \texttt{ocr\_service} family & Send image to Gemini; return structured answer dict. \\
+    \texttt{evaluation\_service} & Pure \texttt{match\_and\_score}: answer dict $\rightarrow$ \texttt{StudentResult}. \\
+    \texttt{result\_cache\_service} & Read/write cache row keyed by evaluation + file ID. \\
+    \texttt{sheets\_service} & Write marks, response, and Super Sheet tabs. \\
+    \texttt{drive\_rename\_service} & Classify match confidence; rename Drive file. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{How to extend: objective pipeline hook}
+  \small
+  Add a pure helper in \texttt{backend/services/}; import from \texttt{batch\_endpoints\_optimized.py} inside \texttt{\_handle\_core} (after download, before/after OCR).\\
+  \textbf{Example}: extra deskew step $\rightarrow$ \texttt{await asyncio.to\_thread(deskew\_file, local\_path)} to avoid blocking; write outputs back to same path Gemini reads.\\
+  Config knobs belong in env vars (\texttt{PIPELINE\_MAX\_CONCURRENT} precedent), not hard-coded constants, when ops teams must tune deploys.
+\end{frame}
 
 \begin{frame}{Objective pipeline: responsibility chain}
   \centering
@@ -650,8 +1117,45 @@ for attempt in range(max_retries):
   \end{tabular}
 \end{frame}
 
+\begin{frame}{Objective pipeline: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{Services are pure and composable}: \texttt{evaluation\_service.match\_and\_score} has no I/O --- pass it any answer dict and it returns a \texttt{StudentResult}. Test it in isolation without mocking.
+    \item \textbf{Inject new steps around OCR}: add a preprocessing or post-processing step in \texttt{batch\_endpoints\_optimized.py} inside \texttt{\_handle\_core}, after download and before/after OCR. Use \texttt{asyncio.to\_thread} for any CPU-bound work.
+    \item \textbf{Cache is evaluation-scoped}: never write to the cache without an \texttt{evaluation\_id}. Stale rows are auto-purged when the answer key changes.
+    \item \textbf{Sheets and rename are optional exits}: the core pipeline (OCR $\rightarrow$ score $\rightarrow$ cache) is independent. Drive rename and Sheets export are called after the pipeline completes and can fail without invalidating grades.
+    \item \textbf{Next}: Code evaluator deep dive covers Track B (C code grading), which reuses Drive download but is otherwise independent.
+  \end{itemize}
+\end{frame}
+
 % ===================== CODE EVALUATOR =====================
 \section{Code evaluator deep dive}
+
+\begin{frame}{Code evaluator: what this section covers}
+  \small
+  The code evaluator lives entirely under \texttt{c\_code\_evaluator/} and \texttt{api/code\_eval\_endpoints.py}.
+  It grades \textbf{handwritten or photographed C solutions} using a multi-stage pipeline.\\[0.4em]
+  \begin{tabular}{@{}p{2.3cm}p{11.4cm}@{}}
+    \toprule
+    Stage & What happens \\
+    \midrule
+    OCR & Gemini Vision extracts C source from a photo with \texttt{temperature 0}. \\
+    Sanitize & Remove name/entry header lines that OCR picked up. \\
+    Compile & gcc \texttt{-c} compile-only pass as a fast syntax sanity check. \\
+    Repair & LLM syntax-fix agent (max 2 attempts); guarded by \texttt{validate\_trivial\_fix}. \\
+    Resolve & \texttt{leetcode\_mode}: fetch test cases from file, pyleet, leetscrape, or LeetCode GraphQL. \\
+    Harness & Build a typed C \texttt{main} for each test case; full gcc link + run; compare output. \\
+    Score & Full marks only if all fetched test cases pass for a given problem slug. \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{How to extend: code evaluation surface}
+  \small
+  Add \texttt{@router.post(...)} in \texttt{code\_eval\_endpoints.py}; reuse \texttt{asyncio.to\_thread(\_process\_single\_image, ...)} for CPU/gcc work.\\
+  \textbf{Answer-key JSON}: extend \texttt{problems} map with a new question id $\rightarrow$ \texttt{\{"3": \{ "slug": "new-slug", "marks": 5 \}\}}; ensure resolver returns cases (\texttt{cases\_file} offline bundle if GraphQL blocked).\\
+  C evaluator changes live under \texttt{c\_code\_evaluator/}; keep \texttt{sys.path} manipulation localized to the router bootstrap already shown earlier.
+\end{frame}
 
 \begin{frame}{Code evaluator: purpose}
   \small
@@ -662,6 +1166,31 @@ for attempt in range(max_retries):
     \item Optional LLM \textbf{syntax repair} (max 2 attempts) with strict \texttt{validate\_trivial\_fix} guardrails.
     \item \textbf{LeetCode-shaped test cases}: fetched via \texttt{leetcode\_mode} resolver \texttt{resolve\_leetcode\_problem\_and\_cases}, then executed in generated \texttt{main} harness per case.
   \end{itemize}
+\end{frame}
+
+\begin{frame}{Code evaluator: full pipeline flow}
+  \centering
+  \begin{tikzpicture}[font=\scriptsize,
+    box/.style={draw,rounded corners,minimum width=2.2cm,minimum height=0.62cm,align=center},
+    dec/.style={draw,diamond,minimum width=2.0cm,minimum height=0.55cm,align=center,font=\tiny},
+    arr/.style={-{Latex[length=1.8mm]},thick},
+    lbl/.style={font=\tiny,midway,right=0.05cm}]
+    \node[box,fill=blue!10]   (img)  at (0,4.2)  {Image file};
+    \node[box,fill=orange!13] (ocr)  at (0,3.3)  {Gemini OCR\\(C code)};
+    \node[box,fill=yellow!12] (san)  at (0,2.4)  {Sanitize +\\add headers};
+    \node[dec,fill=red!9]     (comp) at (0,1.35) {gcc compile?};
+    \node[box,fill=red!14]    (rep)  at (3.2,1.35){LLM repair\\(max 2x)};
+    \node[box,fill=violet!11] (res)  at (0,0.35) {Resolve cases\\(file/pyleet/\\GraphQL)};
+    \node[box,fill=cyan!10]   (har)  at (0,-0.75){Build C harness\\+ gcc link};
+    \node[box,fill=green!12]  (run)  at (0,-1.75){Run binary;\\compare output};
+    \node[box,fill=gray!14]   (scr)  at (0,-2.75){Score: all pass\\$\rightarrow$ full marks};
+    \draw[arr](img)--(ocr); \draw[arr](ocr)--(san); \draw[arr](san)--(comp);
+    \draw[arr](comp.east)--node[above,font=\tiny]{fail}(rep.west);
+    \draw[arr](rep.south) |- node[lbl]{retry}(san.east);
+    \draw[arr](comp.south)--node[lbl]{ok}(res);
+    \draw[arr](res)--(har); \draw[arr](har)--(run); \draw[arr](run)--(scr);
+  \end{tikzpicture}
+  \footnotesize\hfill \texttt{\_process\_single\_image} in \texttt{code\_eval\_endpoints.py} orchestrates this loop.
 \end{frame}
 
 \begin{frame}[fragile]{Evaluator bootstrap (\texttt{code\_eval\_endpoints.py})}
@@ -827,6 +1356,13 @@ class CodeEvalResult(BaseModel):
 
 \subsection{LeetCode testcase library (\texttt{leetcode\_mode.py})}
 
+\begin{frame}{How to extend: LeetCode resolver path}
+  \small
+  Add another adapter branch inside \texttt{resolve\_leetcode\_problem\_and\_cases} \emph{before} GraphQL (preserve offline-first behavior).\\
+  \textbf{Example}: ship \texttt{cases\_file} JSON next to exam ZIP --- schema mirrors \texttt{leetcode\_cases\_sample.json}; resolver returns cases without network.\\
+  For new LeetCode-type (\texttt{TreeNode} helpers): extend harness generators in \texttt{leetcode\_mode.py} where \texttt{main} wrapper is built; add golden row to fixture slides under supplemental coverage.
+\end{frame}
+
 \begin{frame}{\texttt{resolve\_leetcode\_problem\_and\_cases}: merge strategy}
   \small
   \begin{enumerate}
@@ -989,7 +1525,45 @@ else:
   Utility script for generating diagnostic/error imagery around evaluator tooling (batch helpers). Not on the hot HTTP path but part of developer ergonomics for debugging OCR failures.
 \end{frame}
 
+\begin{frame}{Code evaluator: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{gcc is a hard dependency}: if \texttt{gcc} is not on \texttt{PATH}, the entire code-eval path silently fails at the compile step. Verify with \texttt{gcc --version} after deployment.
+    \item \textbf{Two compile stages}: the first gcc pass (\texttt{-c} object) is a cheap sanity check; the second (harness full link) is per test case. A failure in stage 1 triggers the repair agent; a failure in stage 2 is scored as \texttt{HARNESS\_BUILD\_ERROR}.
+    \item \textbf{validate\_trivial\_fix is a safety rail}: it prevents the LLM from silently rewriting student algorithms. Do not disable it; instead widen the whitelist for new \texttt{\#include} patterns if needed.
+    \item \textbf{LeetCode network dependency}: GraphQL fetch is the last resolver and may be blocked by firewalls. Ship a \texttt{cases\_file} JSON alongside exam archives for fully offline grading.
+    \item \textbf{SA credentials are isolated}: \texttt{code\_eval\_endpoints.py} loads \texttt{vertex\_key.json} from \texttt{c\_code\_evaluator/} separately. Changing it does not affect the objective OCR credentials.
+    \item \textbf{Next}: Google Drive and Sheets covers the integration seams used by both tracks.
+  \end{itemize}
+\end{frame}
+
 \section{Google Drive and Sheets}
+
+\begin{frame}{Google Drive and Sheets: what this section covers}
+  \small
+  This section covers the \textbf{integration seams}: OAuth scope requirements, service-account posture, and the column-detection logic that ties OCR output to roster rows.
+  Full workbook roles (master / marks / response / Super Sheet), export endpoints, and the Evaluate page wiring appear in the next section.\\[0.4em]
+  \begin{tabular}{@{}p{3.5cm}p{10.2cm}@{}}
+    \toprule
+    Sub-topic & Slides \\
+    \midrule
+    Extension pattern & How to extend \\
+    Drive scope + auth posture & \texttt{drive\_service.py} scope slide \\
+    Sheets entry-number detection & \texttt{ENTRY\_NUMBER\_PATTERN} slide \\
+    Arc within the deck & Placement slide \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.3em}\\
+  \footnotesize Service-account JSON must include both \texttt{.../auth/drive} and \texttt{.../auth/spreadsheets} scopes. A common mistake is creating two separate SA keys; one key with both scopes is sufficient.
+\end{frame}
+
+\begin{frame}{How to extend: Drive or Sheets integration}
+  \small
+  \textbf{Drive}: add a method on \texttt{DriveService} wrapping \texttt{googleapiclient} discovery; keep SA JSON path via \texttt{GOOGLE\_APPLICATION\_CREDENTIALS}; expose thin HTTP wrapper in \texttt{endpoints.py} only if UI needs it.\\
+  \textbf{Example}: \texttt{copy\_file(src\_id, dest\_folder\_id)} --- build \texttt{files.copy} request body; handle 403 with actionable logs.\\
+  \textbf{Sheets}: extend \texttt{sheets\_service.py}; new scopes $\rightarrow$ widen OAuth scope list + re-deploy credentials.\\
+  Use \texttt{GET /api/sheets/preview} pattern for read-only probes before writes.
+\end{frame}
 
 \begin{frame}[fragile]{\texttt{drive\_service.py}: Drive API scope}
 \begin{lstlisting}[style=py]
@@ -1007,8 +1581,51 @@ ENTRY_NUMBER_PATTERN = re.compile(
 \end{lstlisting}
 \end{frame}
 
+\begin{frame}{Drive and Sheets: how this section fits the arc}
+  \small
+  Here: \textbf{integration seams} --- Drive scope, service-account posture, and how Sheets column/header detection (\texttt{ENTRY\_NUMBER\_PATTERN}) feeds roster alignment.\\
+  \textbf{Next section}: full \textbf{workbook roles} (master / marks / response / Super Sheet), export and preview endpoints, plus the Evaluate page wiring that calls them.\\
+  \textbf{Later}: \textbf{Throughput} deepens fuzzy matching, rename templates, and batch HTTP contracts that reuse the same services.
+\end{frame}
+
+\begin{frame}{Google Drive and Sheets: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{One SA key, two scopes}: the service-account JSON needs both \texttt{drive} and \texttt{spreadsheets} scopes. Download from GCP Console; do not mix it with the Vertex AI key unless the project explicitly grants all three.
+    \item \textbf{Entry-number pattern}: \texttt{ENTRY\_NUMBER\_PATTERN} must match your institution's roll format (year + branch code + serial). Edit the regex in \texttt{sheets\_service.py} if your format differs.
+    \item \textbf{Public folder mode}: without a SA key the Drive service falls back to an API key, which only works for publicly shared folders. Not suitable for student answer uploads --- use SA key in production.
+    \item \textbf{Adding a Drive operation}: wrap \texttt{googleapiclient.discovery.build("drive","v3",...)} calls inside a method on \texttt{DriveService}; handle \texttt{HttpError 403} (permission) and \texttt{404} (not found) explicitly.
+    \item \textbf{Next}: ZIP, PDF, Sheets publishing, and Evaluate UI shows the full faculty workflow end-to-end, including all Sheets tabs created by the backend.
+  \end{itemize}
+\end{frame}
 
 \section{ZIP, PDF, Sheets publishing, and Evaluate UI}
+
+\begin{frame}{ZIP, PDF, Sheets, and Evaluate UI: what this section covers}
+  \small
+  This section documents the \textbf{complete faculty workflow} for one grading session:
+  how student sheets enter the system, how results are written back to Google Sheets, and how the Evaluate page orchestrates it all.\\[0.4em]
+  \begin{tabular}{@{}p{3.3cm}p{10.4cm}@{}}
+    \toprule
+    Sub-topic & What you will find \\
+    \midrule
+    Evaluate page & Route, layout, mode selector, toolbar actions \\
+    ZIP ingress & Frontend call, backend archive extraction, answer-key heuristics \\
+    PDF ingress & PyMuPDF page split, synthetic IDs, PDF batch orchestration \\
+    Sheets workbook & Master / marks / response / Super Sheet tab roles \\
+    Export pipeline & \texttt{/api/export-to-sheets}: three write steps, error capture \\
+    Student response tab & Per-question grid + answer-key row \\
+    Super Sheet & Longitudinal cumulative grades across evaluations \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{How to extend: Evaluate UI ingress or export}
+  \small
+  \textbf{New upload mode}: add \texttt{processingMode} branch in \texttt{evaluate/index.jsx}; duplicate \texttt{FormData.append('file', ...)} pattern from ZIP/PDF; call new \texttt{backendService.startFoo()} mirroring \texttt{startPdfProcessing}.\\
+  \textbf{Example}: multipart field names must match FastAPI \texttt{UploadFile} parameters (\texttt{file}, \texttt{evaluation\_id} Form).\\
+  \textbf{Export tweak}: extend \texttt{handleExportToSheet} mapping of \texttt{results} before \texttt{exportToSheets} --- follow existing \texttt{mappedResults} transformation for column hygiene.
+\end{frame}
 
 \begin{frame}{Evaluate page: route and purpose}
   \small
@@ -1095,6 +1712,32 @@ ENTRY_NUMBER_PATTERN = re.compile(
   \textbf{Super Sheet} tab --- one column per evaluation + cumulative total column for longitudinal grades.
 \end{frame}
 
+\begin{frame}{Sheets workbook structure (visual)}
+  \centering
+  \footnotesize
+  \begin{tikzpicture}[font=\scriptsize,
+    tab/.style={draw,rounded corners=2pt,minimum width=3.4cm,minimum height=0.62cm,align=center},
+    arr/.style={-{Latex[length=1.8mm]},dashed,gray},
+    note/.style={font=\tiny,gray}]
+    % Workbook box
+    \draw[rounded corners=4pt,thick,blue!40,fill=blue!4]
+      (-1.8,-3.8) rectangle (5.6,1.1);
+    \node[font=\small\bfseries,blue!60] at (1.9,0.75) {One Google Sheets Workbook (per course)};
+    % Tabs
+    \node[tab,fill=green!14]  (ros) at (0,0)    {\texttt{student\_names}\\Master roster};
+    \node[tab,fill=orange!16] (mrk) at (3.8,0)  {\texttt{Quiz1} (marks tab)\\per-Q + total + stats};
+    \node[tab,fill=cyan!12]   (rsp) at (3.8,-1.4){\texttt{studentResponse\_Quiz1}\\marked answers + key row};
+    \node[tab,fill=violet!12] (sup) at (0,-1.4) {\texttt{Super Sheet}\\cumulative across quizzes};
+    \node[tab,fill=orange!10] (mr2) at (3.8,-2.8){\texttt{Quiz2} (marks tab)\\next evaluation};
+    % Arrows
+    \draw[arr](ros)--(mrk) node[note,above,pos=0.5]{roster $\rightarrow$ row order};
+    \draw[arr](mrk)--(rsp);
+    \draw[arr](mrk.west)--+(-0.3,0)--(sup.east) node[note,above,pos=0.5]{};
+    \draw[arr](mr2.west)--+(-0.3,0)--+(- 3.8,0)--(sup.south east);
+    \node[note] at (1.9,-3.5) {Tabs are created/updated by \texttt{update\_marks}, \texttt{create\_student\_response\_sheet}, \texttt{update\_super\_sheet}};
+  \end{tikzpicture}
+\end{frame}
+
 \begin{frame}{Reading the master sheet (\texttt{read\_student\_list})}
   \small
   Parses spreadsheet ID + optional gid/tab from URL.\\
@@ -1158,10 +1801,53 @@ ENTRY_NUMBER_PATTERN = re.compile(
   Faculty keep a \textbf{single} Spreadsheet ID in course metadata; the backend creates \emph{tabs} for different consumers (roster vs per-quiz marks vs item analysis vs cohort totals).\\
   Separating concerns avoids copying CSVs manually while still letting accountants open one familiar Google Sheets URL.
 \end{frame}
+
+\begin{frame}{ZIP, PDF, Sheets, and Evaluate UI: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{All three ingress paths converge}: ZIP, Drive folder, and PDF all produce the same ``Drive-like file dict'' shape before reaching the OCR pipeline. Adding a fourth ingress only requires producing that shape.
+    \item \textbf{PDF needs PyMuPDF}: if the package is absent the endpoint raises a clear \texttt{ImportError}. Install \texttt{pymupdf} for any deployment that will handle PDF uploads.
+    \item \textbf{Export order matters}: \texttt{/api/export-to-sheets} runs three steps in sequence (marks tab $\rightarrow$ student response tab $\rightarrow$ Super Sheet column). Each step can fail independently; errors are captured and returned without aborting prior successful steps.
+    \item \textbf{Super Sheet is cumulative}: do not manually delete the Super Sheet tab between evaluations. The backend detects existing evaluations and inserts a new column; a fresh sheet loses history.
+    \item \textbf{Subsheet naming}: the \texttt{subsheet\_name} query parameter controls the marks tab title. Keep it consistent with \texttt{evaluation\_name} so the Super Sheet and response tabs are aligned.
+    \item \textbf{Next}: Throughput section covers the performance layer (rate limiting, dual OCR, fuzzy matching) that underlies the batch Drive path.
+  \end{itemize}
+\end{frame}
+
 \section{Throughput, fuzzy matching, and HTTP contracts}
+
+\begin{frame}{Throughput: what this section covers}
+  \small
+  This section explains how the batch Drive grading path achieves high throughput
+  without overwhelming Vertex quotas, how student identities are matched to the roster
+  despite OCR noise, and what all HTTP request/response shapes look like.\\[0.4em]
+  \begin{tabular}{@{}p{3.8cm}p{9.9cm}@{}}
+    \toprule
+    Sub-topic & Key mechanism \\
+    \midrule
+    Load shaping & Token-bucket RPM limiter per Vertex region; 429 cooldown \\
+    Dual OCR + tiebreaker & Two independent Pro passes; majority vote on disagreement \\
+    Bounded concurrency & \texttt{PIPELINE\_MAX\_CONCURRENT} semaphore; \texttt{download\_sem} \\
+    DB write pipeline & Async queue + batch SQLite writer (every 20 rows or 2s idle) \\
+    Two-phase retries & Phase 2 re-queues only failures with fresh OCR \\
+    Fuzzy matching & \texttt{\_smart\_match\_score}: 5-tier entry + name similarity \\
+    Drive rename policy & Confident / FUZZY / UNMATCHED / NODATA templates \\
+    HTTP contracts & All Pydantic bodies, multipart shapes, and polling patterns \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{How to extend: throughput + fuzzy + contracts}
+  \small
+  \textbf{More OCR quota}: append to \texttt{\_ENDPOINT\_POOL} (\texttt{model}, \texttt{region}, \texttt{rpm}); redeploy $\rightarrow$ token buckets auto-scale spacing (\texttt{60/rpm} seconds).\\
+  \textbf{RAM safety}: set \texttt{PIPELINE\_MAX\_CONCURRENT} env lower on small VMs (documented near pipeline slides).\\
+  \textbf{Fuzzy thresholds}: adjust constants in \texttt{sheets\_service.py} (\texttt{\_smart\_match\_score}, \texttt{\_name\_similarity}) with unit snapshots + regression PDF exports.\\
+  \textbf{HTTP schema}: add fields to Pydantic models in \texttt{models.py}; bump FE TypeScript hand-written payloads only after backend accepts optional keys (backward compatible defaults).
+\end{frame}
 
 \begin{frame}{Throughput section roadmap}
   \small
+  Assumes you already saw ZIP/PDF ingress and Sheets publishing in the prior section; here we focus on \textbf{performance}, \textbf{roster fuzzy logic}, and \textbf{API shapes}.\\
   \begin{enumerate}
     \item \textbf{Load shaping}: token buckets, round-robin regions, 429 cooldowns, dual OCR + tiebreaker (batch path).
     \item \textbf{Streaming pipeline}: bounded concurrency, DB writer queue, two-phase retries, cache tiers.
@@ -1507,8 +2193,51 @@ class CodeEvalResult(BaseModel):
   \end{itemize}
 \end{frame}
 
+\begin{frame}{Throughput: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{Token buckets are automatic}: adding a new entry to \texttt{\_ENDPOINT\_POOL} is all you need to expand quota. The bucket interval (\texttt{60.0/rpm}) is computed at registration time.
+    \item \textbf{PIPELINE\_MAX\_CONCURRENT is the RAM knob}: on a 512 MB host set it to 4--8. On a 4 GB host the default 24 is safe. Always tune before deploying to a new tier.
+    \item \textbf{Dual OCR is intentional overhead}: two Vertex Pro calls per sheet sounds expensive but eliminates the most common single-model hallucinations (answer A vs D confusion). Disable it only if cost is prohibitive.
+    \item \textbf{Fuzzy match is a last resort}: if your institution's entry-number OCR quality is high, most matches will be exact or year-slide. Tune the 5-tier thresholds only if you see many false FUZZY labels.
+    \item \textbf{Dry-run rename before committing}: \texttt{dry\_run=true} in \texttt{RenameDriveFilesRequest} returns the planned filenames without mutating Drive. Always run this first on a new exam folder.
+    \item \textbf{Next}: OCR and migrations reference is a compact operator reference for tuning preprocessor settings and managing Supabase DDL.
+  \end{itemize}
+\end{frame}
+
 % ===================== DATABASE / OCR condensed =====================
 \section{OCR and migrations reference}
+
+\begin{frame}{OCR and migrations: what this section covers}
+  \small
+  This is a \textbf{compact operator reference} for the parts of the system that run on every grading job.
+  The performance deep-dive (token buckets, dual OCR policy) lives in the Throughput section;
+  this section adds the module map, preprocessor signature, and full Supabase DDL excerpts.\\[0.4em]
+  \begin{tabular}{@{}p{3.5cm}p{10.2cm}@{}}
+    \toprule
+    Sub-topic & Slides \\
+    \midrule
+    OCR module map & All OCR-related modules and their roles \\
+    \texttt{001\_result\_cache.sql} DDL & Full \texttt{CREATE TABLE} with column types \\
+    \texttt{002} scope migration & \texttt{evaluation\_id}, \texttt{file\_id}, index \\
+    \texttt{002} PDF page map & \texttt{pdf\_page\_map} DDL \\
+    SQLite vs Supabase boundary & Summary table \\
+    OCR preprocessor signature & \texttt{preprocess\_for\_ocr} tuning knobs \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{OCR and migrations: placement in this deck}
+  \small
+  You already saw batch OCR policy and pipeline knobs under \textbf{Throughput}; this section is a \textbf{compact operator reference}: module map, preprocessor signature, Supabase DDL excerpts, and SQLite vs cloud cache boundaries.
+\end{frame}
+
+\begin{frame}{How to extend: OCR tuning + SQL migrations}
+  \small
+  \textbf{Preprocessor}: change defaults in \texttt{image\_preprocessing.preprocess\_for\_ocr} or call-site kwargs inside batch download path; verify Gemini payload sizes stay under limits.\\
+  \textbf{New Supabase migration}: copy naming \texttt{NNN\_description.sql}; include \texttt{IF NOT EXISTS}; add matching slide excerpt here for operators running DDL manually.\\
+  \textbf{Example}: partial index \texttt{CREATE INDEX ... ON result\_cache (evaluation\_id) WHERE evaluation\_result IS NOT NULL;} for faster purge-by-quiz.
+\end{frame}
 
 \begin{frame}{OCR-related module map (objective + utilities)}
   \tiny
@@ -1555,6 +2284,7 @@ CREATE INDEX IF NOT EXISTS idx_result_cache_eval_file
 \end{frame}
 
 \begin{frame}[fragile]{Migration \texttt{002\_pdf\_page\_map.sql}}
+  \footnotesize Repo uses two \texttt{002\_*.sql} files (evaluation scope vs PDF map); apply both when provisioning Supabase --- order matches your migration runner or manual checklist.
 \begin{lstlisting}[style=py]
 CREATE TABLE IF NOT EXISTS public.pdf_page_map (
     run_id          text NOT NULL,
@@ -1577,15 +2307,10 @@ CREATE TABLE IF NOT EXISTS public.pdf_page_map (
   Cache PK: \texttt{sheet:v2:\{evaluation\_id\}:\{file\_id\}} consolidates OCR+eval rows.
 \end{frame}
 
-\begin{frame}[fragile]{\texttt{multi\_region\_ocr\_service}: load-aware scoring}
-\begin{lstlisting}[style=py]
-def score_endpoint(ep: OCREndpoint) -> float:
-    load_factor = ep.current_load / ep.max_concurrent
-    time_factor = ep.avg_response_time / 2.0
-    priority_factor = self.model_priority.get(ep.model, 4) / 4.0
-    error_rate = ep.total_errors / max(ep.total_requests, 1)
-    return load_factor + time_factor + priority_factor + error_rate
-\end{lstlisting}
+\begin{frame}{\texttt{multi\_region\_ocr\_service} vs optimized batch}
+  \small
+  Same \textbf{endpoint scoring idea} as in the \textbf{Throughput} section (frame titled \textit{Load balancer score}): lower combined load + latency + model-priority + error-rate wins among healthy endpoints.\\
+  \textbf{Important split}: general OCR routing may prefer Flash/Lite pools; \texttt{batch\_endpoints\_optimized} fixes \textbf{Gemini 2.5 Pro} and adds token buckets + dual OCR + majority vote --- see the throughput section for code and defaults.
 \end{frame}
 
 \begin{frame}[fragile]{\texttt{optimized\_ocr\_service}: tuning knobs}
@@ -1599,7 +2324,8 @@ self.connection_pool_size = 500
 
 \begin{frame}{Optimized batch OCR policy}
   \small
-  Gemini 2.5 Pro only; dual independent OCR; disagree $\rightarrow$ third majority vote; token-bucket rate limiting; cache hit skips vision + scoring entirely (\texttt{batch\_endpoints\_optimized.py} module docstring).
+  Gemini 2.5 Pro only; dual independent OCR; disagree $\rightarrow$ third majority vote; token-bucket rate limiting; cache hit skips vision + scoring entirely (\texttt{batch\_endpoints\_optimized.py} module docstring).\\
+  \footnotesize \textit{Companion detail}: token buckets, round-robin cooldowns, and pipeline semaphore defaults live in \textbf{Throughput, fuzzy matching, and HTTP contracts}.
 \end{frame}
 
 \begin{frame}[fragile]{\texttt{image\_preprocessing.preprocess\_for\_ocr}}
@@ -1612,10 +2338,46 @@ def preprocess_for_ocr(image_path: str,
 \end{lstlisting}
 \end{frame}
 
-% ===================== CLOSING =====================
-\section{Closing}
+\begin{frame}{OCR and migrations: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{Migration order}: run \texttt{001} before \texttt{002}. The two \texttt{002\_*.sql} files are independent and can be run in either order between themselves.
+    \item \textbf{RLS is enabled but policies are minimal}: add restrictive policies before storing student-identifiable data in \texttt{result\_cache}.
+    \item \textbf{Preprocessor defaults}: 1920\,px max and JPEG quality 85 balance checkbox legibility vs Vertex payload size limits (10 MB inline). Do not raise quality above 90 without testing payload sizes.
+    \item \textbf{Offline OCR}: \texttt{offline\_ocr\_service.py} (Tesseract/Paddle/EasyOCR) is a drop-in replacement at the \texttt{extract\_objective\_sheet} interface level. Use it for air-gapped deployments or cost control.
+    \item \textbf{New column pattern}: \texttt{ADD COLUMN IF NOT EXISTS} in migration + update \texttt{result\_cache\_service.py} upsert builder; add index if column appears in \texttt{WHERE} clauses.
+    \item \textbf{Next}: Supplemental coverage documents the CLI, deployment configs, and test harnesses.
+  \end{itemize}
+\end{frame}
 
 \section{Supplemental repository coverage}
+
+\begin{frame}{Supplemental coverage: what this section covers}
+  \small
+  This section documents the parts of the repo that are \textbf{not on the HTTP request path} but are essential for operators and developers: the headless CLI, deployment configuration, and existing test harnesses.\\[0.4em]
+  \begin{tabular}{@{}p{3.0cm}p{10.7cm}@{}}
+    \toprule
+    Area & What is here \\
+    \midrule
+    Scoring internals & \texttt{evaluation\_service.py} rules: SMCQ/MMCQ/NCQ, negative marking \\
+    Answer-key parsers & \texttt{answer\_key\_service.py}: CSV/XLSX/PDF/image routing \\
+    Drive service & Full responsibilities: recursive listing, MIME download, rename batching \\
+    Offline OCR & Local Tesseract/Paddle/EasyOCR engines \\
+    CLI headless pipeline & \texttt{cli.py} flags and flow \\
+    Deployment configs & \texttt{fly.toml}, \texttt{railway.toml} \\
+    Tests and utilities & Smoke tests, HEIC probes, auth fixtures \\
+    Fixture files & LeetCode case JSON samples for offline use \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}[fragile]{How to extend: supplemental area (CLI, deploy, tests)}
+  \small
+  \textbf{Add a CLI flag}: edit \texttt{backend/cli.py} --- copy an existing \texttt{parser.add\_argument(...)} block and branch in \texttt{main()} (mirroring \texttt{--local-ocr}).\\
+  \textbf{Add a deploy secret}: \verb|fly secrets set KEY=value| or Railway variables dashboard --- match names already read in \texttt{main.py}/\texttt{start.sh}.\\
+  \textbf{Example (Fly)}: \verb|fly secrets set NEW_FEATURE_FLAG=true| then redeploy; in Python call \texttt{os.getenv} with that same environment variable name.\\
+  \textbf{Add a smoke check}: duplicate \texttt{backend/smoke\_test.py} pattern --- HTTP GET \texttt{/api/status}, assert JSON keys.
+\end{frame}
 
 \begin{frame}{\texttt{evaluation\_service.py}: scoring rules}
   \small
@@ -1680,45 +2442,202 @@ def preprocess_for_ocr(image_path: str,
   Pair with \texttt{cases\_file} resolver strategy documented earlier.
 \end{frame}
 
-\begin{frame}{Documentation artifacts (not slides)}
+\begin{frame}{Supplemental coverage: key takeaways}
   \small
-  Root \texttt{README.md}, \texttt{IMPLEMENTATION\_SUMMARY.md}, \texttt{frontend-new-design/IMPLEMENTATION\_PLAN.md}, \texttt{REFINED\_PLAN.md}, \texttt{c\_code\_evaluator/README.md} capture historical decisions --- treat as companion reading to this PDF.
-\end{frame}
-
-
-\begin{frame}{Screenshot placeholder --- Evaluate UI}
-  \begin{center}
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{1.5cm}
-      \textit{Browser: \texttt{/evaluate/:evaluationId}}\vspace{1.5cm}}}
-  \end{center}
-\end{frame}
-
-\begin{frame}{Screenshot placeholder --- IDE / Supabase}
-  \begin{center}
-    \fbox{\parbox{0.9\textwidth}{\centering\vspace{1.5cm}
-      \textit{\texttt{batch\_endpoints\_optimized.py} or Supabase \texttt{result\_cache} table}\vspace{1.5cm}}}
-  \end{center}
-\end{frame}
-
-\begin{frame}{Cross-cutting themes (still this single deck)}
-  \small
-  Observability (trace IDs), fair grading (blind mode), schema versioning (answer-key JSON), retention/purge on Supabase cache tables.
-\end{frame}
-
-\begin{frame}{Future work (selected)}
-  \small
-  \begin{itemize}
-    \item Signed JWT between FE and BE; org-level quotas.
-    \item Pin LeetCode testcase bundles per exam (\texttt{cases\_file}) for reproducibility offline.
-    \item Sandboxed execution (Docker/seccomp) instead of raw \texttt{gcc} on shared hosts.
-    \item Golden OCR + golden LeetCode harness regression CI.
-    \item Model routing dashboard (cost vs accuracy).
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{CLI is fully headless}: \texttt{backend/cli.py} reproduces the Drive $\rightarrow$ OCR $\rightarrow$ score $\rightarrow$ Sheets flow without a running API server. Useful for CI/CD batch jobs.
+    \item \textbf{Testing is manual today}: \texttt{smoke\_test.py} and \texttt{test\_phase3.py} are run-by-hand harnesses. There is no automated CI pipeline in the repo yet --- a natural extension is adding GitHub Actions to run the smoke test on every push.
+    \item \textbf{Deploy secrets live outside code}: Fly secrets and Railway environment variables are set via CLI or dashboard. Never commit SA keys or Supabase URLs to the repo.
+    \item \textbf{Fixture files are your offline safety net}: ship \texttt{leetcode\_cases\_sample.json}-style files alongside exam ZIPs in any air-gapped exam environment to avoid LeetCode GraphQL dependency.
+    \item \textbf{HEIC support}: \texttt{test\_heic\_ocr.py} probes whether the OCR pipeline can handle iPhone photos. Ensure \texttt{Pillow} + HEIC plugin are installed on the grading server if students submit HEIC images.
+    \item \textbf{Next}: HTTP signatures documents the exact REST shapes for Vertex AI, Drive API v3, and Sheets API v4 --- useful when debugging raw network traffic.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Build}
+\section{HTTP signatures (Vertex, Drive, Sheets)}
+
+\begin{frame}{HTTP signatures: what this section covers}
+  \small
+  This section is a \textbf{reference for the three external APIs} this repo calls.
+  Use it when reading raw network traffic in a proxy, debugging unexpected 4xx errors,
+  or writing a new call site without the Python client library.\\[0.4em]
+  \begin{tabular}{@{}p{3.0cm}p{10.7cm}@{}}
+    \toprule
+    API & Documented operations \\
+    \midrule
+    Vertex AI / Gemini & \texttt{streamGenerateContent} (Vertex SA bearer + AI Studio key variants) \\
+    Google Drive API v3 & List folder, download binary, export Google file, rename (PATCH) \\
+    Google Sheets API v4 & Spreadsheet metadata, read grid, write grid, batchUpdate (structural ops) \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.3em}\\
+  \footnotesize All three APIs require an OAuth bearer token (service-account) or API key. The Python client libraries (\texttt{google-api-python-client}, \texttt{google-auth}) handle token refresh automatically; this section shows the underlying HTTP so you understand what the libraries are doing.
+\end{frame}
+
+\begin{frame}[fragile]{Vertex AI (Gemini): REST signature (\texttt{ocr\_service}, batch OCR)}
+  \tiny
+  \textbf{Endpoints} (repo picks one transport):\\
+  Service account / Vertex: \texttt{POST https://\{region\}-aiplatform.googleapis.com/v1/projects/\{project\}/locations/\{region\}/publishers/google/models/\{model\}:streamGenerateContent}\\
+  API key (AI Studio style): \texttt{POST https://generativelanguage.googleapis.com/v1beta/models/\{model\}:streamGenerateContent?key=...}\\[0.35em]
+  \textbf{Request JSON} (vision OCR): \texttt{Authorization: Bearer <token>} when using Vertex SA; body shape:
+\begin{lstlisting}[style=py]
+{
+  "contents": [{
+    "role": "user",
+    "parts": [
+      {"text": "..."},
+      {"inline_data": {"mime_type": "image/jpeg", "data": "BASE64..."}}
+    ]
+  }]
+}
+\end{lstlisting}
+  \textbf{Response}: HTTP 200 JSON; streaming may be a JSON array of chunks or one object. Parsed body exposes \texttt{candidates[].content.parts[].text} (concatenate); application code treats that text as model output (JSON sheet extraction).
+\end{frame}
+
+\begin{frame}[fragile]{Google Drive API v3: REST signature (\texttt{drive\_service})}
+  \tiny
+  Base URL \texttt{https://www.googleapis.com/drive/v3}. OAuth scope used: \texttt{https://www.googleapis.com/auth/drive}. Python client maps to HTTP below.\\[0.25em]
+  \textbf{List folder}: \texttt{GET /files?q='\{folderId\}' in parents and trashed=false\&pageSize=100\&fields=nextPageToken,files(id,name,mimeType,webContentLink,size)\&supportsAllDrives=true}\\
+  $\rightarrow$ \texttt{\{ "files": [ \{ "id", "name", "mimeType", ... \} ], "nextPageToken": ... \}}\\[0.25em]
+  \textbf{Download binary}: \texttt{GET /files/\{fileId\}?alt=media} $\rightarrow$ raw bytes (chunked download in client).\\[0.25em]
+  \textbf{Export Google file}: \texttt{GET /files/\{fileId\}/export?mimeType=text/csv} (or PDF, etc.) $\rightarrow$ export bytes.\\[0.25em]
+  \textbf{Rename file}: \texttt{PATCH /files/\{fileId\}?supportsAllDrives=true} with body \texttt{\{"name": "New Name.ext"\}} $\rightarrow$ updated file metadata JSON.
+\end{frame}
+
+\begin{frame}[fragile]{Google Sheets API v4: REST signature (\texttt{sheets\_service})}
+  \tiny
+  Base URL \texttt{https://sheets.googleapis.com/v4/spreadsheets}. Scope: \texttt{https://www.googleapis.com/auth/spreadsheets}.\\[0.25em]
+  \textbf{Spreadsheet metadata}: \texttt{GET /\{spreadsheetId\}} $\rightarrow$ \texttt{\{ "spreadsheetId", "sheets": [ \{ "properties": \{ "title", "sheetId", ... \} \} ] \}}\\[0.25em]
+  \textbf{Read grid}: \texttt{GET /\{spreadsheetId\}/values/\{A1\_range\_or\_sheet\_name\}} $\rightarrow$ \texttt{\{ "range", "majorDimension": "ROWS", "values": [ ["hdr",...], [...] ] \}}\\[0.25em]
+  \textbf{Write grid}: \texttt{PUT /\{spreadsheetId\}/values/\{range\}?valueInputOption=USER\_ENTERED} with body \texttt{\{"values": [[...],...]\}} $\rightarrow$ \texttt{\{ "updatedCells", "updatedRows", ... \}}\\[0.25em]
+  \textbf{Structural ops}: \texttt{POST /\{spreadsheetId\}:batchUpdate} with \texttt{\{"requests":[...]\}} (add sheet, merge, repeatCell, clear) $\rightarrow$ \texttt{\{ "replies", ... \}}.
+\end{frame}
+
+\begin{frame}{HTTP signatures: key takeaways}
+  \small
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item \textbf{Vertex vs AI Studio}: both use the same JSON body shape; the only difference is the URL pattern and auth header. Use Vertex in production (quota is project-level); AI Studio key for quick experiments.
+    \item \textbf{Drive download requires \texttt{alt=media}}: omitting the query param returns metadata JSON instead of file bytes --- a very common mistake when writing new download code.
+    \item \textbf{Drive rename is a PATCH}: only send \texttt{\{"name": "..."\}} in the body; include \texttt{supportsAllDrives=true} or the call silently fails on shared drives.
+    \item \textbf{Sheets \texttt{valueInputOption=USER\_ENTERED}}: use this so formulas (like the \texttt{SUM} in the statistics block) are evaluated. \texttt{RAW} stores the literal string \texttt{=SUM(...)}.
+    \item \textbf{batchUpdate for structure}: adding a new tab, merging cells, or applying formatting all go through \texttt{batchUpdate} with a \texttt{requests} array. Keep structural changes separate from data writes (separate API calls) to simplify error handling.
+  \end{itemize}
+\end{frame}
+
+% ===================== TROUBLESHOOTING =====================
+\section{Troubleshooting}
+
+\begin{frame}{Troubleshooting: this section covers common failure modes}
+  \small
+  This is a reference for the most frequently encountered problems when running or extending the project.
+  Each entry includes the symptom you observe, the root cause, and the concrete fix.\\[0.4em]
+  Issues are grouped by subsystem: \textbf{startup/environment} $\rightarrow$ \textbf{OCR/Vertex} $\rightarrow$ \textbf{cache/Supabase} $\rightarrow$ \textbf{code-eval} $\rightarrow$ \textbf{Sheets/Drive} $\rightarrow$ \textbf{frontend}.
+\end{frame}
+
+\begin{frame}{Troubleshooting: startup and environment}
+  \tiny
+  \begin{tabular}{@{}p{4.2cm}p{4.4cm}p{5.1cm}@{}}
+    \toprule
+    Symptom & Root cause & Fix \\
+    \midrule
+    \texttt{/api/status} returns 502 & Backend not running & \texttt{uvicorn main:app --reload --port 8000} from \texttt{backend/} \\
+    Backend starts but cache shows \texttt{sqlite} despite \texttt{CACHE\_BACKEND=supabase} & Pool connection failed at startup & Check \texttt{SUPABASE\_DB\_URL} format; run migrations; check firewall to Supabase host \\
+    \texttt{CORS error} in browser console & \texttt{CORS\_ORIGINS} does not include frontend URL & Add \texttt{http://localhost:5173} (or deployed domain) to \texttt{CORS\_ORIGINS} env var \\
+    \texttt{ModuleNotFoundError: fitz} & PyMuPDF not installed & \texttt{pip install pymupdf} in backend virtualenv \\
+    Frontend shows blank page after login & \texttt{VITE\_BACKEND\_URL} has trailing slash & Remove trailing slash from \texttt{.env.local} \\
+    \texttt{storageKey} mismatch / auto-logout & Wrong \texttt{PROJECT\_REF} in \texttt{supabaseClient.js} & Verify project ref matches your Supabase project URL slug \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Troubleshooting: OCR and Vertex}
+  \tiny
+  \begin{tabular}{@{}p{4.2cm}p{4.4cm}p{5.1cm}@{}}
+    \toprule
+    Symptom & Root cause & Fix \\
+    \midrule
+    All OCR results show empty \texttt{answers} & SA JSON path wrong or missing & Verify \texttt{GOOGLE\_APPLICATION\_CREDENTIALS} is an absolute path to a valid JSON key \\
+    \texttt{429 Too Many Requests} storms & Vertex RPM quota exceeded & Lower \texttt{PIPELINE\_MAX\_CONCURRENT}; add more regions to \texttt{\_ENDPOINT\_POOL} \\
+    OCR works for 5 sheets then hangs & 429 cooldown (30s--300s per region) & Expected behavior; cooldowns auto-clear. Add regions to expand throughput. \\
+    \texttt{google.auth.exceptions.DefaultCredentialsError} & No credentials in environment & Set \texttt{GOOGLE\_APPLICATION\_CREDENTIALS} or \texttt{GEMINI\_API\_KEY} \\
+    Image preprocessor returns zero bytes & HSV paper-crop clips the whole image & Reduce contrast threshold in \texttt{image\_preprocessing.preprocess\_for\_ocr} \\
+    Stale results after editing answer key & Cache rows hold old \texttt{answer\_key\_hash} & \texttt{DELETE /api/cache/purge-evaluation/\{evaluation\_id\}} or restart (auto-purge on lifespan) \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Troubleshooting: code evaluation}
+  \tiny
+  \begin{tabular}{@{}p{4.2cm}p{4.4cm}p{5.1cm}@{}}
+    \toprule
+    Symptom & Root cause & Fix \\
+    \midrule
+    All code results \texttt{COMPILE\_ERROR} & gcc not on \texttt{PATH} & Install \texttt{build-essential} (Linux) or Xcode CLI tools (macOS); verify \texttt{gcc --version} \\
+    \texttt{HARNESS\_BUILD\_ERROR} on every case & Student function signature does not match LeetCode spec & Check \texttt{selection\_notes} in result; may need \texttt{function\_name\_override} in answer key \\
+    LeetCode resolver returns 0 cases & GraphQL blocked by firewall & Ship a \texttt{cases\_file} JSON alongside the exam ZIP (see \texttt{\_parse\_cases\_file} slide) \\
+    Repair agent rewrites student logic & \texttt{validate\_trivial\_fix} not catching the change & Do not disable the validator; instead report the issue and examine the diff in result comments \\
+    \texttt{TIMEOUT} on all test cases & Student code has infinite loop & Expected; timeout is set per binary run. Report as-is; do not extend the timeout. \\
+    Code-eval endpoint ignores SA key & \texttt{vertex\_key.json} not in \texttt{c\_code\_evaluator/} & Place the SA key JSON at that path or set \texttt{GOOGLE\_APPLICATION\_CREDENTIALS} globally \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Troubleshooting: Sheets, Drive, and frontend}
+  \tiny
+  \begin{tabular}{@{}p{4.2cm}p{4.4cm}p{5.1cm}@{}}
+    \toprule
+    Symptom & Root cause & Fix \\
+    \midrule
+    Export writes zero rows & No results in session or SQLite; answer key not loaded & Load answer key first; re-run grading pipeline before exporting \\
+    Sheets export shows all students \texttt{UNMATCHED} & Entry-number pattern does not match institution format & Edit \texttt{ENTRY\_NUMBER\_PATTERN} regex in \texttt{sheets\_service.py} \\
+    Drive rename produces \texttt{HttpError 403} & SA key lacks \texttt{drive} scope & Recreate SA key with \texttt{https://www.googleapis.com/auth/drive} scope \\
+    Super Sheet column shifts incorrectly & Tab named differently from \texttt{"Super Sheet"} & The tab name is hardcoded; rename the tab in Sheets to match exactly \\
+    Frontend drive folder URL gives 400 & URL not parseable as folder ID & Paste the URL from Drive share dialog, not from browser address bar \\
+    \texttt{evaluation\_id} 400 error & \texttt{"default"} or blank passed from frontend & Ensure \texttt{evaluationId} is loaded from \texttt{useParams()} before calling batch endpoints \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\section{Closing}
+
+\begin{frame}{Quick reference: most-used files and endpoints}
+  \tiny
+  \begin{tabular}{@{}p{3.8cm}p{9.9cm}@{}}
+    \toprule
+    What you need & Where to find it \\
+    \midrule
+    \multicolumn{2}{@{}l@{}}{\textbf{Key backend files}} \\
+    Add endpoint (standard) & \texttt{backend/api/endpoints.py} + \texttt{backend/models.py} \\
+    Add endpoint (batch) & \texttt{backend/api/batch\_endpoints\_optimized.py} \\
+    Add frontend page & \texttt{frontend-new-design/src/pages/} + \texttt{Routes.jsx} + \texttt{backendService.js} \\
+    Scoring rules & \texttt{backend/services/evaluation\_service.py}: \texttt{match\_and\_score} \\
+    OCR pipeline & \texttt{backend/services/optimized\_ocr\_service.py} / \texttt{multi\_region\_ocr\_service.py} \\
+    Fuzzy matching & \texttt{backend/services/sheets\_service.py}: \texttt{\_smart\_match\_score} \\
+    Rename policy & \texttt{backend/services/drive\_rename\_service.py} \\
+    \midrule
+    \multicolumn{2}{@{}l@{}}{\textbf{Essential endpoints}} \\
+    Health check & \texttt{GET /api/status} \\
+    Load answer key (no file) & \texttt{POST /api/answer-key/set-manual} \\
+    Batch Drive grading & \texttt{POST /api/batch/process-folder-optimized} \\
+    Check batch progress & \texttt{GET /api/batch/processing-status/\{id\}} \\
+    Export to Sheets & \texttt{POST /api/export-to-sheets} \\
+    Purge stale cache & \texttt{DELETE /api/cache/purge-evaluation/\{evaluation\_id\}} \\
+    \midrule
+    \multicolumn{2}{@{}l@{}}{\textbf{Key env vars}} \\
+    Google credentials & \texttt{GOOGLE\_APPLICATION\_CREDENTIALS}, \texttt{GOOGLE\_CLOUD\_PROJECT} \\
+    Vertex region & \texttt{VERTEX\_LOCATION} (default: \texttt{us-central1}) \\
+    Cache backend & \texttt{CACHE\_BACKEND=supabase} + \texttt{SUPABASE\_DB\_URL} \\
+    RAM/throughput knob & \texttt{PIPELINE\_MAX\_CONCURRENT} (default 24) \\
+    Frontend $\rightarrow$ backend & \texttt{VITE\_BACKEND\_URL} (no trailing slash) \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}[plain]
   \centering
-  \texttt{pdflatex presentation3\_future\_development.tex}
+  \vfill
+  {\Huge Thank you}
+  \vfill
 \end{frame}
 
 \end{document}
