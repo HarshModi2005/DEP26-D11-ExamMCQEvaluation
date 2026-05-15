@@ -1367,6 +1367,43 @@ async def _process_sheets_optimized(
             print(f"  📑 PHASE-3 GROUPING & EVALUATION (Multiple Pages Mode)")
             print(f"{'═'*60}")
             
+            def _is_continuation_page(ocr_dict: dict, prev_group: dict = None) -> bool:
+                """Detect continuation pages even when OCR hallucinates a garbage entry_number.
+
+                A page is a continuation if ANY of these are true:
+                1. entry_number is empty or starts with UNREAD_
+                2. Q1 is missing from its answers AND answers start at Q5+
+                   (implies it's the second half of a split answer sheet)
+                3. entry_number is suspiciously short garbage (e.g. '858', '11')
+                   AND the page's answers don't overlap with the previous group
+                """
+                entry = str(ocr_dict.get("entry_number", "")).strip()
+                answers = ocr_dict.get("answers", {})
+                answer_keys_set = set(answers.keys())
+
+                # Case 1: obviously no entry_number
+                if not entry or entry.startswith("UNREAD_"):
+                    return True
+
+                # Case 2: no Q1 — this page doesn't start from the beginning
+                has_q1 = "1" in answer_keys_set
+                if not has_q1 and answer_keys_set:
+                    min_q = min((int(k) for k in answer_keys_set if k.isdigit()), default=1)
+                    if min_q >= 5:
+                        print(f"    📎 Detected continuation: no Q1, min_q={min_q}, entry='{entry}' (likely OCR noise)")
+                        return True
+
+                # Case 3: garbage entry_number — too short or pure small digits
+                # Real entry numbers are like "2025CSB1222" (10+ chars with letters)
+                if prev_group and len(entry) <= 4 and entry.isdigit():
+                    prev_answers = set(prev_group.get("answers", {}).keys())
+                    overlap = answer_keys_set & prev_answers
+                    if len(overlap) <= 2:
+                        print(f"    📎 Detected continuation: garbage entry='{entry}' (short digits), no overlap with prev group")
+                        return True
+
+                return False
+
             grouped_ocrs = []
             current_group = None
             
@@ -1374,29 +1411,29 @@ async def _process_sheets_optimized(
                 if ocr is None:
                     continue
                 
-                entry = str(ocr.get("entry_number", "")).strip()
-                if entry and not entry.startswith("UNREAD_"):
-                    if current_group is not None:
-                        grouped_ocrs.append(current_group)
-                    current_group = dict(ocr)
-                else:
+                if _is_continuation_page(ocr, current_group):
                     if current_group is None:
-                        ocr["entry_number"] = f"UNREAD_{os.path.splitext(ocr['file_name'])[0]}"
+                        entry = str(ocr.get("entry_number", "")).strip()
+                        if not entry or entry.startswith("UNREAD_"):
+                            ocr["entry_number"] = f"UNREAD_{os.path.splitext(ocr['file_name'])[0]}"
                         current_group = dict(ocr)
                     else:
                         print(f"    🔗 Merging {ocr['file_name']} into {current_group['file_name']}")
-                        # Merge answers — continuation page answers take priority for their question numbers
                         merged_answers = dict(current_group.get("answers", {}))
                         merged_answers.update(ocr.get("answers", {}))
                         current_group["answers"] = merged_answers
                         current_group["file_name"] += " + " + ocr["file_name"]
-                        # If the continuation page has a name/entry that the first page missed, use it
                         if not current_group.get("name") and ocr.get("name"):
                             current_group["name"] = ocr["name"]
                         if not current_group.get("entry_number") and ocr.get("entry_number"):
                             current_group["entry_number"] = ocr["entry_number"]
                         if ocr.get("_endpoint"):
                             current_group["_endpoint"] = current_group.get("_endpoint", "") + " | " + ocr["_endpoint"]
+                else:
+                    # This is a new master page (has real entry_number + Q1)
+                    if current_group is not None:
+                        grouped_ocrs.append(current_group)
+                    current_group = dict(ocr)
             
             if current_group is not None:
                 grouped_ocrs.append(current_group)

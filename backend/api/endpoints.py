@@ -119,9 +119,9 @@ async def _process_zip_archive(
 
         answer_key_files, student_sheets = drive_service.separate_files(all_files)
 
-        if extract_answer_key and (_current_answer_key is None or force_reprocess):
+        if extract_answer_key:
             if not answer_key_files:
-                if _current_answer_key is not None and not force_reprocess:
+                if _current_answer_key is not None:
                     print("ℹ️  No answer key found in ZIP — using currently loaded answer key.")
                 else:
                     raise HTTPException(
@@ -261,15 +261,32 @@ async def _process_zip_archive(
                     continue
 
                 if group_multiple_pages:
-                    entry = str(extracted.get("entry_number", "")).strip()
-                    if entry and not entry.startswith("UNREAD_"):
-                        if current_group_extracted is not None:
-                            await evaluate_and_save_group(current_group_extracted, current_group_files)
-                        current_group_extracted = dict(extracted)
-                        current_group_files = [file_name]
-                    else:
+                    # ── Smart continuation-page detection ─────────────────────
+                    def _is_continuation(ext_dict, prev_group):
+                        entry = str(ext_dict.get("entry_number", "")).strip()
+                        ans_keys = set(ext_dict.get("answers", {}).keys())
+                        # Case 1: no entry_number at all
+                        if not entry or entry.startswith("UNREAD_"):
+                            return True
+                        # Case 2: no Q1 and answers start at Q5+
+                        if "1" not in ans_keys and ans_keys:
+                            min_q = min((int(k) for k in ans_keys if k.isdigit()), default=1)
+                            if min_q >= 5:
+                                print(f"    📎 Detected continuation: no Q1, min_q={min_q}, entry='{entry}'")
+                                return True
+                        # Case 3: garbage entry (short digits), no overlap with prev
+                        if prev_group and len(entry) <= 4 and entry.isdigit():
+                            prev_ans = set(prev_group.get("answers", {}).keys())
+                            if len(ans_keys & prev_ans) <= 2:
+                                print(f"    📎 Detected continuation: garbage entry='{entry}', no overlap")
+                                return True
+                        return False
+
+                    if _is_continuation(extracted, current_group_extracted):
                         if current_group_extracted is None:
-                            extracted["entry_number"] = f"UNREAD_{os.path.splitext(file_name)[0]}"
+                            entry = str(extracted.get("entry_number", "")).strip()
+                            if not entry or entry.startswith("UNREAD_"):
+                                extracted["entry_number"] = f"UNREAD_{os.path.splitext(file_name)[0]}"
                             current_group_extracted = dict(extracted)
                             current_group_files = [file_name]
                         else:
@@ -282,6 +299,12 @@ async def _process_zip_archive(
                                 current_group_extracted["name"] = extracted["name"]
                             if not current_group_extracted.get("entry_number") and extracted.get("entry_number"):
                                 current_group_extracted["entry_number"] = extracted["entry_number"]
+                    else:
+                        # New master page
+                        if current_group_extracted is not None:
+                            await evaluate_and_save_group(current_group_extracted, current_group_files)
+                        current_group_extracted = dict(extracted)
+                        current_group_files = [file_name]
                 else:
                     # Normal processing (single page)
                     if _current_set_wise_key:
